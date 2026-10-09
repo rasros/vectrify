@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ink_models import drawing
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -140,7 +141,7 @@ def test_a_contact_cap_needs_carrier_coverage_of_the_old_mark_as_well_as_its_bod
 ):
     evidence = contact_drawing(alpha, False)
     _frontier, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     # The x8 endpoint pixel now stays filled because the butt body starts at
     # x9.5. Intersect the replaced x9 pixel instead: its old geometry extends
@@ -170,8 +171,8 @@ def test_a_contact_cap_needs_carrier_coverage_of_the_old_mark_as_well_as_its_bod
 def test_material_retention_proves_the_actual_open_or_closed_stroke(closed, cap):
     evidence = fragmented()
     _frontier, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
-    mark = next(s for s in state.partition.surfaces if s.role == "surface")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
+    mark = next(s for s in required(state.partition).surfaces if s.role == "surface")
     parent = state.document.ancestry(mark.id)[-2]
     frame = inverse_matrix(root_matrix(state.document, parent.id))
     editor = Editor(state.document, selection=Selection(whole_document=True))
@@ -199,6 +200,7 @@ def test_material_retention_proves_the_actual_open_or_closed_stroke(closed, cap)
                 "transform": "matrix(" + " ".join(str(v) for v in frame) + ")",
             },
         )
+    assert state.partition is not None
     state = replace(
         state,
         document=editor.snapshot.document,
@@ -206,12 +208,12 @@ def test_material_retention_proves_the_actual_open_or_closed_stroke(closed, cap)
             state.partition,
             surfaces=tuple(
                 replace(s, role="overlay") if s.id == mark.id else s
-                for s in state.partition.surfaces
+                for s in required(state.partition).surfaces
             ),
         ),
     )
     selected = tuple(
-        s for s in state.partition.surfaces if s.id not in (base.id, mark.id)
+        s for s in required(state.partition).surfaces if s.id not in (base.id, mark.id)
     )
     factory = CoreCells(Operators(evidence, build(evidence), options).families, options)
     assert factory._retained(
@@ -541,6 +543,7 @@ def test_source_styles_are_one_atomic_edit_with_distinct_width_paint_and_caps(
     if affine:
         matrix = (1.2, 0.15, 0.2, 1.0, 6, -10)
         editor = Editor(state.document, selection=Selection(whole_document=True))
+        assert state.partition is not None
         with editor.transaction("Reexpress source frames") as tx:
             for surface in state.partition.surfaces:
                 tx.replace_geometry(
@@ -571,11 +574,15 @@ def test_source_styles_are_one_atomic_edit_with_distinct_width_paint_and_caps(
         evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
     )
     edit = next(factory.proposals(state, Work.start(20)))
+    assert edit.details is not None
     assert edit.details["source_strokes"]["model"] == "source-stroke-bundle"
     assert edit.details["source_strokes"]["runs"] == 4
     assert len(edit.details["source_strokes"]["groups"]) == 2
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
     ops.validate_partition(edit.partition, Work.start(10))
+    assert edit.component is not None
     assert edit.component.validate(
         state.document,
         edit.document,
@@ -599,7 +606,9 @@ def test_source_styles_are_one_atomic_edit_with_distinct_width_paint_and_caps(
         assert len(chains) == 2
         assert all(not s.closed for s in chains)
         assert stroke.id in edit.ids
-        surface = next(s for s in edit.partition.surfaces if s.id == stroke.id)
+        surface = next(
+            s for s in required(edit.partition).surfaces if s.id == stroke.id
+        )
         assert surface.role == "overlay"
         assert surface.members
     if shared_owner:
@@ -636,6 +645,7 @@ def test_material_fitting_retains_all_bundled_styles(layout, monkeypatch):
         ).proposals(initial, Work.start(20))
     )
     svg = export_svg(ink.document)
+    assert ink.details is not None
     state = State(
         ink.document,
         svg,
@@ -661,6 +671,7 @@ def test_material_fitting_retains_all_bundled_styles(layout, monkeypatch):
     edits = list(material(state, Work.start(20)))
     assert edits, material.diagnostics
     for edit in edits:
+        assert edit.partition is not None
         ops.validate_partition(edit.partition, Work.start(10))
         for stroke in strokes:
             assert edit.document.element(stroke.id) == stroke
@@ -733,10 +744,14 @@ def test_stroke_cut_preserves_connected_unrepresented_ink_with_native_ownership(
     assert edits, (factory.diagnostics, factory.cutter.diagnostics)
     original = render(state.svg, evidence.source_size)
     for edit in edits:
+        assert edit.details is not None
         assert edit.details["source_strokes"]["retained_ink_pixels"] == 15
         assert edit.details["source_strokes"]["pixels"] == 157
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
         ops.validate_partition(edit.partition, Work.start(10))
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -756,7 +771,7 @@ def test_stroke_cut_preserves_connected_unrepresented_ink_with_native_ownership(
         branch = ops.branch(edit.partition, Work.start(10))
         for label in np.unique(branch.graph.labels[30, 50:65]):
             oid = edit.partition.owners[int(label)]
-            surface = next(s for s in edit.partition.surfaces if s.id == oid)
+            surface = next(s for s in required(edit.partition).surfaces if s.id == oid)
             assert surface.role == "surface"
             style = path_style(edit.document, edit.document.element(oid))
             assert style["fill"] == "#202020"

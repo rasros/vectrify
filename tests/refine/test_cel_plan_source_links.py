@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import curve_path
@@ -235,14 +236,16 @@ def test_joint_native_link_edit_keeps_alpha_ownership_and_reload(alpha):
         for e in edits
         if any(
             m["junction_links"]
-            for m in e.details["core_material_cells"]["stroke_models"]
+            for m in required(e.details)["core_material_cells"]["stroke_models"]
         )
     ]
     assert linked, factory.diagnostics
     for edit in linked:
+        assert edit.partition is not None
         Operators(evidence, graph, options).validate_partition(
             edit.partition, Work.start(10)
         )
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -259,6 +262,7 @@ def test_joint_native_link_edit_keeps_alpha_ownership_and_reload(alpha):
         np.testing.assert_array_equal(
             actual[..., 3], render(state.svg, evidence.source_size)[..., 3]
         )
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
         local = LocalPolicy(frontier.policy).update(
             state.snapshot, svg, edit.bounds, full.structure

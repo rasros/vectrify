@@ -127,4 +127,5 @@ def test_stroke_underlays_preserve_transformed_gradient_paint_coordinates(matrix
     )
     assert local.canvas.matches(actual)
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+    assert edit.partition is not None
     assert edit.partition.follows(state.partition)

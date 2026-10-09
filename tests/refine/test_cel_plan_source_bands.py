@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_source_absence import observed_gap
 from vectrify.document import export_svg, import_svg, load_project, save_project
 from vectrify.document.join import transformed_geometry
@@ -76,6 +77,8 @@ def test_complete_seed_uses_copied_source_anchors_and_maintains_rotated_ports(
     assert seed is not None
     assert len(seed.band.geometry.subpaths[0].nodes) == 2
     observed = guard.source_breaks(guard.original_profiles()[0])
+    assert observed is not None
+    assert observed.anchors is not None
     assert seed.band.geometry.subpaths[0].nodes[0].endpoint == tuple(
         observed.anchors[0]
     )
@@ -90,6 +93,7 @@ def test_complete_seed_uses_copied_source_anchors_and_maintains_rotated_ports(
     repeated = SourceBands(evidence, guard).seed(
         document, "ink", main, "nonzero", Work.start(10)
     )
+    assert repeated is not None
     assert repeated.band.geometry == seed.band.geometry
 
 
@@ -132,6 +136,7 @@ def test_atomic_fit_preserves_materials_ports_explicit_width_and_native_crop(
         document, "ink", main, "nonzero", work, width=3 if fixed else 0
     )
     frame = root_matrix(document, "ink")
+    assert seed is not None
     model = replace(
         seed.band,
         geometry=transformed_geometry(seed.band.geometry, inverse_matrix(frame)),
@@ -177,12 +182,14 @@ def test_fitting_crop_retains_original_qualification_gaps_and_observation_author
     evidence, profiles = observed_gap()
     guard = SourceLineGuard(evidence.rgba, profiles)
     local = guard.fitting_crop((0, 0, 96, 96), work=Work.start(10))
+    assert local is not None
     before = local.observe(evidence.rgba)
     assert before.profiles == guard.assess(evidence.rgba)
     actual = evidence.rgba.copy()
     actual[27:30, 42:55, :3] = 0.02
     assert local.penalty(before, actual) > 0
     other = guard.fitting_crop((0, 0, 96, 96))
+    assert other is not None
     with pytest.raises(ValueError, match="another crop"):
         other.penalty(before, evidence.rgba)
     with pytest.raises(ValueError, match="integer native crop"):
@@ -195,6 +202,7 @@ def test_core_removes_the_replacement_stroke_and_respects_parent_opacity():
     evidence, guard, document, main, marks = fixture(alpha=0.6)
     work = Work.start(10)
     seed = SourceBands(evidence, guard).seed(document, "ink", main, "nonzero", work)
+    assert seed is not None
     assembled = BandPlans.document(
         document,
         "ink",
@@ -214,6 +222,7 @@ def test_nonzero_native_crop_preserves_fractional_frame_and_viewport():
     seed = SourceBands(evidence, guard).seed(
         document, "ink", main, "nonzero", work, width=3
     )
+    assert seed is not None
     assert seed.bounds[0] > 0
     assert seed.bounds[1] > 0
     frame = root_matrix(document, "ink")
@@ -229,13 +238,15 @@ def test_nonzero_native_crop_preserves_fractional_frame_and_viewport():
         marks,
         {"fill": seed.paint, "fill-opacity": "1"},
     )
-    candidate, details = BandFit(evidence, guard).fit(
-        document, assembled, "ink", seed, work, width_fixed=True
+    candidate, details = required(
+        BandFit(evidence, guard).fit(
+            document, assembled, "ink", seed, work, width_fixed=True
+        )
     )
     assert details["evaluations"] == 1
     actual = render(export_svg(candidate), evidence.source_size)
     context = painted_context(candidate, seed.bounds, work, keep=("ink",))
-    assert float(context.get("width")) == 240
+    assert float(required(context.get("width"))) == 240
     np.testing.assert_array_equal(
         _native_raster(context, evidence.source_size).crop(Box(*seed.bounds)),
         actual[seed.bounds[1] : seed.bounds[3], seed.bounds[0] : seed.bounds[2]],
@@ -246,6 +257,7 @@ def test_stop_inside_optimizer_discards_fit_and_retains_document(monkeypatch):
     evidence, guard, document, main, marks = fixture()
     work = Work.start(20)
     seed = SourceBands(evidence, guard).seed(document, "ink", main, "nonzero", work)
+    assert seed is not None
     assembled = BandPlans.document(
         document,
         "ink",
@@ -272,6 +284,7 @@ def test_fit_cache_reuses_only_identical_native_context_and_rechecks_complete_re
     evidence, guard, document, main, marks = fixture(alpha=0.6)
     work = Work.start(20)
     seed = SourceBands(evidence, guard).seed(document, "ink", main, "nonzero", work)
+    assert seed is not None
     assembled = BandPlans.document(
         document,
         "ink",
@@ -281,8 +294,8 @@ def test_fit_cache_reuses_only_identical_native_context_and_rechecks_complete_re
         {"fill": seed.paint, "fill-opacity": "1"},
     )
     fitter = BandFit(evidence, guard)
-    first, original = fitter.fit(document, assembled, "ink", seed, work)
-    repeated, reused = fitter.fit(document, assembled, "ink", seed, work)
+    first, original = required(fitter.fit(document, assembled, "ink", seed, work))
+    repeated, reused = required(fitter.fit(document, assembled, "ink", seed, work))
     assert original["evaluations"] > 0
     assert reused["evaluations"] == 0
     assert reused["reused_fit"]
@@ -295,7 +308,7 @@ def test_fit_cache_reuses_only_identical_native_context_and_rechecks_complete_re
         with editor.transaction("Different fit context") as tx:
             tx.set_fill("bg", "#ae8766")
         changed.append(editor.snapshot.document)
-    result = fitter.fit(*changed, "ink", seed, work)
+    result = fitter.fit(changed[0], changed[1], "ink", seed, work)
     assert result is not None
     assert not result[1]["reused_fit"]
     assert result[1]["evaluations"] > 0

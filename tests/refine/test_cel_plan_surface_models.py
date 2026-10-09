@@ -6,6 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.document import (
@@ -53,8 +54,11 @@ def test_broad_material_refits_all_shades_preserving_alpha_holes_and_full_score(
     assert whole
     edit = whole[0]
     assert edit.parameters[0] == "gradient"
+    assert edit.details is not None
     assert edit.details["material_surface"]["removed_paths"] == 7
+    assert edit.partition is not None
     edit.partition.validate(edit.document)
+    assert state.partition is not None
     assert edit.partition.owners.keys() == state.partition.owners.keys()
     actual = render(export_svg(edit.document), evidence.source_size)
     before = render(state.svg, evidence.source_size)
@@ -75,8 +79,10 @@ def test_broad_material_refits_all_shades_preserving_alpha_holes_and_full_score(
         raster=updated.canvas,
     )
     saved, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(
-        edit.details.get("planning_surfaces") or edit.partition.metadata()
+    required(
+        Partition.from_metadata(
+            edit.details.get("planning_surfaces") or edit.partition.metadata()
+        )
     ).validate(saved)
     np.testing.assert_array_equal(
         render(export_svg(saved), evidence.source_size), actual
@@ -94,9 +100,11 @@ def test_one_native_outlier_retains_its_entire_owner():
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
     edits = list(factory(state, Work.start(10)))
     assert edits
+    assert state.partition is not None
     protected = state.partition.owners[2]
     for edit in edits:
         assert protected not in edit.ids
+        assert edit.partition is not None
         assert edit.partition.owners[2] == protected
         assert edit.document.geometry_for(protected) == state.document.geometry_for(
             protected
@@ -120,6 +128,7 @@ def test_stable_shade_step_remains_two_distinct_materials():
     edits = list(factory(state, Work.start(10)))
     assert edits
     for edit in edits:
+        assert edit.details is not None
         members = set(edit.details["material_surface"]["source_members"])
         assert members <= {1, 2, 3, 4} or members <= {5, 6, 7, 8}
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
@@ -180,6 +189,7 @@ def test_distinct_ink_owner_is_retained_between_coherent_gradient_parts():
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
     edits = list(factory(state, Work.start(10)))
     assert any(len(p.ids) == 8 for p in edits)
+    assert state.partition is not None
     oid = state.partition.owners[9]
     for edit in edits:
         assert oid not in edit.ids
@@ -198,7 +208,7 @@ def test_distinct_ink_owner_is_retained_between_coherent_gradient_parts():
 def test_broad_rgba_material_requires_actual_core_geometry():
     evidence = ramp(128)
     _frontier, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Remove actual alpha core") as transaction:
         transaction.delete_objects(frozenset({base.id}))
@@ -206,7 +216,7 @@ def test_broad_rgba_material_requires_actual_core_geometry():
         state,
         document=editor.snapshot.document,
         partition=Partition(
-            tuple(s for s in state.partition.surfaces if s.id != base.id)
+            tuple(s for s in required(state.partition).surfaces if s.id != base.id)
         ),
     )
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
@@ -223,6 +233,7 @@ def test_independent_current_frames_and_scaled_evidence_keep_native_agreement():
     )
     frontier, state, options = prepared(evidence, layers=True)
     editor = Editor(state.document, selection=Selection(whole_document=True))
+    assert state.partition is not None
     for surface in state.partition.surfaces:
         if surface.role != "surface":
             continue
@@ -263,6 +274,7 @@ def test_independent_current_frames_and_scaled_evidence_keep_native_agreement():
 def test_order_proof_uses_only_the_moved_fragment_prefix(shift, safe):
     evidence = ramp()
     _frontier, state, options = prepared(evidence)
+    assert state.partition is not None
     oid = state.partition.owners[4]
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Intervening painted overlap") as transaction:
@@ -276,7 +288,7 @@ def test_order_proof_uses_only_the_moved_fragment_prefix(shift, safe):
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
     # Owner four paints over the earlier fragment; moving that fragment above
     # it is a real overlap, even though the immutable source labels are disjoint.
-    ids = tuple(state.partition.owners[i] for i in (1, 2, 3, 5, 6, 7, 8))
+    ids = tuple(required(state.partition).owners[i] for i in (1, 2, 3, 5, 6, 7, 8))
     assert factory._order_safe(changed, ids, Work.start(10)) is safe
     assert factory.diagnostics["order_proofs"] > 0
 
@@ -286,6 +298,7 @@ def test_many_intervening_siblings_share_one_exact_prefix_proof(overlap, monkeyp
     evidence = ramp()
     _frontier, state, options = prepared(evidence)
     if overlap:
+        assert state.partition is not None
         oid = state.partition.owners[4]
         editor = Editor(state.document, selection=Selection(whole_document=True))
         with editor.transaction(
@@ -300,7 +313,7 @@ def test_many_intervening_siblings_share_one_exact_prefix_proof(overlap, monkeyp
         state = replace(state, document=editor.snapshot.document)
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
     monkeypatch.setattr(surface_models, "MAX_ORDER_PROOFS", 1)
-    ids = tuple(state.partition.owners[i] for i in (1, 8))
+    ids = tuple(required(state.partition).owners[i] for i in (1, 8))
     assert factory._order_safe(state, ids, Work.start(10)) is not overlap
     assert factory.diagnostics["order_proofs"] == 1
     assert factory.diagnostics["order_limits"] == 0
@@ -331,6 +344,7 @@ def test_complete_streamed_screen_and_stop_do_not_publish_partial_ownership(
 
     monkeypatch.setattr(surface_models, "prediction", stop)
     assert list(factory(state, work)) == []
+    assert frontier.baseline is not None
     assert state.svg == frontier.baseline.svg
     assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
 
@@ -342,4 +356,5 @@ def test_bounded_analysis_does_not_replace_the_safe_state(monkeypatch):
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
     assert list(factory(state, Work.start(10))) == []
     assert factory.diagnostics["bounded_groups"] > 0
+    assert frontier.baseline is not None
     assert frontier.baseline.svg == state.svg

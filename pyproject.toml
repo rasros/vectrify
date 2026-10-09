@@ -98,6 +98,10 @@ pythonpath = ["."]
 
 [tool.pyrefly]
 project-includes = ["src/**/*.py", "tests/**/*.py"]
+# Check this checkout even when the interpreter comes from another worktree.
+# Editable-install discovery can otherwise exclude the whole local project.
+disable-project-excludes-heuristics = true
+project-excludes = ["**/node_modules/**", "**/__pycache__/**", "**/.venv/**"]
 # scripts/ is not an installed package, but the round-trip tests import the
 # analysis scripts directly to check they still read what storage writes.
 search-path = ["src", "scripts", "."]

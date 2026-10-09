@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_core_cells import material
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_piecewise_surfaces import marked_step
@@ -40,12 +41,17 @@ def test_final_three_plane_prefix_is_offered_with_exact_coverage_and_complete_ow
     exact = [p for p in edits if p.parameters[0] == 3]
     assert exact, factory.diagnostics
     edit = exact[0]
+    assert edit.details is not None
     assert edit.details["core_material_cells"]["model_stage"] == "source-facet-planes"
     assert edit.details["core_material_cells"]["source_squared_error"] == 0
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
+    assert edit.partition.atoms is not None
     assert edit.partition.atoms.cuts
     ops = Operators(evidence, build(evidence), options)
     ops.validate_partition(edit.partition, Work.start(10))
+    assert edit.component is not None
     assert edit.component.validate(
         state.document,
         edit.document,
@@ -71,7 +77,7 @@ def test_final_three_plane_prefix_is_offered_with_exact_coverage_and_complete_ow
     assert local.canvas.matches(actual)
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
     document, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(document)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(document)
     np.testing.assert_array_equal(
         render(export_svg(document), evidence.source_size), actual
     )
@@ -81,11 +87,13 @@ def test_independently_held_mark_keeps_geometry_paint_and_source_owner_above_pla
     evidence = marked_step(128)
     evidence = replace(evidence, opacity=evidence.rgba[..., 3])
     frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     mark = state.partition.owners[9]
     state = replace(state, details={**state.details, "paint_constraints": [mark]})
     factory, edits = planes(evidence, state, options)
     assert edits, factory.diagnostics
     for p in edits:
+        assert p.partition is not None
         assert p.partition.owners[9] == mark
         assert p.document.element(mark) == state.document.element(mark)
         assert p.document.geometry_for(mark) == state.document.geometry_for(mark)
@@ -99,6 +107,7 @@ def test_cancelled_plan_does_not_publish_a_material_prefix():
     work.stop.set()
     _, edits = planes(evidence, state, options, work)
     assert edits == []
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 

@@ -7,6 +7,7 @@ import numpy as np
 import pathops
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ink_models import drawing
 from vectrify.document import export_svg, load_project, save_project
@@ -48,7 +49,7 @@ def test_shared_scheduler_preserves_each_standalone_pool_and_native_source_contr
     factory = JointCells(Families(evidence, graph, options), options, minimum_paths=3)
     proposals = list(factory(state, Work.start(15)))
     assert proposals
-    modes = [p.details["joint_cell_search"]["ink_fit"] for p in proposals]
+    modes = [required(p.details)["joint_cell_search"]["ink_fit"] for p in proposals]
     assert modes[:2] == ["source-intervals", "source-widths"]
     validator = Operators(evidence, graph, options)
     for mode in ("source-intervals", "source-widths"):
@@ -67,7 +68,9 @@ def test_shared_scheduler_preserves_each_standalone_pool_and_native_source_contr
         )
         original = list(baseline(state, Work.start(15)))
         actual = [
-            p for p in proposals if p.details["joint_cell_search"]["ink_fit"] == mode
+            p
+            for p in proposals
+            if required(p.details)["joint_cell_search"]["ink_fit"] == mode
         ]
         assert len(original) == len(actual)
         for a, b in zip(original, actual, strict=True):
@@ -78,12 +81,14 @@ def test_shared_scheduler_preserves_each_standalone_pool_and_native_source_contr
             assert svg_metrics(a_svg) == svg_metrics(b_svg)
             assert a.partition == b.partition
             assert b.parameters[-1] == ("ink-fit", mode)
+            assert b.partition is not None
             validator.validate_partition(b.partition, Work.start(10))
             assert frontier.policy.evaluate(b_svg).valid
             document, _ = load_project(save_project(b.document))
             assert export_svg(document) == b_svg
     assert factory.diagnostics["extractions"] == 1
     assert factory.diagnostics["reuses"] == 1
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -125,15 +130,17 @@ def test_explicit_component_prefix_offers_siblings_and_releases_discovery(exit_a
             found.append(next(cursor))
     finally:
         cursor.close()
-    assert [p.details["joint_cell_search"]["ink_fit"] for p in found] == [
+    assert [required(p.details)["joint_cell_search"]["ink_fit"] for p in found] == [
         "source-intervals",
         "source-widths",
     ][:exit_after]
     joint = operators.families._joint_models
+    assert joint is not None
     assert joint.diagnostics["extractions"] == 1
     assert joint.diagnostics["reuses"] == exit_after - 1
     assert operators.schedule_diagnostics["joint_prefix_parents"] == 1
     assert operators.schedule_diagnostics["reserved_proposals"] == 0
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -249,6 +256,7 @@ def test_early_exit_releases_shared_discovery_and_original_state(reason, monkeyp
     work = Work.start(10)
     cursor = iter(factory(state, work))
     first = next(cursor)
+    assert first.details is not None
     assert first.details["joint_cell_search"]["ink_fit"] == "source-intervals"
     assert caches[0]._value is not None
     if reason == "cancel":
@@ -258,6 +266,7 @@ def test_early_exit_releases_shared_discovery_and_original_state(reason, monkeyp
     else:
         assert list(cursor) == []
     assert caches[0]._value is None
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert factory.diagnostics["extractions"] == 1
     assert factory.diagnostics["bounded"] == (reason == "limit")
@@ -274,6 +283,7 @@ def test_only_high_gives_a_fragmented_seed_the_first_joint_opportunity(quality, 
         proposal = next(cursor)
         if quality == "high" and block == 4:
             assert proposal.operator == "joint-core-cells"
+            assert proposal.details is not None
             assert (
                 proposal.details["joint_cell_search"]["ink_fit"] == "source-intervals"
             )
@@ -282,6 +292,7 @@ def test_only_high_gives_a_fragmented_seed_the_first_joint_opportunity(quality, 
     finally:
         cursor.close()
     if quality == "high":
+        assert factory._joint_models is not None
         assert factory._joint_models.diagnostics["proposals"] == (block == 4)
     else:
         assert factory._joint_models is None

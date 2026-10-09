@@ -52,6 +52,7 @@ def test_recovery_uses_own_gap_and_qualified_samples_without_changing_physical_p
     for witness in witnesses:
         profile = guard.original_profiles()[witness["profile"]]
         observed = guard.source_breaks(profile)
+        assert observed is not None
         assert observed.qualified[witness["to_sample"]]
         assert not observed.gaps[
             min(witness["from_sample"], witness["to_sample"]) : max(

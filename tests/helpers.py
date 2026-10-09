@@ -1,6 +1,7 @@
 """Shared test helpers."""
 
 import io
+from typing import TypeVar
 
 import cairosvg
 from PIL import Image
@@ -24,3 +25,12 @@ def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> byte
     )
     assert raw is not None
     return png_bytes(on_white(Image.open(io.BytesIO(raw))))
+
+
+_T = TypeVar("_T")
+
+
+def required(value: _T | None) -> _T:
+    """Assert an optional fixture result exists before testing its contents."""
+    assert value is not None
+    return value

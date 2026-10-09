@@ -6,6 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.document import (
@@ -75,17 +76,19 @@ def marked_step(alpha=255):
 def test_two_shade_surfaces_continue_beneath_one_unchanged_crossing_mark(alpha):
     evidence = marked_step(alpha)
     frontier, state, options = prepared(evidence, layers=alpha != 255)
+    assert state.partition is not None
     marker = state.partition.owners[9]
     factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
     edits = list(factory(state, Work.start(10)))
     continued = [p for p in edits if p.parameters[0].startswith("continued-")]
     assert continued
     edit = continued[0]
+    assert edit.partition is not None
     assert edit.partition.follows(state.partition)
     assert edit.partition.owners[9] == marker
     assert edit.document.element(marker) == state.document.element(marker)
     assert edit.document.geometry_for(marker) == state.document.geometry_for(marker)
-    shades = [s for s in edit.partition.surfaces if s.covered]
+    shades = [s for s in required(edit.partition).surfaces if s.covered]
     assert len(shades) == 2
     assert all(9 in s.covered for s in shades)
     # A whole-family base additionally supports the other shade's primary
@@ -117,7 +120,7 @@ def test_two_shade_surfaces_continue_beneath_one_unchanged_crossing_mark(alpha):
         edit.partition, Work.start(10)
     )
     saved, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(saved)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(saved)
 
 
 def test_fragmented_source_atoms_do_not_limit_compact_whole_owner_family():
@@ -132,11 +135,19 @@ def test_fragmented_source_atoms_do_not_limit_compact_whole_owner_family():
     state = replace(state, partition=Partition.from_metadata(metadata))
     factory = PiecewiseSurfaces(Families(fine, build(fine), options), options)
     edits = list(factory(state, Work.start(10)))
-    whole = [p for p in edits if p.details["piecewise_surface"]["removed_paths"] == 6]
+    whole = [
+        p
+        for p in edits
+        if required(p.details)["piecewise_surface"]["removed_paths"] == 6
+    ]
     assert whole
     edit = whole[0]
+    assert edit.details is not None
     assert len(edit.details["piecewise_surface"]["source_members"]) == 960
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
+    assert edit.partition.atoms is not None
     assert len(edit.partition.atoms.cuts) == 24
     assert frontier.policy.evaluate(export_svg(edit.document)).valid
     Operators(fine, build(fine), options).validate_partition(
@@ -165,6 +176,7 @@ def test_continuation_cannot_hide_partial_ownership_transparency_or_a_true_hole(
         labels[24:40, 32:56] = 0
         rgba[24:40, 32:56] = 0
         empty[24:40, 32:56] = True
+        assert evidence.opacity is not None
         opacity = evidence.opacity.copy()
         opacity[24:40, 32:56] = 0
         evidence = replace(
@@ -172,6 +184,7 @@ def test_continuation_cannot_hide_partial_ownership_transparency_or_a_true_hole(
         )
     _, state, options = prepared(evidence, layers=True)
     if kind != "alpha-hole":
+        assert state.partition is not None
         marker = state.partition.owners[9]
         editor = Editor(state.document, selection=Selection(whole_document=True))
         if kind == "transparent":
@@ -205,8 +218,8 @@ def test_continuation_cannot_hide_partial_ownership_transparency_or_a_true_hole(
         # The bounded seed prefix can exclude this mismatched owner earlier.
         # Exercise the enclosure proof independently on the surviving family.
         members = tuple(range(2, 9))
-        box, own, _, _ = factory._samples(members, Work.start(10))
-        ids = tuple(sorted({state.partition.owners[i] for i in members}))
+        box, own, _, _ = required(factory._samples(members, Work.start(10)))
+        ids = tuple(sorted({required(state.partition).owners[i] for i in members}))
         rejected = {}
         assert (
             enclosed(
@@ -230,8 +243,9 @@ def test_continuation_cannot_hide_partial_ownership_transparency_or_a_true_hole(
 def test_continuation_requires_actual_core_under_the_mark_as_well_as_material():
     evidence = marked_step(128)
     _, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     marker = state.partition.owners[9]
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     # Its metadata still lists every member. Its actual geometry lacks the mark.
     inner = transformed_geometry(
         state.document.geometry_for(marker), (0.25, 0, 0, 0.25, 33, 24)
@@ -265,6 +279,7 @@ def test_continuation_requires_actual_core_under_the_mark_as_well_as_material():
 def test_continuing_both_sides_cannot_reorder_a_mark_across_unrelated_overlap(overlap):
     evidence = marked_step(128)
     _, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     marker = state.partition.owners[9]
     parent = state.document.ancestry(marker)[-2]
     editor = Editor(state.document, selection=Selection(whole_document=True))
@@ -325,8 +340,12 @@ def test_joint_full_family_two_paints_exact_source_split_native_local_reload(
     whole = [p for p in edits if len(p.ids) == 9]
     assert whole
     edit = whole[0]
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
+    assert edit.partition.atoms is not None
     assert len(edit.partition.atoms.cuts) == 1
+    assert edit.details is not None
     assert edit.details["piecewise_surface"]["removed_paths"] == 6
     Operators(evidence, graph, options).validate_partition(
         edit.partition, Work.start(10)
@@ -335,7 +354,9 @@ def test_joint_full_family_two_paints_exact_source_split_native_local_reload(
     full = frontier.policy.evaluate(svg)
     assert full.valid
     assert full.cost < state.snapshot.evaluation.cost
-    assert len([s for s in edit.partition.surfaces if s.role == "surface"]) == 2
+    assert (
+        len([s for s in required(edit.partition).surfaces if s.role == "surface"]) == 2
+    )
     actual = render(svg, evidence.source_size)
     np.testing.assert_array_equal(
         actual[..., 3], render(state.svg, evidence.source_size)[..., 3]
@@ -346,12 +367,14 @@ def test_joint_full_family_two_paints_exact_source_split_native_local_reload(
     assert local.canvas.matches(actual)
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
     saved, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(saved)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(saved)
     np.testing.assert_array_equal(
         render(export_svg(saved), evidence.source_size), actual
     )
     assert state.partition.atoms is None
-    assert len([s for s in state.partition.surfaces if s.role == "surface"]) == 8
+    assert (
+        len([s for s in required(state.partition).surfaces if s.role == "surface"]) == 8
+    )
 
 
 def test_native_search_publishes_compound_edit_and_child_graph_composes():
@@ -367,6 +390,8 @@ def test_native_search_publishes_compound_edit_and_child_graph_composes():
     )
     partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
     branch = factory.branch(partition, Work.start(10))
+    assert partition is not None
+    assert partition.atoms is not None
     assert branch.families.graph.source_atoms == partition.atoms.key
     assert branch.replacements.graph is branch.overlays.graph is branch.families.graph
 
@@ -376,6 +401,7 @@ def test_diagonal_line_and_independent_current_frames_are_preserved(alpha):
     evidence = step(alpha, diagonal=True)
     frontier, state, options = prepared(evidence, layers=alpha != 255)
     editor = Editor(state.document, selection=Selection(whole_document=True))
+    assert state.partition is not None
     for surface in state.partition.surfaces:
         if surface.role != "surface":
             continue
@@ -410,9 +436,11 @@ def test_complete_owner_outlier_remains_editable_and_unchanged():
     factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
     edits = list(factory(state, Work.start(10)))
     assert edits
+    assert state.partition is not None
     oid = state.partition.owners[2]
     for edit in edits:
         assert oid not in edit.ids
+        assert edit.partition is not None
         assert edit.partition.owners[2] == oid
         assert edit.document.geometry_for(oid) == state.document.geometry_for(oid)
 
@@ -422,9 +450,12 @@ def test_intervening_geometry_requires_order_proof(shift):
     evidence = step()
     _, state, options = prepared(evidence)
     editor = Editor(state.document, selection=Selection(whole_document=True))
+    assert state.partition is not None
     parent = state.document.ancestry(state.partition.owners[4])[-2]
     index = next(
-        i for i, e in enumerate(parent.children) if e.id == state.partition.owners[4]
+        i
+        for i, e in enumerate(parent.children)
+        if e.id == required(state.partition).owners[4]
     )
     x = 40 + shift
     shape = Geometry(
@@ -464,7 +495,7 @@ def test_intervening_geometry_requires_order_proof(shift):
 def test_actual_rgba_core_and_limits_are_required(monkeypatch):
     evidence = step(128)
     _, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Remove core") as tx:
         tx.delete_objects(frozenset((base.id,)))
@@ -472,7 +503,7 @@ def test_actual_rgba_core_and_limits_are_required(monkeypatch):
         state,
         document=editor.snapshot.document,
         partition=Partition(
-            tuple(s for s in state.partition.surfaces if s.id != base.id)
+            tuple(s for s in required(state.partition).surfaces if s.id != base.id)
         ),
     )
     factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
@@ -505,7 +536,7 @@ def test_compact_whole_contour_removes_jagged_fragments_with_actual_coverage():
         ),
     )
     editor = Editor(state.document, selection=Selection(whole_document=True))
-    ids = tuple(s.id for s in state.partition.surfaces if s.role == "surface")
+    ids = tuple(s.id for s in required(state.partition).surfaces if s.role == "surface")
     for oid in ids:
         path = pathops.op(
             curve_path(state.document.geometry_for(oid)),
@@ -531,7 +562,7 @@ def test_compact_whole_contour_removes_jagged_fragments_with_actual_coverage():
     assert full.structure["nodes"] < initial.structure["nodes"] / 2
     endpoints = {
         n.endpoint
-        for s in edit.partition.surfaces
+        for s in required(edit.partition).surfaces
         if s.role == "surface"
         for path in edit.document.geometry_for(s.id).subpaths
         for n in path.nodes
@@ -547,7 +578,7 @@ def test_compact_whole_contour_removes_jagged_fragments_with_actual_coverage():
         [state.document.geometry_for(oid) for oid in ids],
         [{"fill-rule": "nonzero"} for _ in ids],
     )
-    survivors = [s.id for s in edit.partition.surfaces if s.role == "surface"]
+    survivors = [s.id for s in required(edit.partition).surfaces if s.role == "surface"]
     for oid in survivors:
         outside = pathops.op(
             curve_path(edit.document.geometry_for(oid)),
@@ -571,6 +602,7 @@ def test_stop_during_complete_screen_does_not_publish_partial_family(monkeypatch
     monkeypatch.setattr(piecewise_surfaces, "prediction_pair", stop)
     factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
     assert list(factory(state, work)) == []
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -670,7 +702,7 @@ def test_supported_whole_boundary_removes_union_dents_preserving_core_holes(
     new = union_geometry(
         [
             edit.document.geometry_for(s.id)
-            for s in edit.partition.surfaces
+            for s in required(edit.partition).surfaces
             if s.role == "surface"
         ],
         [{"fill-rule": "nonzero"}] * 2,
@@ -682,6 +714,7 @@ def test_supported_whole_boundary_removes_union_dents_preserving_core_holes(
         > 10
     )
     assert factory.diagnostics["supported_boundaries"] > 0
+    assert edit.partition is not None
     Operators(evidence, build(evidence), options).validate_partition(
         edit.partition, Work.start(10)
     )
@@ -760,6 +793,7 @@ def test_supported_contour_can_continue_below_a_higher_opaque_boundary_mark(
         evidence, labels=labels, target=target, smooth=target, coarse=target, rgba=rgba
     )
     frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     marker = state.partition.owners[9]
     # Keep its ordinary path and make it an explicitly protected opaque mark.
     editor = Editor(state.document, selection=Selection(whole_document=True))
@@ -790,7 +824,8 @@ def test_supported_contour_can_continue_below_a_higher_opaque_boundary_mark(
     edit = models[0]
     assert edit.document.geometry_for(marker) == state.document.geometry_for(marker)
     assert edit.document.element(marker) == state.document.element(marker)
+    assert edit.partition is not None
     assert edit.partition.owners[9] == marker
-    assert any(9 in s.covered for s in edit.partition.surfaces)
+    assert any(9 in s.covered for s in required(edit.partition).surfaces)
     assert frontier.policy.evaluate(export_svg(edit.document)).valid
     assert factory.diagnostics["supported_boundary_upper_proofs"] > 0

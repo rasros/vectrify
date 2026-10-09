@@ -6,6 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ink_contours import ring
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -15,12 +16,12 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan import source_ridges
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.ink_replace import InkReplacement
-from vectrify.refine.cel_plan.local import LocalPolicy
+from vectrify.refine.cel_plan.local import Box, LocalPolicy
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
-from vectrify.refine.cel_plan.search import search
+from vectrify.refine.cel_plan.search import Proposal, search
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
 
 
@@ -40,6 +41,7 @@ def fragmented(*, alpha=128, mixed=True, gap=False, hole=False):
         labels[4:9, 83:88] = 2
         target[4:9, 83:88] = (12, 65, 5)
         drawn[4:9, 83:88] = True
+    assert evidence.opacity is not None
     rgba = np.concatenate((target / 255, evidence.opacity[..., None]), axis=-1)
     return replace(
         evidence,
@@ -62,7 +64,7 @@ def test_complete_source_ridge_crosses_palette_and_keeps_mixed_owner_mark(alpha)
     assert not [
         p
         for p in legacy.proposals(state, Work.start(10))
-        if p.details["ink_replacement"].get("boundary_model") == "source-rim"
+        if required(p.details)["ink_replacement"].get("boundary_model") == "source-rim"
     ]
     factory = SourceRidges(evidence, graph, options)
     edits = list(factory.proposals(state, Work.start(20)))
@@ -74,22 +76,26 @@ def test_complete_source_ridge_crosses_palette_and_keeps_mixed_owner_mark(alpha)
     edit = min(
         edits, key=lambda p: frontier.policy.evaluate(export_svg(p.document)).cost
     )
+    assert edit.details is not None
     assert edit.details["source_ridge"]["cuts"] >= 1
     assert edit.details["ink_replacement"]["boundary_models"] == ("ellipse", "ellipse")
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
     Operators(evidence, graph, options).validate_partition(
         edit.partition, Work.start(10)
     )
+    assert edit.partition.atoms is not None
     assert set(edit.partition.owners) == set(
         edit.partition.atoms.descendants(state.partition.owners)
     )
     # Retired atoms cannot be reused as proof of majority ownership.
     labels = edit.partition.atoms.labels(graph, Work.start(10))
     mark_atoms = set(np.unique(labels[4:9, 83:88]))
-    assert {edit.partition.owners[i] for i in mark_atoms} == {"cel-fill-2"}
+    assert {required(edit.partition).owners[i] for i in mark_atoms} == {"cel-fill-2"}
     assert all(
         not set(s.members).intersection(mark_atoms)
-        for s in edit.partition.surfaces
+        for s in required(edit.partition).surfaces
         if s.role == "overlay"
     )
     actual = render(export_svg(edit.document), evidence.source_size)
@@ -116,7 +122,7 @@ def test_complete_source_ridge_crosses_palette_and_keeps_mixed_owner_mark(alpha)
     np.testing.assert_array_equal(
         render(export_svg(restored), evidence.source_size), actual
     )
-    Partition.from_metadata(edit.partition.metadata()).validate(restored)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(restored)
     assert state.partition == Partition.from_metadata(
         state.details["planning_surfaces"]
     )
@@ -131,9 +137,10 @@ def test_unpublished_owner_cut_is_exact_and_complete_before_rim_fitting():
     box, own, _radius, _signature = max(
         factory.bands(Work.start(10)), key=lambda b: b[1].sum()
     )
-    current, _evidence, _graph, ink_ids, _members, old_ids = factory.prepare(
-        state, box, own, Work.start(10)
-    )
+    cut = required(factory.prepare(state, box, own, Work.start(10)))
+    current, ink_ids, _members, old_ids = cut.state, cut.ids, cut.members, cut.before
+    assert current.partition is not None
+    assert current.partition.atoms is not None
     assert "cel-fill-2" in old_ids
     remainder = curve_path(current.document.geometry_for("cel-fill-2"))
     selected = curve_path(
@@ -161,6 +168,7 @@ def test_unpublished_owner_cut_is_exact_and_complete_before_rim_fitting():
     classification = np.zeros(graph.labels.shape, bool)
     classification[box.slices] = own
     np.testing.assert_array_equal(selected_mask, classification)
+    assert state.partition is not None
     assert current.partition.follows(state.partition)
 
 
@@ -262,6 +270,7 @@ def test_operator_search_publishes_source_split_after_independent_checkpoint():
     assert selected.metrics["nodes"] < state.snapshot.evaluation.structure["nodes"]
     assert any(e["operator"] == "source-ridge" for e in selected.metrics["local_edits"])
     partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
+    assert partition is not None
     ops.validate_partition(partition, Work.start(10))
 
 
@@ -310,16 +319,20 @@ def test_source_ridge_preserves_an_existing_atom_namespace():
     box, own, _radius, _sig = max(
         factory.bands(Work.start(10)), key=lambda b: b[1].sum()
     )
-    current, branch_evidence, branch_graph, _ids, _members, _old = factory.prepare(
-        state, box, own, Work.start(10)
-    )
+    cut = required(factory.prepare(state, box, own, Work.start(10)))
+    current, branch_evidence, branch_graph = cut.state, cut.evidence, cut.graph
+    _ids, _members, _old = cut.ids, cut.members, cut.before
+    assert current.partition is not None
+    assert current.partition.atoms is not None
     # The second, narrower interpretation cuts existing active child atoms.
     smaller = min(factory.bands(Work.start(10)), key=lambda b: b[1].sum())
     repeated = SourceRidges(branch_evidence, branch_graph, options).prepare(
         current, smaller[0], smaller[1], Work.start(10)
     )
     assert repeated is not None
-    next_state, _evidence, next_graph, _ids, _members, _old = repeated
+    next_state, next_graph = repeated.state, repeated.graph
+    assert next_state.partition is not None
+    assert next_state.partition.atoms is not None
     assert next_state.partition.atoms.extends(current.partition.atoms)
     assert next_state.partition.follows(current.partition)
     ops = Operators(evidence, graph, options)
@@ -375,6 +388,7 @@ def test_exact_source_cut_can_retain_a_zero_area_ledger_side(invisible):
     assert result is not None
     assert result.state.partition is not None
     assert exact.diagnostics["invisible_fragments"] == 1
+    assert state.partition is not None
     assert result.state.partition.follows(state.partition)
     ops.validate_partition(result.state.partition, Work.start(10))
     before = render(export_svg(document), evidence.source_size)
@@ -406,11 +420,11 @@ def test_source_discovery_gets_live_slice_without_removing_existing_operators(
 
         def cursor(_current, work, name=name):
             assert work.remaining > 0
-            yield replace(state, key=name)
+            yield Proposal(name, (), (), state.key, state.document, Box(0, 0, 96, 64))
 
         monkeypatch.setattr(ops, name, cursor)
     iterator = ops(state, Work.start(10))
-    first_cycle = [next(iterator).key for _ in names]
+    first_cycle = [next(iterator).operator for _ in names]
     iterator.close()
     assert first_cycle[0] == "families"
     assert sorted(first_cycle) == sorted(names)
@@ -472,6 +486,7 @@ def test_native_offset_and_scale_preserve_complete_source_atom_cut():
     ]
     assert valid
     for edit in valid:
+        assert edit.partition is not None
         Operators(evidence, graph, options).validate_partition(
             edit.partition, Work.start(10)
         )
@@ -499,6 +514,7 @@ def test_registered_source_cut_reuses_accounted_graph_in_native_validation():
     assert cut is not None
     assert cut.branch is ops.branch(cut.state.partition, Work.start(10))
     assert cut.graph is cut.branch.graph
+    assert cut.state.partition is not None
     ops.validate_partition(cut.state.partition, Work.start(10))
     assert ops.schedule_diagnostics["source_graph_rebuilds"] == 1
     smaller = min(ops.ridges.bands(Work.start(10)), key=lambda b: b[1].sum())
@@ -507,6 +523,7 @@ def test_registered_source_cut_reuses_accounted_graph_in_native_validation():
     )
     assert refined is not None
     assert refined.branch is ops.branch(refined.state.partition, Work.start(10))
+    assert refined.state.partition is not None
     ops.validate_partition(refined.state.partition, Work.start(10))
     assert ops.schedule_diagnostics["source_graph_rebuilds"] == 2
 
@@ -520,6 +537,7 @@ def test_complete_atom_reassignment_does_not_allocate_namespace_or_graph_copy():
     )
     cut = ops.ridges.prepare(state, box, own, Work.start(10))
     assert cut is not None
+    assert cut.state.partition is not None
     assert cut.state.partition.atoms is None
     assert cut.graph is ops.graph
     ops.validate_partition(cut.state.partition, Work.start(10))

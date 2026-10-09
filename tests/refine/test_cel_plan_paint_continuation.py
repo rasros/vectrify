@@ -6,6 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
+from tests.helpers import required
 from vectrify.document import (
     Element,
     export_svg,
@@ -168,7 +169,7 @@ def test_missing_patch_open_fill_large_scope_and_repeated_identity_are_excluded(
     assert propose(document, parse_path("M30 15H50V20H30Z")) is None
     assert propose(document, parse_path("M21 10V54")) is None
     assert propose(document, parse_path("M21 10H300V54H21Z")) is None
-    candidate, _ = propose(document)
+    candidate, _ = required(propose(document))
     assert propose(candidate) is None
     monkeypatch.setattr(paint_continuation, "MAX_PATCH_NODES", 3)
     assert propose(document) is None
@@ -182,7 +183,7 @@ def test_stroke_already_above_material_keeps_its_order():
     with editor.transaction("Order fixture") as tx:
         tx.reorder_object("ink", 3)
     document = editor.snapshot.document
-    candidate, witness = propose(document)
+    candidate, witness = required(propose(document))
     assert witness["stroke_order"] == (3, 3)
     assert [c.id for c in candidate.element("scene").children] == [
         c.id for c in document.element("scene").children
@@ -191,7 +192,9 @@ def test_stroke_already_above_material_keeps_its_order():
 
 def test_optional_core_restricts_added_material_without_extending_the_old_footprint():
     document = fixture()
-    candidate, witness = propose(document, core=parse_path("M21 20H28V30H21Z"))
+    candidate, witness = required(
+        propose(document, core=parse_path("M21 20H28V30H21Z"))
+    )
     old = document.geometry_for("shade")
     new = candidate.geometry_for("shade")
     patch = replace(new, subpaths=new.subpaths[len(old.subpaths) :])
@@ -212,8 +215,10 @@ def test_alpha_proof_rejects_unrestricted_restoration_at_a_translucent_outer_edg
         '<path id="shade" d="M22 10H50V54H22Z" fill="#aa7744"/></g></svg>'
     )
     footprint = parse_path("M12 10H22V54H12Z")
-    naive, _ = propose(document, footprint)
-    safe, _ = propose(document, footprint, core=parse_path("M18 10H22V54H18Z"))
+    naive, _ = required(propose(document, footprint))
+    safe, _ = required(
+        propose(document, footprint, core=parse_path("M18 10H22V54H18Z"))
+    )
     before = render(export_svg(document), (64, 64))
     naive_pixels = render(export_svg(naive), (64, 64))
     safe_pixels = render(export_svg(safe), (64, 64))

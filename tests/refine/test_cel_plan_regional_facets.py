@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_final_cells import fragmented
 from tests.refine.test_cel_plan_piecewise_surfaces import step
@@ -14,7 +15,7 @@ from vectrify.refine.cel_plan import core_cells
 from vectrify.refine.cel_plan.core_cells import Cell, CoreCells
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.local import LocalPolicy
+from vectrify.refine.cel_plan.local import Box, LocalPolicy
 from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.opacity import Paint
 from vectrify.refine.cel_plan.ownership import Partition
@@ -46,20 +47,24 @@ def test_source_facet_cuts_improve_paint_with_complete_native_ownership_and_relo
     plain = list(factory(evidence, options)(state, Work.start(20)))
     fitted = factory(evidence, options, facet_fit="regional")
     edits = list(fitted(state, Work.start(20)))
-    baselines = [p for p in edits if "regional_facets" not in p.details]
+    baselines = [p for p in edits if "regional_facets" not in required(p.details)]
     assert len(baselines) == len(plain)
     for baseline, parent in zip(baselines, plain, strict=True):
         assert baseline.parameters == parent.parameters
+        assert parent.partition is not None
+        assert baseline.partition is not None
         assert baseline.partition.metadata() == parent.partition.metadata()
         np.testing.assert_array_equal(
             render(export_svg(baseline.document), evidence.source_size),
             render(export_svg(parent.document), evidence.source_size),
         )
-    facets = [p for p in edits if "regional_facets" in p.details]
+    facets = [p for p in edits if "regional_facets" in required(p.details)]
     assert facets, fitted.diagnostics
     ops = Operators(evidence, build(evidence), options)
     for edit in facets:
         parent = next(p for p in plain if p.parameters[2] == edit.parameters[2])
+        assert edit.details is not None
+        assert parent.details is not None
         assert (
             edit.details["core_material_cells"]["source_squared_error"]
             < (parent.details["core_material_cells"]["source_squared_error"])
@@ -67,8 +72,11 @@ def test_source_facet_cuts_improve_paint_with_complete_native_ownership_and_relo
         assert edit.details["regional_facets"]["cuts"][0]["rho"] == pytest.approx(
             43, abs=0.1
         )
+        assert edit.partition is not None
         ops.validate_partition(edit.partition, Work.start(10))
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -91,7 +99,7 @@ def test_source_facet_cuts_improve_paint_with_complete_native_ownership_and_relo
         assert local.canvas.matches(actual)
         assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
         document, _ = load_project(save_project(edit.document))
-        Partition.from_metadata(edit.partition.metadata()).validate(document)
+        required(Partition.from_metadata(edit.partition.metadata())).validate(document)
         np.testing.assert_array_equal(
             render(export_svg(document), evidence.source_size), actual
         )
@@ -112,7 +120,7 @@ def test_material_cuts_keep_actual_source_strokes_exact_and_above_new_paint():
             state, Work.start(30)
         )
     )
-    facets = [p for p in edits if "regional_facets" in p.details]
+    facets = [p for p in edits if "regional_facets" in required(p.details)]
     assert facets
 
     def strokes(document):
@@ -137,11 +145,14 @@ def test_material_cuts_keep_actual_source_strokes_exact_and_above_new_paint():
         ]
         assert expected
         assert actual == expected
+        assert edit.details is not None
+        assert parent.details is not None
         assert (
             edit.details["core_material_cells"]["stroke_models"]
             == parent.details["core_material_cells"]["stroke_models"]
         )
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
+        assert edit.partition is not None
         Operators(evidence, build(evidence), options).validate_partition(
             edit.partition, Work.start(10)
         )
@@ -151,7 +162,7 @@ def test_material_cuts_keep_actual_source_strokes_exact_and_above_new_paint():
                 position = next(i for i, e in enumerate(siblings) if e.id == surface.id)
                 material_ids = {
                     s.id
-                    for s in edit.partition.surfaces
+                    for s in required(edit.partition).surfaces
                     if s.role != "overlay" and s.id in edit.ids
                 }
                 assert all(
@@ -163,7 +174,7 @@ def fixture_cells():
     xy = np.column_stack((np.arange(96) + 0.5, np.full(96, 0.5)))
     classes = np.repeat(np.arange(3, dtype=np.uint8), 32)[None, :]
     shape = parse_path("M0 0H96V2H0Z")
-    paint = Paint((0.5, 0.4, 0.3), 1)
+    paint = Paint("#80664c", 1)
     stroke = {"width": 3, "linecap": "round"}
     cells = [
         Cell(
@@ -233,7 +244,7 @@ def test_failed_cut_cannot_poison_later_prefix_or_consumer_feedback(
         if cuts[0][0] == "r0":
             return None
         return Proposal(
-            "regional", (), (), state.key, state.document, (0, 0, 96, 64), details={}
+            "regional", (), (), state.key, state.document, Box(0, 0, 96, 64), details={}
         )
 
     monkeypatch.setattr(fitted, "_proposal", proposal)
@@ -254,11 +265,13 @@ def test_failed_cut_cannot_poison_later_prefix_or_consumer_feedback(
     )
     found = next(edits)
     if consumer_mutation:
-        fitted._last_regional_feasible = False
+        monkeypatch.setattr(fitted, "_last_regional_feasible", False, raising=False)
     assert list(edits) == []
     assert seen[0][0] == ["r0/0", "r0/1", "r1", "r2"]
     assert seen[1][0] == ["r0", "r1/0", "r1/1", "r2"]
-    assert [c["parent"] for c in found.details["regional_facets"]["cuts"]] == ["r1"]
+    assert [
+        c["parent"] for c in required(found.details)["regional_facets"]["cuts"]
+    ] == ["r1"]
     assert fitted.diagnostics["regional_facet_attempts"] == 2
     assert fitted.diagnostics["regional_facet_proposals"] == 1
 
@@ -379,7 +392,7 @@ def test_consumer_cannot_reset_a_successful_prefix_and_bounds_keep_complete_pare
         fitted,
         "_proposal",
         lambda *_a, **_k: Proposal(
-            "regional", (), (), state.key, state.document, (0, 0, 96, 64), details={}
+            "regional", (), (), state.key, state.document, Box(0, 0, 96, 64), details={}
         ),
     )
     edits = fitted._regional_facets(
@@ -398,10 +411,13 @@ def test_consumer_cannot_reset_a_successful_prefix_and_bounds_keep_complete_pare
         Work.start(10),
     )
     first = next(edits)
+    assert first.details is not None
     assert len(first.details["regional_facets"]["cuts"]) == 1
-    fitted._last_regional_feasible = False
+    monkeypatch.setattr(fitted, "_last_regional_feasible", False, raising=False)
     second = next(edits)
-    assert [c["parent"] for c in second.details["regional_facets"]["cuts"]] == [
+    assert [
+        c["parent"] for c in required(second.details)["regional_facets"]["cuts"]
+    ] == [
         "r0",
         "r1",
     ]
@@ -426,6 +442,7 @@ def test_consumer_cannot_reset_a_successful_prefix_and_bounds_keep_complete_pare
         )
     )
     assert len(bounded) == 1
+    assert bounded[0].details is not None
     assert len(bounded[0].details["regional_facets"]["cuts"]) == 1
 
 
@@ -444,6 +461,7 @@ def test_raw_ink_and_empty_pixels_cannot_supply_material_votes(monkeypatch):
 
     def vote(_s, _b, _c, *_a):
         voter = fitted._facet_lines
+        assert voter is not None
         np.testing.assert_array_equal(voter.visible, ~evidence.empty & ~ink)
         assert list(voter(~evidence.empty, Work.start(10))) == []
         assert voter.diagnostics["points"] == 0
@@ -486,7 +504,7 @@ def test_cancellation_during_complete_ledger_check_publishes_no_cut(monkeypatch)
     def proposal(*_a, **_k):
         work.stop.set()
         return Proposal(
-            "regional", (), (), state.key, state.document, (0, 0, 96, 64), details={}
+            "regional", (), (), state.key, state.document, Box(0, 0, 96, 64), details={}
         )
 
     monkeypatch.setattr(fitted, "_proposal", proposal)

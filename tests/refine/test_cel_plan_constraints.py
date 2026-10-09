@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from vectrify.document import (
     Editor,
     Selection,
@@ -72,7 +73,7 @@ def test_native_contacts_hold_while_both_copies_of_an_interior_chain_simplify():
     )
     assert proposed is not None
     assert all(shared.intact(proposed, link) for link in links)
-    assert all(hold.intact(proposed, oid) for oid, hold in held.items())
+    assert all(required(hold).intact(proposed, oid) for oid, hold in held.items())
     assert sum(
         len(s.nodes) for oid in ("a", "b") for s in proposed.geometry_for(oid).subpaths
     ) < sum(
@@ -82,6 +83,7 @@ def test_native_contacts_hold_while_both_copies_of_an_interior_chain_simplify():
     assert all(chains.bind(proposed, oid, updated) is not None for oid in ("a", "b"))
     assert all(chains.bind(proposed, oid, metadata) is None for oid in ("a", "b"))
     assert metadata == permission(document)
+    assert updated is not None
     assert updated["paths"]["a"]["chains"] == metadata["paths"]["a"]["chains"]
     saved, _ = load_project(save_project(proposed))
     assert chains.bind(saved, "a", updated) is not None
@@ -232,6 +234,7 @@ def test_exported_permissions_reach_native_acceptance_with_holes_and_faint_marks
     selected = frontier.select(50)
     assert selected.metrics["nodes"] < state.snapshot.evaluation.structure["nodes"]
     partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
+    assert partition is not None
     partition.validate(import_svg(selected.svg))
 
 
@@ -241,7 +244,9 @@ def test_cpu_refinement_uses_chain_permissions_and_refreshes_accepted_geometry(
 ):
     source, frontier, state, options = prepared(structure=structure)
     # Isolate geometry in this test; separate tests exercise paint/width fitting.
-    state.details["paint_constraints"] = [s.id for s in state.partition.surfaces]
+    state.details["paint_constraints"] = [
+        s.id for s in required(state.partition).surfaces
+    ]
     frontier.entries[0].details["paint_constraints"] = state.details[
         "paint_constraints"
     ]
@@ -274,8 +279,12 @@ def test_protected_cubic_handles_are_checked_in_addition_to_endpoints():
     changed = document.replace_geometry(
         geometry.replace_node(replace(node, command="L", values=node.endpoint))
     )
+    assert hold is not None
     assert not hold.intact(changed, "a")
-    assert "a" not in chains.refresh(metadata, document, changed, ("a",))["paths"]
+    assert (
+        "a"
+        not in required(chains.refresh(metadata, document, changed, ("a",)))["paths"]
+    )
 
 
 def test_stopped_fitting_does_not_publish_a_partly_fitted_native_contact():
@@ -300,11 +309,12 @@ def test_stopped_fitting_does_not_publish_a_partly_fitted_native_contact():
 def test_family_replacement_discards_permissions_but_preserves_its_whole_path_hold():
     source, _frontier, state, options = prepared()
     proposal = next(Families(source, build(source), options)(state, Work.start(10)))
+    assert proposal.details is not None
     assert not set(proposal.ids).intersection(
         proposal.details["chain_constraints"]["paths"]
     )
     survivor = next(
-        s.id for s in proposal.partition.surfaces if set(s.members) == {1, 2}
+        s.id for s in required(proposal.partition).surfaces if set(s.members) == {1, 2}
     )
     assert survivor in proposal.details["geometry_constraints"]
     assert state.details["chain_constraints"]["paths"]
@@ -349,6 +359,7 @@ def test_exact_union_keeps_surviving_permissions_for_native_shared_fitting():
     parent_metadata = repr(metadata)
     updated = chains.merged(metadata, before, document, ("a", "b"), "b", Work.start(10))
     assert repr(metadata) == parent_metadata
+    assert updated is not None
     assert "a" not in updated["paths"]
     assert len(updated["paths"]["b"]["free"]) == 2
     hold = chains.bind(document, "b", updated)
@@ -375,6 +386,7 @@ def test_exact_union_keeps_surviving_permissions_for_native_shared_fitting():
     assert frontier.add(svg, "Owned union")
     full = frontier.policy.evaluate(export_svg(proposed))
     assert full.valid
+    assert frontier.baseline is not None
     assert full.cost < frontier.baseline.evaluation.cost
     evaluator = LocalPolicy(frontier.policy)
     local = evaluator.update(
@@ -410,6 +422,7 @@ def test_union_never_recovers_stale_unframed_or_interrupted_permissions(
         monkeypatch.setattr(chains, "MAX_PATH_NODES", 1)
     original = repr(metadata)
     updated = chains.merged(metadata, before, after, ("a", "b"), "b", work)
+    assert updated is not None
     assert "a" not in updated["paths"]
     assert "b" not in updated["paths"]
     assert updated["paths"]["c"] == metadata["paths"]["c"]
@@ -439,6 +452,7 @@ def test_boolean_subdivisions_do_not_inherit_unproved_curve_permissions():
     after = before.replace_geometry(replace(combined, id=geometry.id))
     assert sum(n.command == "C" for s in combined.subpaths for n in s.nodes) == 4
     updated = chains.merged(metadata, before, after, ("a", "b"), "b", Work.start(10))
+    assert updated is not None
     assert "b" not in updated["paths"]
 
 

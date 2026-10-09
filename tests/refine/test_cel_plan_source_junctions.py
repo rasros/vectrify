@@ -187,6 +187,7 @@ def test_bounds_exclude_before_publishing(monkeypatch, bound):
 def test_local_source_interval_can_identify_a_continuation_beside_a_crossing():
     evidence, guard, document = fixture(crossing=True)
     observed = guard.source_breaks(guard.original_profiles()[1])
+    assert observed is not None
     at = int(np.linalg.norm(observed.points - (28.5, 51.5), axis=1).argmin())
     assert not observed.qualified[at]
     result = SourceJunctions(evidence, guard).connect(

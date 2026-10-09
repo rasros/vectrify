@@ -139,13 +139,16 @@ def test_complete_owner_becomes_stroke_with_exact_shadow_and_native_scoring(
 ):
     evidence, graph, options, policy, state = scene(alpha, frame)
     operators = Operators(evidence, graph, options, filled_bands=True)
+    assert operators.bands is not None
     edits = list(operators.bands(state, Work.start(20)))
     assert edits, operators.bands.diagnostics
     before = render(state.svg, evidence.source_size)
     for edit in edits:
         assert edit.ids == ("ink",)
         assert edit.partition is state.partition
+        assert edit.partition is not None
         operators.validate_partition(edit.partition, Work.start(10))
+        assert edit.component is not None
         edit.component.validate(
             state.document,
             edit.document,
@@ -172,6 +175,7 @@ def test_complete_owner_becomes_stroke_with_exact_shadow_and_native_scoring(
         full = policy.evaluate(svg)
         assert full.valid, full.rejections
         assert full.structure["stroke_contours"] == 1
+        assert edit.details is not None
         comparison = edit.details["filled_band_stroke"]["source_line_comparison"]
         assert comparison["new_gap_completed"] == 0
         assert not comparison["rejections"]
@@ -208,6 +212,7 @@ def test_protected_ink_is_retained(protected):
         document = editor.snapshot.document
     state = replace(state, document=document)
     operators = Operators(evidence, graph, options, filled_bands=True)
+    assert operators.bands is not None
     assert not list(operators.bands(state, Work.start(10)))
 
 
@@ -227,6 +232,7 @@ def test_operator_is_explicit_and_original_source_observations_are_reused():
     evidence, graph, options, _policy, state = scene()
     assert Operators(evidence, graph, options).bands is None
     operators = Operators(evidence, graph, options, filled_bands=True)
+    assert operators.bands is not None
     list(operators.bands(state, Work.start(20)))
     first = operators.band_guard(Work.start(10))
     assert operators.band_guard(Work.start(10)) is first
@@ -234,12 +240,15 @@ def test_operator_is_explicit_and_original_source_observations_are_reused():
 
 def test_an_owned_branch_uses_its_actual_namespace_and_shared_original_observer():
     evidence, graph, options, _policy, state = scene()
+    assert state.partition is not None
     partition = Partition(state.partition.surfaces, Atoms.original(graph))
     state = replace(state, partition=partition)
     operators = Operators(evidence, graph, options, filled_bands=True)
+    assert operators.bands is not None
     assert not list(operators.bands(state, Work.start(10)))
     assert operators.bands.diagnostics["bounded"] == 1
     branch = operators.branch(partition, Work.start(10))
+    assert branch.bands is not None
     assert list(branch.bands(state, Work.start(10)))
     assert branch.band_guard(Work.start(10)) is operators.band_guard(Work.start(10))
 

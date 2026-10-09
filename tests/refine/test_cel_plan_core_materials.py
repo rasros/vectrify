@@ -52,6 +52,7 @@ def setup(rgba, **settings):
 @pytest.mark.parametrize("shades", [False, True])
 def test_native_material_candidate_is_compact_owned_and_round_trips(shades):
     evidence, graph, policy, options, fallback = setup(source(shades=shades))
+    assert evidence.opacity is not None
     before = evidence.opacity.copy()
     result, details = candidate(
         evidence, graph, policy, options, Work.start(10), normalizer=1000

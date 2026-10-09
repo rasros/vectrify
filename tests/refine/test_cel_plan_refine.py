@@ -64,6 +64,7 @@ def test_cpu_paint_improves_the_exact_score_without_torch(monkeypatch):
     selected = frontier.select(50)
     assert result["backend"] == "cpu"
     assert result["accepted"] >= 1
+    assert baseline is not None
     assert selected.metrics["score_terms"]["visual"] < baseline.evaluation.visual
     assert selected.metrics["validation_rejections"] == []
     assert geometry(selected.svg) == geometry(INITIAL)
@@ -160,6 +161,7 @@ def test_stop_after_an_accepted_edit_retains_the_validated_checkpoint(monkeypatc
     selected = frontier.select(50)
     assert result["status"] == "interrupted"
     assert result["accepted"] == 1
+    assert frontier.baseline is not None
     assert (
         selected.metrics["score_terms"]["visual"] < frontier.baseline.evaluation.visual
     )

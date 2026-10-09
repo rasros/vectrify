@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_overlays import source
 from vectrify.document import (
@@ -29,6 +30,7 @@ from vectrify.refine.cel_plan.search import search
 
 def marked(*, alpha=128, inner_alpha=None, early=False):
     evidence = source(alpha=alpha)
+    assert evidence.opacity is not None
     labels, target, opacity = (
         evidence.labels.copy(),
         evidence.target.copy(),
@@ -70,11 +72,15 @@ def test_a_continuing_closed_surface_keeps_the_owned_opaque_mark_above_it(alpha,
             edit.document.element(oid).attributes
             == state.document.element(oid).attributes
         )
-        overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
+        overlay = next(
+            s for s in required(edit.partition).surfaces if s.role == "overlay"
+        )
         assert overlay.covered == ((0,) if early else (6,))
         parent = edit.document.ancestry(oid)[-2]
         order = [c.id for c in parent.children]
         assert order.index(overlay.id) < order.index(oid)
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.owners.keys() == state.partition.owners.keys()
         actual = render(export_svg(edit.document), evidence.source_size)
         # The opaque interior stays the same. Mixed edge pixels can change
@@ -88,6 +94,7 @@ def test_a_continuing_closed_surface_keeps_the_owned_opaque_mark_above_it(alpha,
             state.snapshot, export_svg(edit.document), edit.bounds, full.structure
         )
         assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        assert edit.details is not None
         assert frontier.checkpoint(
             export_svg(edit.document),
             "Nested closed surface",
@@ -136,6 +143,7 @@ def test_enclosure_cannot_move_a_distant_mark_with_the_same_primary_owner():
     labels, target = evidence.labels.copy(), evidence.target.copy()
     labels[12:14, 12:14] = 6
     target[12:14, 12:14] = (245, 255, 220)
+    assert evidence.opacity is not None
     evidence = replace(
         evidence,
         labels=labels,
@@ -176,7 +184,7 @@ def test_a_nested_gradient_keeps_its_geometry_stops_and_rendered_color():
             "cel-fill-6"
         )
         assert edit.document.element("cel-fill-6") == document.element("cel-fill-6")
-        server = document.element("cel-fill-6").get("fill")[5:-1]
+        server = required(document.element("cel-fill-6").get("fill"))[5:-1]
         assert edit.document.element(server) == document.element(server)
         np.testing.assert_array_equal(
             render(export_svg(edit.document), evidence.source_size)[56:58, 57:59],
@@ -205,8 +213,9 @@ def test_nested_ownership_and_mark_pixels_survive_search_scaled_scope_and_reload
     assert result["score_disagreements"] == 0
     selected = frontier.select(50)
     partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
-    assert any(s.covered for s in partition.surfaces)
+    assert any(s.covered for s in required(partition).surfaces)
     document, _ = load_project(save_project(import_svg(selected.svg)))
+    assert partition is not None
     partition.validate(document)
     assert Partition.from_metadata(partition.metadata()) == partition
     np.testing.assert_array_equal(
@@ -224,13 +233,15 @@ def test_coherent_family_competes_as_a_base_beneath_the_preserved_mark(alpha, ea
     edits = [
         p for p in factory(state, Work.start(10)) if p.parameters[2] == (2, 3, 4, 5)
     ]
-    adjacent = next(p for p in edits if not p.details.get("nested_surface"))
-    continued = next(p for p in edits if p.details.get("nested_surface"))
+    adjacent = next(p for p in edits if not required(p.details).get("nested_surface"))
+    continued = next(p for p in edits if required(p.details).get("nested_surface"))
     mark = "cel-fill-0" if early else "cel-fill-6"
+    assert adjacent.partition is not None
+    assert continued.partition is not None
     assert continued.partition.owners == adjacent.partition.owners
     assert continued.document.geometry_for(mark) == state.document.geometry_for(mark)
     assert continued.document.element(mark) == state.document.element(mark)
-    base = next(s for s in continued.partition.surfaces if s.covered)
+    base = next(s for s in required(continued.partition).surfaces if s.covered)
     assert base.covered == ((0,) if early else (6,))
     assert len(continued.document.geometry_for(base.id).subpaths) == 1
     assert len(adjacent.document.geometry_for(base.id).subpaths) == 2
@@ -243,6 +254,7 @@ def test_coherent_family_competes_as_a_base_beneath_the_preserved_mark(alpha, ea
     )
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
     assert local.canvas.matches(render(svg, evidence.source_size))
+    assert continued.details is not None
     assert frontier.checkpoint(
         svg,
         "Continuing family",
@@ -257,7 +269,7 @@ def test_coherent_family_competes_as_a_base_beneath_the_preserved_mark(alpha, ea
         transaction.set_fill(mark, "none")
     actual = render(export_svg(editor.snapshot.document), evidence.source_size)
     np.testing.assert_array_equal(actual[56:58, 57:59], actual[60:62, 57:59])
-    assert not any(s.covered for s in state.partition.surfaces)
+    assert not any(s.covered for s in required(state.partition).surfaces)
 
 
 @pytest.mark.parametrize("inner_alpha", [0, 1, 64])
@@ -269,7 +281,7 @@ def test_family_can_merge_around_a_true_hole_without_continuing_beneath_it(inner
         p for p in factory(state, Work.start(10)) if p.parameters[2] == (2, 3, 4, 5)
     ]
     assert edits
-    assert not any(p.details.get("nested_surface") for p in edits)
+    assert not any(required(p.details).get("nested_surface") for p in edits)
     for edit in edits:
         np.testing.assert_array_equal(
             render(export_svg(edit.document), evidence.source_size)[..., 3],
@@ -290,7 +302,9 @@ def test_nested_discovery_limits_preserve_the_adjacent_family_competitor(
         monkeypatch.setattr(nested, "MAX_MARKS", 0)
     else:
         editor = Editor(state.document, selection=Selection(whole_document=True))
-        core = next(s.id for s in state.partition.surfaces if s.role == "underlay")
+        core = next(
+            s.id for s in required(state.partition).surfaces if s.role == "underlay"
+        )
         with editor.transaction(
             "A current core no longer covers the cavity"
         ) as transaction:
@@ -301,8 +315,8 @@ def test_nested_discovery_limits_preserve_the_adjacent_family_competitor(
         p for p in factory(state, Work.start(10)) if p.parameters[2] == (2, 3, 4, 5)
     ]
     assert edits
-    assert not any(p.details.get("nested_surface") for p in edits)
-    assert not any(s.covered for s in state.partition.surfaces)
+    assert not any(required(p.details).get("nested_surface") for p in edits)
+    assert not any(s.covered for s in required(state.partition).surfaces)
 
 
 @pytest.mark.parametrize("factory_type", [Families, ClosedOverlays])
@@ -351,7 +365,9 @@ def test_opaque_current_marks_with_source_alpha_variation_require_an_actual_core
     assert mark.get("fill-opacity") == "1"
     if not core_present:
         editor = Editor(state.document, selection=Selection(whole_document=True))
-        core = next(s.id for s in state.partition.surfaces if s.role == "underlay")
+        core = next(
+            s.id for s in required(state.partition).surfaces if s.role == "underlay"
+        )
         with editor.transaction(
             "Core no longer contains the actual marks"
         ) as transaction:

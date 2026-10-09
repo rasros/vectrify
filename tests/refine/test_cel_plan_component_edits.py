@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from vectrify.document import Editor, Selection, export_svg, import_svg
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.refine.cel_plan import component_edits as contract
@@ -44,6 +45,7 @@ def fixture(count=300):
     assert frontier.add(svg, "Initial", {"planning_surfaces": partition.metadata()})
     frontier.freeze_normalizer()
     entry = frontier.baseline
+    assert entry is not None
     state = State(
         import_svg(svg),
         svg,
@@ -60,7 +62,7 @@ def compact(state, work):
     removed = ids[:-1]
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Component compaction") as transaction:
-        transaction.delete_objects(removed)
+        transaction.delete_objects(frozenset(removed))
     document = editor.snapshot.document
     partition = state.partition.replace(
         ids, (Surface(ids[-1], tuple(range(len(ids)))),)
@@ -112,6 +114,7 @@ def test_broad_compaction_requires_seal_and_independent_native_checkpoint(sealed
     if not sealed:
         assert report["attempted"] == 0
         assert decision["rejections"] == ["local-dependency-limit"]
+        assert before is not None
         assert frontier.select(50).svg == before.svg
         return
     assert report["attempted"] == report["accepted"] == report["checkpointed"] == 1
@@ -122,11 +125,12 @@ def test_broad_compaction_requires_seal_and_independent_native_checkpoint(sealed
     chosen = frontier.select(50)
     assert chosen.metrics["paths"] == 2
     assert chosen.metrics["nodes"] == 8
+    assert before is not None
     assert chosen.metrics["representation_cost"] < before.evaluation.cost
     np.testing.assert_array_equal(
         render(chosen.svg, (64, 64)), render(before.svg, (64, 64))
     )
-    Partition.from_metadata(chosen.metrics["planning_surfaces"]).validate(
+    required(Partition.from_metadata(chosen.metrics["planning_surfaces"])).validate(
         import_svg(chosen.svg)
     )
     assert frontier.baseline is before
@@ -183,6 +187,7 @@ def test_sealed_dependencies_detect_hidden_and_metadata_changes(change):
             replace(element, locks=frozenset({"geometry"}))
         )
     else:
+        assert state.partition is not None
         surfaces = state.partition.surfaces
         state = replace(
             state,
@@ -288,6 +293,7 @@ def test_protected_paths_cannot_be_replaced_by_declaring_them(protection):
                 ),
             )
     state = replace(state, document=document)
+    assert state.partition is not None
     edit = replace(
         edit,
         component=ComponentEdit.bind(document, state.partition, "body", Work.start(10)),
@@ -399,5 +405,6 @@ def test_component_local_acceptance_does_not_bypass_checkpoint_rollback(
     report = search(frontier, Options(refine=False), work, edits)
     assert report["accepted"] == 1
     assert report["checkpointed"] == (failure == "incorrect-local-score")
+    assert before is not None
     assert frontier.select(50).svg == before.svg
     assert report["score_disagreements"] == (failure == "incorrect-local-score")

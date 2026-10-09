@@ -153,6 +153,7 @@ def test_caps_and_fractional_native_frame_are_sampled_from_actual_export():
     from scipy.ndimage import map_coordinates
 
     observed = guard.source_breaks(guard.original_profiles()[0])
+    assert observed is not None
     queried = map_coordinates(
         alpha,
         [observed.points[:, 1] - 0.5, observed.points[:, 0] - 0.5],

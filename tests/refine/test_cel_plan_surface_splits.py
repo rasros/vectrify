@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_surface_models import ramp
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -42,10 +43,12 @@ def setup(alpha=255, hole=False, *, diagonal=False, single=False):
     if single:
         e = replace(e, labels=np.where(e.empty, 0, 1).astype(np.int32))
         partition = Partition(
-            tuple(replace(s, members=(1,)) for s in partition.surfaces)
+            tuple(replace(s, members=(1,)) for s in required(partition).surfaces)
         )
     policy = Policy(e.rgba)
     frontier = Frontier(policy)
+    assert partition is not None
+    assert merged.details is not None
     details = {
         **state.details,
         **merged.details,
@@ -76,10 +79,16 @@ def test_two_editable_paints_split_real_atoms_with_native_local_and_reload_agree
     edits = list(factory(state, Work.start(10)))
     assert edits
     edit = edits[0]
+    assert edit.partition is not None
+    assert edit.partition.atoms is not None
     assert len(edit.partition.atoms.cuts) == 1
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
     branch = edit.partition.atoms.graph(evidence, build(evidence), Work.start(10))
-    assert any({e.left, e.right} == set(edit.ids) for e in edit.partition.edges(branch))
+    assert any(
+        {e.left, e.right} == set(edit.ids)
+        for e in required(edit.partition).edges(branch)
+    )
     svg = export_svg(edit.document)
     full = frontier.policy.evaluate(svg)
     assert full.valid
@@ -95,6 +104,7 @@ def test_two_editable_paints_split_real_atoms_with_native_local_and_reload_agree
     )
     saved, _ = load_project(save_project(edit.document))
     restored = Partition.from_metadata(edit.partition.metadata())
+    assert restored is not None
     restored.validate(saved)
     np.testing.assert_array_equal(
         render(export_svg(saved), evidence.source_size),
@@ -102,8 +112,10 @@ def test_two_editable_paints_split_real_atoms_with_native_local_and_reload_agree
     )
     assert state.partition.atoms is None
     if alpha != 255:
-        old = next(s for s in state.partition.surfaces if s.role == "underlay")
-        new = next(s for s in edit.partition.surfaces if s.role == "underlay")
+        old = next(
+            s for s in required(state.partition).surfaces if s.role == "underlay"
+        )
+        new = next(s for s in required(edit.partition).surfaces if s.role == "underlay")
         assert old.members != new.members
         assert edit.document.geometry_for(old.id) == state.document.geometry_for(old.id)
 
@@ -111,6 +123,7 @@ def test_two_editable_paints_split_real_atoms_with_native_local_and_reload_agree
 @pytest.mark.parametrize("alpha", [255, 128])
 def test_diagonal_cut_and_current_child_transform_keep_complete_support(alpha):
     evidence, frontier, state, options = setup(alpha, diagonal=True, single=True)
+    assert state.partition is not None
     oid = state.partition.owners[1]
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Equivalent rotated child frame") as tx:
@@ -128,11 +141,13 @@ def test_diagonal_cut_and_current_child_transform_keep_complete_support(alpha):
     edit = edits[0]
     assert all(abs(v) > 0.5 for v in edit.parameters[0])
     assert frontier.policy.evaluate(export_svg(edit.document)).valid
+    assert edit.partition is not None
     atoms = edit.partition.atoms
+    assert atoms is not None
     labels = atoms.labels(build(evidence), Work.start(10))
-    assert sum(int((labels == i).sum()) for i in edit.partition.owners) == int(
-        (~evidence.empty).sum()
-    )
+    assert sum(
+        int((labels == i).sum()) for i in required(edit.partition).owners
+    ) == int((~evidence.empty).sum())
 
 
 def test_search_publishes_split_and_rebuilds_all_child_operators(monkeypatch):
@@ -150,6 +165,8 @@ def test_search_publishes_split_and_rebuilds_all_child_operators(monkeypatch):
     assert branch.families.graph is branch.replacements.graph is branch.overlays.graph
     assert factory.graph is graph
     assert factory.evidence is evidence
+    assert partition is not None
+    assert partition.atoms is not None
     assert branch.graph.source_atoms == partition.atoms.key
     # Same pixels cannot alias a state or rejection proof in another graph.
     assert identity(state.svg, partition) != identity(state.svg, state.partition)
@@ -167,7 +184,7 @@ def test_complete_paint_outlier_and_actual_rgba_core_protect_source(monkeypatch)
     factory = SurfaceSplits(Families(bad, build(bad), options), options)
     assert list(factory(state, Work.start(10))) == []
     assert factory.diagnostics["paint_exclusions"] > 0
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Remove real core") as tx:
         tx.delete_objects(frozenset((base.id,)))
@@ -175,7 +192,7 @@ def test_complete_paint_outlier_and_actual_rgba_core_protect_source(monkeypatch)
         state,
         document=editor.snapshot.document,
         partition=Partition(
-            tuple(s for s in state.partition.surfaces if s.id != base.id)
+            tuple(s for s in required(state.partition).surfaces if s.id != base.id)
         ),
     )
     factory = SurfaceSplits(Families(evidence, build(evidence), options), options)
@@ -183,6 +200,7 @@ def test_complete_paint_outlier_and_actual_rgba_core_protect_source(monkeypatch)
     assert factory.diagnostics["core_exclusions"] > 0
     monkeypatch.setattr(surface_splits, "MAX_PIXELS", 1)
     assert list(factory(state, Work.start(10))) == []
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -213,6 +231,7 @@ def test_stop_and_fixed_source_do_not_return_partial_splits(monkeypatch):
         list(SurfaceSplits(Families(evidence, graph, options), options)(state, work))
         == []
     )
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -221,9 +240,12 @@ def test_rejection_proofs_and_active_branch_memory_do_not_alias_siblings(monkeyp
     graph = build(evidence)
     factory = Operators(evidence, graph, options)
     edit = next(iter(SurfaceSplits(factory.families, options)(state, Work.start(10))))
+    assert edit.partition is not None
+    assert edit.partition.atoms is not None
     original = edit.partition.atoms.original(graph)
     y, x = np.indices(graph.labels.shape)
     sibling_atoms, a, b = original.split(graph, (1,), y < 32, Work.start(10))
+    assert state.partition is not None
     sibling = state.partition.split(
         (state.partition.owners[1],),
         (
@@ -252,4 +274,5 @@ def test_rejection_proofs_and_active_branch_memory_do_not_alias_siblings(monkeyp
     with pytest.raises(ValueError, match="Active source graphs"):
         factory.branch(third, Work.start(10))
     assert first.graph.source_atoms == edit.partition.atoms.key
+    assert sibling.atoms is not None
     assert second.graph.source_atoms == sibling.atoms.key

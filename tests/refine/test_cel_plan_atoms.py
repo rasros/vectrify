@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.refine.cel_plan import atoms as module
 from vectrify.refine.cel_plan.atoms import AtomLimitError, Atoms, Cut
@@ -231,7 +232,7 @@ def test_multiway_lineage_secondary_coverage_and_successive_binary_split():
     legacy, _, _ = original.split(graph, (1,), x < 48, Work.start(10))
     assert legacy.metadata()["version"] == 1
     assert "left" in legacy.metadata()["cuts"][0]
-    assert Atoms.from_metadata(legacy.metadata()).key == legacy.key
+    assert required(Atoms.from_metadata(legacy.metadata())).key == legacy.key
 
 
 @pytest.mark.parametrize(

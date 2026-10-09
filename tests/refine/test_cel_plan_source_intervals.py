@@ -80,6 +80,7 @@ def test_source_gaps_retain_two_editable_intervals_with_exact_surviving_terminal
         cval=0,
     )
     assert sampled.max(initial=0) <= 1 / 255 + 1e-7
+    assert absence.source_breaks is not None
     observed = absence.source_breaks(profile)
     assert observed is not None
     for point in (parts[0].nodes[-1].endpoint, parts[-1].nodes[0].endpoint):
@@ -353,7 +354,7 @@ def test_native_interval_geometry_is_independent_of_analysis_scale_and_offset():
     first = SourceIntervals(absence).recover(
         original, profile, 3, "round", options, Work.start(10), lambda _g: True
     )
-    changed = replace(evidence, scale=(1.5, 0.75), offset=(7.25, -3.5))
+    changed = replace(evidence, scale=(1.5, 0.75), offset=(7, -3))
     second_proof = SourceAbsence(changed, [profile], Work.start(10), intervals=True)
     second = SourceIntervals(second_proof).recover(
         original, profile, 3, "round", options, Work.start(10), lambda _g: True

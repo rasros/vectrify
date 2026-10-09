@@ -79,11 +79,16 @@ def test_more_than_byte_sized_virtual_roots_compact_into_nine_final_native_cells
     assert factory.diagnostics["source_final_cells_peak"] == 9
     ops = Operators(evidence, build(evidence), options)
     for edit in edits:
+        assert edit.details is not None
         assert edit.details["core_material_cells"]["cells"] == 9
         assert len(edit.details["core_material_cells"]["stroke_models"]) == 1
+        assert edit.partition is not None
+        assert edit.partition.atoms is not None
         assert edit.partition.atoms.cuts == ()
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
         ops.validate_partition(edit.partition, Work.start(20))
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -121,6 +126,7 @@ def test_more_than_byte_sized_virtual_roots_compact_into_nine_final_native_cells
         np.testing.assert_array_equal(
             render(export_svg(restored), evidence.source_size), actual
         )
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -137,6 +143,7 @@ def test_final_over_budget_classification_publishes_no_prefix_or_source_cuts(
     assert factory.diagnostics["source_final_cells_peak"] == 9
     assert factory.diagnostics["region_exclusions"] > 0
     assert factory.diagnostics["cells"] == factory.diagnostics["proposals"] == 0
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert export_svg(state.document) == before
 
@@ -180,9 +187,12 @@ def test_complete_two_style_edit_can_fit_after_a_transient_class_increase(monkey
     assert factory.diagnostics["source_class_roots_peak"] == 10
     assert factory.diagnostics["source_final_cells_peak"] == 10
     for edit in edits:
+        assert edit.details is not None
         models = edit.details["core_material_cells"]["stroke_models"]
         assert len(models) == 2
         assert all(m["runs"] == 1 for m in models)
+        assert edit.partition is not None
+        assert edit.partition.atoms is not None
         assert len(edit.partition.atoms.cuts) == 1
         Operators(evidence, build(evidence), options).validate_partition(
             edit.partition, Work.start(10)
@@ -196,6 +206,7 @@ def test_complete_two_style_edit_can_fit_after_a_transient_class_increase(monkey
         np.testing.assert_array_equal(
             actual[..., 3], render(state.svg, evidence.source_size)[..., 3]
         )
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
         local = LocalPolicy(frontier.policy).update(
             state.snapshot, svg, edit.bounds, full.structure
@@ -223,5 +234,6 @@ def test_cancelled_combined_style_classification_never_publishes_the_first_style
     monkeypatch.setattr(core_cells, "owned_model", stopped)
     assert list(factory(state, work)) == []
     assert factory.diagnostics["cells"] == factory.diagnostics["proposals"] == 0
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert export_svg(state.document) == before

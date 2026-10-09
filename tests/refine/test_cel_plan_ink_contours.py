@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ink_replace import source
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -112,7 +113,7 @@ def test_paired_rim_removes_fragments_and_preserves_alpha_under_native_checkpoin
         svg, "Paired rim", edit.details, local.evaluation, raster=local.canvas
     )
     restored, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(restored)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(restored)
     np.testing.assert_array_equal(
         render(export_svg(restored), evidence.source_size), actual
     )
@@ -134,7 +135,7 @@ def test_neighbor_continuations_fill_old_rim_without_changing_primary_ownership(
     assert len(continued) == 2
     for surface in continued:
         assert surface.members == next(
-            s.members for s in state.partition.surfaces if s.id == surface.id
+            s.members for s in required(state.partition).surfaces if s.id == surface.id
         )
         assert edit.document.element(surface.id).get("fill") == state.document.element(
             surface.id
@@ -240,7 +241,7 @@ def test_gradients_keep_paint_frames_and_partial_core_cannot_prove_underpaint(lo
         return
     assert edits
     edit = edits[0]
-    server = document.element(oid).get("fill")[5:-1]
+    server = required(document.element(oid).get("fill"))[5:-1]
     assert edit.document.element(server) == document.element(server)
     assert edit.document.element(oid).get("fill") == document.element(oid).get("fill")
     actual = render(export_svg(edit.document), evidence.source_size)
@@ -275,10 +276,9 @@ def test_only_exact_native_hidden_boundaries_can_replace_neighbor_continuations(
     factory = InkReplacement(evidence, build(evidence), options)
     edit = rims(factory, state)[0]
     assert edit.details["ink_replacement"]["underpaint_model"] == "traced"
-    assert (
-        factory.diagnostics["rim_underpaint_exclusions"]["visible-material-boundary"]
-        == 1
-    )
+    exclusions = factory.diagnostics["rim_underpaint_exclusions"]
+    assert isinstance(exclusions, dict)
+    assert exclusions["visible-material-boundary"] == 1
 
 
 def test_joint_rim_is_retained_through_real_search_and_full_checkpoint():

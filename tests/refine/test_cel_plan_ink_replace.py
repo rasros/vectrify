@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -77,14 +78,29 @@ def test_stroke_and_filled_ink_remove_fragments_with_exact_checkpoint_agreement(
         assert updated.canvas.matches(render(svg, evidence.source_size))
         assert complete.valid
         assert complete.cost < state.snapshot.evaluation.cost
+        assert state.partition is not None
+        assert proposal.partition is not None
         assert proposal.partition.owners.keys() == state.partition.owners.keys()
         proposal.partition.validate(proposal.document)
-        assert len([s for s in proposal.partition.surfaces if s.role == "overlay"]) == 1
-        assert len([s for s in state.partition.surfaces if s.role == "overlay"]) == 0
+        assert (
+            len(
+                [
+                    s
+                    for s in required(proposal.partition).surfaces
+                    if s.role == "overlay"
+                ]
+            )
+            == 1
+        )
+        assert (
+            len([s for s in required(state.partition).surfaces if s.role == "overlay"])
+            == 0
+        )
         # Opacity is applied once by the isolated component, including underlays.
         np.testing.assert_array_equal(
             render(svg, evidence.source_size)[..., 3], evidence.rgba[..., 3]
         )
+        assert proposal.details is not None
         assert frontier.checkpoint(
             svg,
             "Ink replacement",
@@ -101,7 +117,7 @@ def test_restored_neighbor_paints_cover_the_old_ink_footprint_beneath_the_stroke
         InkReplacement(evidence, build(evidence), options)(state, Work.start(10))
     )
     assert edit.parameters[0] == "stroke"
-    overlays = [s for s in edit.partition.surfaces if s.role == "overlay"]
+    overlays = [s for s in required(edit.partition).surfaces if s.role == "overlay"]
     overlay = overlays[0]
     editor = Editor(edit.document, selection=Selection(whole_document=True))
     with editor.transaction("Inspect restored paint") as transaction:
@@ -112,7 +128,9 @@ def test_restored_neighbor_paints_cover_the_old_ink_footprint_beneath_the_stroke
     # supplied the correct paint inside its missing ink strip before restoration.
     np.testing.assert_array_equal(actual[30, 40, :3], before[20, 40, :3])
     np.testing.assert_array_equal(actual[33, 40, :3], before[40, 40, :3])
-    assert len([s for s in edit.partition.surfaces if s.role == "underlay"]) == 3
+    assert (
+        len([s for s in required(edit.partition).surfaces if s.role == "underlay"]) == 3
+    )
     assert frontier.policy.evaluate(export_svg(edit.document)).valid
 
 
@@ -192,6 +210,7 @@ def test_native_stroke_width_survives_scaled_offset_group():
         state.snapshot, svg, edit.bounds, evaluated.structure
     )
     assert evaluated.valid
+    assert edit.details is not None
     assert frontier.checkpoint(
         svg, "Offset ink", edit.details, updated.evaluation, raster=updated.canvas
     )
@@ -200,6 +219,7 @@ def test_native_stroke_width_survives_scaled_offset_group():
         render(export_svg(restored), evidence.source_size),
         render(svg, evidence.source_size),
     )
+    assert edit.partition is not None
     assert Partition.from_metadata(edit.partition.metadata()) == edit.partition
 
 
@@ -228,16 +248,16 @@ def test_gradient_underlay_keeps_the_neighbors_original_paint_frame():
     edit = next(
         InkReplacement(evidence, build(evidence), options)(state, Work.start(10))
     )
-    overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
+    overlay = next(s for s in required(edit.partition).surfaces if s.role == "overlay")
     editor = Editor(edit.document, selection=Selection(whole_document=True))
     with editor.transaction("Inspect gradient continuation") as transaction:
         transaction.set_attributes(overlay.id, {"stroke": "none"})
     actual = render(export_svg(editor.snapshot.document), evidence.source_size)
     before = render(svg, evidence.source_size)
     np.testing.assert_array_equal(actual[31, 14:82], before[20, 14:82])
-    underlays = [s for s in edit.partition.surfaces if s.role == "underlay"]
+    underlays = [s for s in required(edit.partition).surfaces if s.role == "underlay"]
     assert any(
-        edit.document.element(s.id).get("fill", "").startswith("url(")
+        required(edit.document.element(s.id).get("fill", "")).startswith("url(")
         for s in underlays
     )
 
@@ -245,15 +265,18 @@ def test_gradient_underlay_keeps_the_neighbors_original_paint_frame():
 def test_explicit_native_width_and_existing_holds_survive_replacement():
     evidence = source(tapered=True)
     _frontier, state, options = prepared(evidence, layers=True)
-    constrained = [s.id for s in state.partition.surfaces if min(s.members) >= 2]
+    constrained = [
+        s.id for s in required(state.partition).surfaces if min(s.members) >= 2
+    ]
     state = replace(state, details={**state.details, "paint_constraints": constrained})
     options = replace(options, line_width=2)
     edit = next(
         InkReplacement(evidence, build(evidence), options)(state, Work.start(10))
     )
     assert edit.parameters[0] == "stroke"
-    overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
+    overlay = next(s for s in required(edit.partition).surfaces if s.role == "overlay")
     assert edit.document.element(overlay.id).get("stroke-width") == "2"
+    assert edit.details is not None
     assert overlay.id in edit.details["geometry_constraints"]
     assert overlay.id in edit.details["paint_constraints"]
 

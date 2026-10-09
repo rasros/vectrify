@@ -54,6 +54,8 @@ def test_flat_field_has_no_votes_or_nonfinite_pca():
     target = np.full((*visible.shape, 3), 160.0)
     voter = FacetLines(target, visible)
     assert list(voter(visible, Work.start(10))) == []
+    assert voter.points is not None
+    assert voter.normals is not None
     assert np.isfinite(voter.points).all()
     assert np.isfinite(voter.normals).all()
 

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan import families
@@ -68,12 +69,15 @@ def test_connected_family_becomes_one_surface_preserving_alpha_and_holes(alpha, 
     partition.validate(document)
     assert len([s for s in partition.surfaces if s.role == "surface"]) == 1
     assert selected.metrics["regions"] == 1
+    assert state.partition is not None
     assert set(partition.owners) == set(state.partition.owners)
     actual = render(export_svg(document), evidence.source_size)
     np.testing.assert_array_equal(actual[..., 3], evidence.rgba[..., 3])
     if hole:
         assert actual[24:40, 40:56, 3].max() == 0
-    assert len([s for s in state.partition.surfaces if s.role == "surface"]) == 8
+    assert (
+        len([s for s in required(state.partition).surfaces if s.role == "surface"]) == 8
+    )
 
 
 def test_gradient_family_removes_paint_and_geometry_fragmentation():
@@ -106,6 +110,8 @@ def test_ownership_updates_after_native_acceptance_not_during_proposal_creation(
     frontier, state, options = prepared(evidence)
     factory = Families(evidence, build(evidence), options)
     proposal = next(factory(state, Work.start(10)))
+    assert state.partition is not None
+    assert proposal.partition is not None
     assert len(proposal.partition.surfaces) < len(state.partition.surfaces)
     assert len(state.partition.surfaces) == 8
     assert sum(e.tag == "path" for e in import_svg(state.svg).elements()) == 8
@@ -119,23 +125,20 @@ def test_streamed_family_samples_match_dense_row_order_and_rgba_models(
 ):
     evidence = stripes(gradient=True, alpha=128, hole=True)
     # More than 4096 matching pixels exercise the stride across chunk edges.
-    fields = (
-        "rgba",
-        "target",
-        "smooth",
-        "coarse",
-        "empty",
-        "foreground",
-        "line",
-        "drawn",
-        "darkness",
-        "texture",
-        "labels",
-        "opacity",
-    )
     evidence = replace(
         evidence,
-        **{name: np.repeat(getattr(evidence, name), 3, axis=0) for name in fields},
+        rgba=np.repeat(evidence.rgba, 3, axis=0),
+        target=np.repeat(evidence.target, 3, axis=0),
+        smooth=np.repeat(evidence.smooth, 3, axis=0),
+        coarse=np.repeat(evidence.coarse, 3, axis=0),
+        empty=np.repeat(evidence.empty, 3, axis=0),
+        foreground=np.repeat(evidence.foreground, 3, axis=0),
+        line=np.repeat(evidence.line, 3, axis=0),
+        drawn=np.repeat(evidence.drawn, 3, axis=0),
+        darkness=np.repeat(evidence.darkness, 3, axis=0),
+        texture=np.repeat(evidence.texture, 3, axis=0),
+        labels=np.repeat(evidence.labels, 3, axis=0),
+        opacity=np.repeat(required(evidence.opacity), 3, axis=0),
         source_size=(96, 192),
     )
     graph = build(evidence)
@@ -146,13 +149,14 @@ def test_streamed_family_samples_match_dense_row_order_and_rgba_models(
     y, x = np.nonzero(own)
     step = (len(x) + 4095) // 4096
     expected_xy = np.column_stack((x[::step] + 0.5, y[::step] + 0.5))
+    assert evidence.opacity is not None
     expected_rgba = np.column_stack(
         (
             evidence.target[y[::step], x[::step]] / 255,
             evidence.opacity[y[::step], x[::step]],
         )
     )
-    xy, rgba, count = factory.samples(members, Work.start(10))
+    xy, rgba, count = required(factory.samples(members, Work.start(10)))
     assert count == len(x)
     assert len(xy) <= 4096
     np.testing.assert_array_equal(xy, expected_xy)
@@ -181,26 +185,20 @@ def test_interrupted_family_sampling_does_not_publish_partial_samples(monkeypatc
 
 def test_long_surface_family_reaches_native_tiled_acceptance_and_full_checkpoint():
     evidence = stripes(gradient=True, alpha=128)
-    fields = (
-        "rgba",
-        "target",
-        "smooth",
-        "coarse",
-        "empty",
-        "foreground",
-        "line",
-        "drawn",
-        "darkness",
-        "texture",
-        "labels",
-        "opacity",
-    )
     evidence = replace(
         evidence,
-        **{
-            name: np.repeat(np.repeat(getattr(evidence, name), 32, axis=0), 2, axis=1)
-            for name in fields
-        },
+        rgba=np.repeat(np.repeat(evidence.rgba, 32, axis=0), 2, axis=1),
+        target=np.repeat(np.repeat(evidence.target, 32, axis=0), 2, axis=1),
+        smooth=np.repeat(np.repeat(evidence.smooth, 32, axis=0), 2, axis=1),
+        coarse=np.repeat(np.repeat(evidence.coarse, 32, axis=0), 2, axis=1),
+        empty=np.repeat(np.repeat(evidence.empty, 32, axis=0), 2, axis=1),
+        foreground=np.repeat(np.repeat(evidence.foreground, 32, axis=0), 2, axis=1),
+        line=np.repeat(np.repeat(evidence.line, 32, axis=0), 2, axis=1),
+        drawn=np.repeat(np.repeat(evidence.drawn, 32, axis=0), 2, axis=1),
+        darkness=np.repeat(np.repeat(evidence.darkness, 32, axis=0), 2, axis=1),
+        texture=np.repeat(np.repeat(evidence.texture, 32, axis=0), 2, axis=1),
+        labels=np.repeat(np.repeat(evidence.labels, 32, axis=0), 2, axis=1),
+        opacity=np.repeat(np.repeat(required(evidence.opacity), 32, axis=0), 2, axis=1),
         source_size=(192, 2048),
     )
     frontier, state, options = prepared(evidence, layers=True)
@@ -295,7 +293,7 @@ def test_structural_edit_cannot_drop_source_members_before_native_evaluation():
         for edit in factory(state, work):
             surfaces = tuple(
                 replace(s, members=tuple(m for m in s.members if m != 1))
-                for s in edit.partition.surfaces
+                for s in required(edit.partition).surfaces
                 if s.members != (1,)
             )
             yield replace(edit, partition=Partition(surfaces))
@@ -316,14 +314,16 @@ def test_partial_family_preserves_neighbor_geometry_and_canonical_boundary_ids()
         for proposal in Families(evidence, graph, options)(state, Work.start(10))
         if 1 < len(proposal.ids) < 8
     )
+    assert edit.partition is not None
+    assert state.partition is not None
     assert set(edit.partition.owners) == set(state.partition.owners)
     for surface in state.partition.surfaces:
         if surface.id not in edit.ids:
             assert edit.document.geometry_for(
                 surface.id
             ) == state.document.geometry_for(surface.id)
-    before = {edge.boundary for edge in state.partition.edges(graph)}
-    after = {edge.boundary for edge in edit.partition.edges(graph)}
+    before = {edge.boundary for edge in required(state.partition).edges(graph)}
+    after = {edge.boundary for edge in required(edit.partition).edges(graph)}
     assert after < before
     assert {edge.id for edge in graph.boundaries}.issuperset(after)
 
@@ -387,6 +387,7 @@ def test_supported_ridge_cannot_be_removed_by_a_weak_alternate_route():
     )
     factory = Families(evidence, graph, options)
     groups = list(factory._groups(state, Work.start(10)))
+    assert state.partition is not None
     first, second = state.partition.owners[1], state.partition.owners[2]
     assert groups
     assert all(not {first, second}.issubset(ids) for ids, _ in groups)

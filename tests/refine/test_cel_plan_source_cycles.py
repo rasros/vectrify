@@ -81,10 +81,10 @@ def test_serialization_rotation_never_changes_caps_or_introduces_a_chunk_termina
     rotated = SourceCycle(
         replace(
             profile,
-            **{
-                name: roll(getattr(profile, name))
-                for name in ("points", "sides", "direction", "tolerance")
-            },
+            points=roll(profile.points),
+            sides=roll(profile.sides),
+            direction=roll(profile.direction),
+            tolerance=roll(profile.tolerance),
         )
     )
     first = original.recover(
@@ -222,6 +222,7 @@ def test_gap_replacement_exports_an_open_editable_stroke_and_roundtrips(
     assert edits
     before = render(state.svg, evidence.source_size)
     for edit in edits:
+        assert edit.partition is not None
         ops.validate_partition(edit.partition, Work.start(10))
         svg = export_svg(edit.document)
         full = frontier.policy.evaluate(svg)
@@ -234,6 +235,7 @@ def test_gap_replacement_exports_an_open_editable_stroke_and_roundtrips(
         assert len(strokes) == 1
         assert strokes[0].get("fill") == "none"
         assert not edit.document.geometry_for(strokes[0].id).subpaths[0].closed
+        assert edit.details is not None
         assert edit.details["source_strokes"]["cuts"] > 0
         actual = render(svg, evidence.source_size)
         np.testing.assert_array_equal(actual[..., 3], before[..., 3])

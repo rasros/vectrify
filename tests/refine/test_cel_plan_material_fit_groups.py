@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from vectrify.refine.cel_plan import material_groups
 from vectrify.refine.cel_plan.material_groups import grouped
 from vectrify.refine.cel_plan.model import Work
@@ -55,8 +56,10 @@ def invoke(colors, sizes, grams, ranges, **kwargs):
 def test_complete_gradient_fit_preserves_a_real_material_change_at_equal_budget():
     colors, sizes, grams, ranges = samples()
     saved = grams.copy()
-    fitted, eligible, details = invoke(colors, sizes, grams, ranges)
-    flat, _, _ = grouped(colors, sizes, [(0, 1), (1, 2), (2, 3)], 2, Work.start(10))
+    fitted, eligible, details = required(invoke(colors, sizes, grams, ranges))
+    flat, _, _ = required(
+        grouped(colors, sizes, [(0, 1), (1, 2), (2, 3)], 2, Work.start(10))
+    )
     np.testing.assert_array_equal(flat, [0, 0, 2, 2])
     np.testing.assert_array_equal(fitted, [0, 0, 0, 3])
     assert eligible.all()
@@ -69,21 +72,25 @@ def test_complete_gradient_fit_preserves_a_real_material_change_at_equal_budget(
 
 def test_disabling_gradients_recovers_the_flat_material_interpretation():
     colors, sizes, grams, ranges = samples()
-    fitted, _, _ = invoke(colors, sizes, grams, ranges, gradients=False)
-    flat, _, _ = grouped(colors, sizes, [(0, 1), (1, 2), (2, 3)], 2, Work.start(10))
+    fitted, _, _ = required(invoke(colors, sizes, grams, ranges, gradients=False))
+    flat, _, _ = required(
+        grouped(colors, sizes, [(0, 1), (1, 2), (2, 3)], 2, Work.start(10))
+    )
     np.testing.assert_array_equal(fitted, flat)
 
 
 def test_full_owner_alpha_step_cannot_become_a_gradient_to_meet_the_budget():
     colors, sizes, grams, ranges = samples(alpha_step=True)
-    fitted, _, details = grouped(
-        colors,
-        sizes,
-        [(0, 1), (1, 2), (2, 3)],
-        1,
-        Work.start(10),
-        statistics=grams,
-        alpha_ranges=ranges,
+    fitted, _, details = required(
+        grouped(
+            colors,
+            sizes,
+            [(0, 1), (1, 2), (2, 3)],
+            1,
+            Work.start(10),
+            statistics=grams,
+            alpha_ranges=ranges,
+        )
     )
     np.testing.assert_array_equal(fitted, [0, 0, 2, 2])
     assert details["alpha_exclusions"] > 0
@@ -92,14 +99,16 @@ def test_full_owner_alpha_step_cannot_become_a_gradient_to_meet_the_budget():
 
 def test_supported_alpha_ramp_uses_one_common_axis_without_losing_owners():
     colors, sizes, grams, ranges = samples(alpha_ramp=True)
-    fitted, _, details = grouped(
-        colors,
-        sizes,
-        [(0, 1), (1, 2), (2, 3)],
-        1,
-        Work.start(10),
-        statistics=grams,
-        alpha_ranges=ranges,
+    fitted, _, details = required(
+        grouped(
+            colors,
+            sizes,
+            [(0, 1), (1, 2), (2, 3)],
+            1,
+            Work.start(10),
+            statistics=grams,
+            alpha_ranges=ranges,
+        )
     )
     np.testing.assert_array_equal(fitted, [0, 0, 0, 0])
     assert not details["budget_unmet"]
@@ -108,16 +117,18 @@ def test_supported_alpha_ramp_uses_one_common_axis_without_losing_owners():
 
 def test_ink_role_and_small_disconnected_support_remain_independent():
     colors, sizes, grams, ranges = samples(alpha_ramp=True)
-    fitted, eligible, details = grouped(
-        colors,
-        sizes,
-        [(0, 1), (1, 2)],
-        1,
-        Work.start(10),
-        minimum_component_area=200,
-        kinds=np.array([0, 1, 0, 0]),
-        statistics=grams,
-        alpha_ranges=ranges,
+    fitted, eligible, details = required(
+        grouped(
+            colors,
+            sizes,
+            [(0, 1), (1, 2)],
+            1,
+            Work.start(10),
+            minimum_component_area=200,
+            kinds=np.array([0, 1, 0, 0]),
+            statistics=grams,
+            alpha_ranges=ranges,
+        )
     )
     np.testing.assert_array_equal(fitted, np.arange(4))
     np.testing.assert_array_equal(eligible, [True, True, True, False])
@@ -131,7 +142,7 @@ def test_model_exhaustion_returns_a_complete_prefix_without_mutating_statistics(
     colors, sizes, grams, ranges = samples()
     saved = grams.copy()
     monkeypatch.setattr(material_groups, "MAX_MODEL_EVALUATIONS", 6)
-    fitted, _, details = invoke(colors, sizes, grams, ranges)
+    fitted, _, details = required(invoke(colors, sizes, grams, ranges))
     np.testing.assert_array_equal(fitted, np.arange(4))
     np.testing.assert_array_equal(grams, saved)
     assert details["model_limit_hit"]

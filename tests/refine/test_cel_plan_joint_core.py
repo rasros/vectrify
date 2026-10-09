@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_core_cells import material
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_piecewise_surfaces import marked_step
@@ -108,6 +109,8 @@ def test_joint_material_budget_keeps_short_hatching_as_supported_ink(
         actual = render(export_svg(edit.document), evidence.source_size)
         assert np.mean(cel.lightness(actual[drawn, :3] * 255) < 100) >= 0.9
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
     assert factory.diagnostics["hierarchy_ink_cells_peak"] >= 1
     assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 3
@@ -159,14 +162,18 @@ def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(
         dark = cel.lightness(actual[..., :3] * 255) < 50
         np.testing.assert_array_equal(dark & ~evidence.empty, drawn)
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
         if layout == "regions":
             assert set(edit.partition.owners) == set(state.partition.owners)
+            assert edit.partition.atoms is not None
             assert len(edit.partition.atoms.cuts) == 0
         else:
             # Material planes may split a background atom. None of the 70
             # independently owned ink islands may be split or disappear.
             islands = tuple(int(i) for i in np.unique(build(evidence).labels[drawn]))
+            assert edit.partition.atoms is not None
             assert edit.partition.atoms.descendants(islands) == islands
             assert set(islands).issubset(edit.partition.owners)
             Operators(evidence, build(evidence), options).validate_partition(
@@ -265,6 +272,8 @@ def test_offline_dynamic_component_publishes_through_full_native_checkpoint(grou
     assert factory.diagnostics["proposals"] > 0
     assert frontier.policy.evaluate(selected.svg).valid
     partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
+    assert partition is not None
+    assert state.partition is not None
     assert partition.follows(state.partition)
 
 
@@ -296,13 +305,18 @@ def test_joint_component_includes_every_eligible_owner_with_complete_uncut_suppo
     assert edits
     for edit in edits:
         assert edit.operator == "joint-core-cells"
+        assert edit.details is not None
         assert edit.details["core_material_cells"]["joint"]
+        assert edit.partition is not None
+        assert edit.partition.atoms is not None
         assert edit.partition.atoms.cuts == ()
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
         Operators(evidence, graph, options).validate_partition(
             edit.partition, Work.start(10)
         )
         assert set(edit.partition.owners) == set(state.partition.owners)
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -325,7 +339,7 @@ def test_joint_component_includes_every_eligible_owner_with_complete_uncut_suppo
         assert local.canvas.matches(actual)
         assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
         reloaded, _ = load_project(save_project(edit.document))
-        Partition.from_metadata(edit.partition.metadata()).validate(reloaded)
+        required(Partition.from_metadata(edit.partition.metadata())).validate(reloaded)
         np.testing.assert_array_equal(
             render(export_svg(reloaded), evidence.source_size), actual
         )
@@ -354,6 +368,7 @@ def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_ow
     evidence = marked_step(128)
     frontier, state, options = prepared(evidence, layers=True)
     graph = build(evidence)
+    assert state.partition is not None
     oid = state.partition.owners[9]
     document = state.document
     if protection == "paint":
@@ -396,9 +411,11 @@ def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_ow
     edits = list(factory(state, Work.start(15)))
     assert edits
     for edit in edits:
+        assert edit.partition is not None
         assert edit.partition.owners[9] == oid
         assert edit.document.element(oid) == state.document.element(oid)
         assert edit.document.geometry_for(oid) == state.document.geometry_for(oid)
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -420,6 +437,7 @@ def test_joint_discovery_stop_keeps_the_original_checkpoint_and_namespace():
     work = Work.start(10)
     work.stop.set()
     assert list(factory(state, work)) == []
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
 
@@ -427,6 +445,7 @@ def test_joint_discovery_stop_keeps_the_original_checkpoint_and_namespace():
 def test_joint_carrier_fringe_is_scored_without_waiving_material_opacity_checks():
     evidence = material(128)
     _, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     oid = state.partition.owners[1]
     element = state.document.element(oid)
     attrs = {**dict(element.attributes), "transform": "translate(-0.4 0)"}
@@ -465,7 +484,7 @@ def test_joint_carrier_fringe_is_scored_without_waiving_material_opacity_checks(
     edits = list(factory(state, Work.start(10)))
     assert edits
     for edit in edits:
-        assert oid not in {s.id for s in edit.partition.surfaces}
+        assert oid not in {s.id for s in required(edit.partition).surfaces}
         svg = export_svg(edit.document)
         actual = render(svg, evidence.source_size)
         # The fringe changes; material support and the independent policy still hold.
@@ -496,6 +515,7 @@ def test_tiny_independently_owned_material_survives_joint_contour_fitting():
     )
     frontier, state, options = prepared(evidence, layers=True)
     graph = build(evidence)
+    assert state.partition is not None
     oid = state.partition.owners[9]
     original = state.document.geometry_for(oid)
     geometry = replace(parse_path("M10 10H11V11H10Z"), id=original.id)
@@ -517,6 +537,7 @@ def test_tiny_independently_owned_material_survives_joint_contour_fitting():
     assert edits
     faithful = []
     for edit in edits:
+        assert edit.partition is not None
         Operators(evidence, graph, options).validate_partition(
             edit.partition, Work.start(10)
         )

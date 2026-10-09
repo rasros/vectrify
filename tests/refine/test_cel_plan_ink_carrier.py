@@ -39,6 +39,7 @@ def test_carrier_raster_preserves_native_phase_holes_and_tile_equivalence(
         (96, 96),
     )[..., 3]
     np.testing.assert_array_equal(actual, expected)
+    assert actual is not None
     assert not actual.flags.writeable
     assert actual[40:58, 42:54].max() == 0
     monkeypatch.setattr(ink_carrier, "MAX_CROP_PIXELS", 512)
@@ -232,6 +233,7 @@ def test_carrier_excluded_peak_keeps_the_actual_contiguous_source_ridge(alpha):
         opacity=opacity / alpha,
         coverage=coverage,
     )
+    assert full is not None
     np.testing.assert_array_equal(full.points, eligible.points)
     assert full.width == eligible.width
     # A real longitudinal gap remains a failed source proof.

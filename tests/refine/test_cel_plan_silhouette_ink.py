@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import path_style
@@ -151,11 +152,12 @@ def test_outline_replaces_selected_fill_with_native_editable_stroke(
     edits = [
         p
         for p in factory.proposals(state, Work.start(20))
-        if p.details["source_strokes"]["model"] == "source-silhouette-stroke"
+        if required(p.details)["source_strokes"]["model"] == "source-silhouette-stroke"
     ]
     assert edits
     original = render(state.svg, evidence.source_size)
     for edit in edits:
+        assert edit.partition is not None
         ops.validate_partition(edit.partition, Work.start(10))
         svg = export_svg(edit.document)
         full = frontier.policy.evaluate(svg)
@@ -195,7 +197,7 @@ def test_perimeter_hypothesis_does_not_duplicate_a_retained_stroke():
     factory = SourceStrokes(evidence, build(evidence), options, outlines=True)
     edits = list(factory.proposals(state, Work.start(10)))
     assert not any(
-        p.details["source_strokes"]["model"] == "source-silhouette-stroke"
+        required(p.details)["source_strokes"]["model"] == "source-silhouette-stroke"
         for p in edits
     )
     assert factory.diagnostics["outline_retained_exclusions"] > 0

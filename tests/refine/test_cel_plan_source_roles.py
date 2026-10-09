@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_core_cells import material
 from tests.refine.test_cel_plan_families import prepared
 from vectrify.document import export_svg, load_project, save_project
@@ -125,9 +126,12 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
     edits = list(factory(state, Work.start(20)))
     assert edits, factory.diagnostics
     assert factory.diagnostics["source_role_mixed_owners_peak"] >= 6
-    supported = [e for e in edits if e.details["core_material_cells"]["stroke_models"]]
+    supported = [
+        e for e in edits if required(e.details)["core_material_cells"]["stroke_models"]
+    ]
     assert supported, factory.diagnostics
     for edit in supported:
+        assert edit.details is not None
         assert edit.details["core_material_cells"]["ink_coverage"] == ink_coverage
         assert edit.details["core_material_cells"]["ink_fit"] == ink_fit
         assert edit.details["core_material_cells"]["source_roles"] == (
@@ -135,11 +139,15 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
             if ink_roles == "fitted"
             else "pixel-ink-and-material"
         )
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.follows(state.partition)
+        assert edit.partition.atoms is not None
         assert edit.partition.atoms.cuts
         Operators(evidence, graph, options).validate_partition(
             edit.partition, Work.start(10)
         )
+        assert edit.component is not None
         assert edit.component.validate(
             state.document,
             edit.document,
@@ -181,6 +189,7 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
             render(export_svg(restored), evidence.source_size), actual
         )
     assert state.svg == before
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -211,6 +220,7 @@ def test_final_role_cut_exhaustion_retains_the_complete_original_owner_namespace
         and failure["attempted_lower_bound"] == 1
         for failure in failures
     )
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert export_svg(state.document) == before
 
@@ -252,6 +262,7 @@ def test_source_discovery_precedes_budget_and_keeps_an_independent_owned_chain(
 
     evidence, ink = mixed(gap=True)
     frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     held = state.partition.owners[int(evidence.labels[19, 40])]
     state = replace(state, details={**state.details, "paint_constraints": [held]})
     factory = CoreCells(
@@ -280,6 +291,7 @@ def test_source_discovery_precedes_budget_and_keeps_an_independent_owned_chain(
     for edit in edits:
         assert edit.document.geometry_for(held) == state.document.geometry_for(held)
         assert edit.document.element(held) == state.document.element(held)
+        assert edit.details is not None
         stroke_models = edit.details["core_material_cells"]["stroke_models"]
         assert stroke_models
         assert all(
@@ -333,8 +345,9 @@ def test_unmodeled_tiny_mark_stays_filled_without_a_fabricated_stroke_connection
         branch = Operators(evidence, graph, options).branch(
             edit.partition, Work.start(10)
         )
-        surfaces = {s.id: s for s in edit.partition.surfaces}
+        surfaces = {s.id: s for s in required(edit.partition).surfaces}
         for atom in np.unique(branch.graph.labels[42:44, 78:81]):
+            assert edit.partition is not None
             owner = edit.partition.owners[int(atom)]
             assert surfaces[owner].role == "surface"
             assert (
@@ -421,6 +434,7 @@ def test_cancelled_early_stroke_discovery_cannot_publish_material_roles(monkeypa
     assert list(factory(state, work)) == []
     assert factory.diagnostics["proposals"] == 0
     assert factory.diagnostics["source_fitted_role_pixels"] == 0
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
 

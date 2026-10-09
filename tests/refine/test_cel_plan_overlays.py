@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_layers import evidence as opaque
 from vectrify.document import (
@@ -76,6 +77,7 @@ def test_closed_family_removes_fragments_with_native_checkpoint_agreement(alpha)
         assert full.cost < state.snapshot.evaluation.cost
         assert updated.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
         assert updated.canvas.matches(render(svg, evidence.source_size))
+        assert edit.details is not None
         assert frontier.checkpoint(
             svg,
             "Closed overlay",
@@ -83,16 +85,23 @@ def test_closed_family_removes_fragments_with_native_checkpoint_agreement(alpha)
             updated.evaluation,
             raster=updated.canvas,
         )
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.owners.keys() == state.partition.owners.keys()
         edit.partition.validate(edit.document)
-        overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
+        overlay = next(
+            s for s in required(edit.partition).surfaces if s.role == "overlay"
+        )
         assert overlay.members == (2, 3, 4, 5)
         assert overlay.id in edit.details["geometry_constraints"]
-        assert len([s for s in edit.partition.surfaces if s.role == "surface"]) == 2
+        assert (
+            len([s for s in required(edit.partition).surfaces if s.role == "surface"])
+            == 2
+        )
         np.testing.assert_array_equal(
             render(svg, evidence.source_size)[..., 3], evidence.rgba[..., 3]
         )
-    assert not any(s.role == "overlay" for s in state.partition.surfaces)
+    assert not any(s.role == "overlay" for s in required(state.partition).surfaces)
     assert state.snapshot.canvas.matches(
         render(export_svg(state.document), evidence.source_size)
     )
@@ -110,6 +119,7 @@ def test_closed_rgb_mark_precedes_complex_paint_and_reaches_native_evaluation():
         [(200, 150, 100), (140, 100, 65), (32, 32, 32), (60, 150, 110), (160, 105, 70)],
         dtype=np.float32,
     )[labels]
+    assert evidence.opacity is not None
     rgba = np.concatenate((target / 255, evidence.opacity[..., None]), axis=-1)
     evidence = replace(evidence, labels=labels, target=target, rgba=rgba)
     frontier, state, options = prepared(evidence, layers=True)
@@ -118,6 +128,7 @@ def test_closed_rgb_mark_precedes_complex_paint_and_reaches_native_evaluation():
     ids, members = next(groups)
     groups.close()
     assert members == (2,)
+    assert state.partition is not None
     assert ids == (state.partition.owners[2],)
     assert factory.diagnostics["enclosed_priorities"] == 1
     edits = list(factory(state, Work.start(10)))
@@ -133,6 +144,7 @@ def test_closed_rgb_mark_precedes_complex_paint_and_reaches_native_evaluation():
         )
         assert full.valid
         assert updated.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        assert edit.partition is not None
         assert edit.partition.owners.keys() == state.partition.owners.keys()
         np.testing.assert_array_equal(
             render(svg, evidence.source_size)[60, 60],
@@ -150,7 +162,7 @@ def test_underpaint_continues_both_neighbor_shades_in_the_old_footprint():
         )
         if p.parameters[2] == (2, 3, 4, 5)
     )
-    overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
+    overlay = next(s for s in required(edit.partition).surfaces if s.role == "overlay")
     editor = Editor(edit.document, selection=Selection(whole_document=True))
     with editor.transaction("Inspect restored paint") as transaction:
         transaction.set_fill(overlay.id, "none")
@@ -190,8 +202,8 @@ def test_gradient_overlay_and_underpaint_keep_their_original_frames():
     ]
     assert edits
     edit = edits[0]
-    overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
-    assert edit.document.element(overlay.id).get("fill").startswith("url(")
+    overlay = next(s for s in required(edit.partition).surfaces if s.role == "overlay")
+    assert required(edit.document.element(overlay.id).get("fill")).startswith("url(")
     editor = Editor(edit.document, selection=Selection(whole_document=True))
     with editor.transaction("Inspect gradient continuation") as transaction:
         transaction.set_fill(overlay.id, "none")
@@ -238,12 +250,14 @@ def test_source_label_order_cannot_put_the_new_overlay_beneath_restored_bases():
     ]
     assert edits
     for edit in edits:
-        overlay = next(s for s in edit.partition.surfaces if s.role == "overlay")
+        overlay = next(
+            s for s in required(edit.partition).surfaces if s.role == "overlay"
+        )
         parent = edit.document.ancestry(overlay.id)[-2]
         order = [c.id for c in parent.children]
         assert all(
             order.index(s.id) < order.index(overlay.id)
-            for s in edit.partition.surfaces
+            for s in required(edit.partition).surfaces
             if s.covered
         )
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
@@ -306,6 +320,7 @@ def test_overlapping_bounds_do_not_block_a_geometrically_disjoint_sibling():
 
 def test_faint_intentional_mark_outside_the_overlay_keeps_its_geometry_and_alpha():
     evidence = source()
+    assert evidence.opacity is not None
     labels, target, opacity = (
         evidence.labels.copy(),
         evidence.target.copy(),
@@ -387,6 +402,7 @@ def test_fragmented_neighbor_paint_can_continue_within_the_separate_path_bound()
     labels[own] = 30 + np.clip((x[own] - 48) // 6, 0, 3)
     target = np.full((120, 120, 3), (200, 150, 100), dtype=np.float32)
     target[own] = (60, 150, 110)
+    assert evidence.opacity is not None
     evidence = replace(
         evidence,
         labels=labels,
@@ -405,7 +421,9 @@ def test_fragmented_neighbor_paint_can_continue_within_the_separate_path_bound()
     ]
     assert edits
     for edit in edits:
-        assert 4 < len([s for s in edit.partition.surfaces if s.covered]) <= 16
+        assert (
+            4 < len([s for s in required(edit.partition).surfaces if s.covered]) <= 16
+        )
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
         np.testing.assert_array_equal(
             render(export_svg(edit.document), evidence.source_size)[..., 3],
@@ -419,14 +437,14 @@ def test_core_must_cover_new_geometry_as_well_as_the_old_owned_footprint():
     document = state.document
     ids = tuple(
         s.id
-        for s in state.partition.surfaces
+        for s in required(state.partition).surfaces
         if s.members[0] >= 2 and s.role == "surface"
     )
     original = union_geometry(
         [document.geometry_for(oid) for oid in ids],
         [path_style(document, document.element(oid)) for oid in ids],
     )
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     editor = Editor(document, selection=Selection(whole_document=True))
     with editor.transaction("Restrict core to the old footprint") as transaction:
         transaction.replace_geometry(
@@ -482,8 +500,9 @@ def test_offset_scaled_scope_apply_reload_and_search_preserve_owned_primitives()
     selected = frontier.select(50)
     assert selected.metrics["nodes"] < representation(state.document).metrics()["nodes"]
     partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
-    assert any(s.role == "overlay" for s in partition.surfaces)
+    assert any(s.role == "overlay" for s in required(partition).surfaces)
     document, _ = load_project(save_project(import_svg(selected.svg)))
+    assert partition is not None
     partition.validate(document)
     np.testing.assert_array_equal(
         render(export_svg(document), evidence.source_size),

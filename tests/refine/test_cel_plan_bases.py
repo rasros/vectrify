@@ -77,6 +77,7 @@ def test_low_opacity_fringe_outside_core_retains_its_original_alpha():
     labels = evidence.labels.copy()
     # The weaker fringe is its own surface, rather than a constant-alpha fit
     # spanning the core and fringe. Both paints normalize inside the group.
+    assert evidence.opacity is not None
     labels[(evidence.opacity < 32 / 255) & ~evidence.empty] = 3
     svg, details = export(
         evidence, labels, Options(gradients=False), Work.start(10), layers=True
@@ -107,6 +108,7 @@ def test_native_thin_mark_keeps_an_independent_component():
     source[2:6, 2:4] = (32, 16, 8, 1)
     evidence = evidence_for(source)
     labels = evidence.labels.copy()
+    assert evidence.opacity is not None
     labels[(evidence.opacity < 2 / 255) & ~evidence.empty] = 3
     svg, details = export(
         evidence, labels, Options(gradients=False), Work.start(10), layers=True

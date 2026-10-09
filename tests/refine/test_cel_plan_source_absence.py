@@ -46,6 +46,7 @@ def test_reused_guard_retains_frozen_absence_after_raw_identity_changes():
     profiles[0].points[:] += 20
     proof = SourceAbsence(evidence, (), Work.start(10), intervals=True, guard=guard)
     np.testing.assert_array_equal(proof.points, expected)
+    assert proof.source_breaks is not None
     assert proof.source_breaks(profiles[0]) is guard.source_breaks(profiles[0])
     assert not proof.permits(parse_path("M20 28H76"), 3, "butt", Work.start(10))
     with pytest.raises(ValueError, match="guard must match"):

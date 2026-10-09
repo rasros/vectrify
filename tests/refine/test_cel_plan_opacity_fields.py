@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from vectrify.document import (
     Editor,
     Element,
@@ -119,8 +120,11 @@ def test_connected_fields_keep_gaps_holes_tiny_marks_and_nested_paint(hole, fram
     proposals = list(model(state, work))
     assert len(proposals) == 1
     edit = proposals[0]
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
     assert set(edit.partition.owners) == set(state.partition.owners)
+    assert edit.component is not None
     assert edit.component.validate(
         state.document,
         edit.document,
@@ -215,7 +219,7 @@ def test_incomplete_or_protected_component_keeps_all_its_paths(protection):
         partition = Partition(
             tuple(
                 replace(s, covered=(7,)) if s.id == "p1" else s
-                for s in state.partition.surfaces
+                for s in required(state.partition).surfaces
             )
         )
         state = replace(state, partition=partition)
@@ -240,6 +244,7 @@ def test_incomplete_or_protected_component_keeps_all_its_paths(protection):
 
 def test_excessive_flat_opacity_retains_original_component():
     evidence, graph, state, _ = fixture()
+    assert evidence.opacity is not None
     alpha = evidence.opacity.copy()
     alpha[evidence.labels == 2] = 7 / 255
     alpha[evidence.labels == 1] = 1 / 255
@@ -268,16 +273,19 @@ def test_split_source_atoms_keep_exact_lineage_and_complete_ownership():
     atoms, groups = Atoms.original(graph).partition(
         graph, (1,), classes, 2, work, compact=True
     )
+    assert state.partition is not None
     partition = state.partition.split(
         ("p1",), (Surface("p1", tuple(sorted((*groups[0], *groups[1])))),), atoms
     )
     branch = atoms.graph(evidence, graph, work)
     state = replace(state, partition=partition)
     edit = next(iter(fields.OpacityFields(evidence, branch)(state, work)))
+    assert edit.partition is not None
     assert edit.partition.atoms == atoms
     assert edit.partition.follows(partition)
     assert set(edit.partition.owners) == set(partition.owners)
     assert Partition.from_metadata(edit.partition.metadata()) == edit.partition
+    assert edit.partition.atoms is not None
     np.testing.assert_array_equal(
         edit.partition.atoms.labels(graph, work), branch.labels
     )
@@ -303,9 +311,12 @@ def test_atom_spanning_two_physical_components_cannot_be_collapsed_into_one():
     document = replace(
         document, geometries=tuple(g for g in document.geometries if g.id != tiny.id)
     )
-    partition = Partition(tuple(s for s in state.partition.surfaces if s.id != "p5"))
+    partition = Partition(
+        tuple(s for s in required(state.partition).surfaces if s.id != "p5")
+    )
     state = replace(state, document=document, partition=partition)
     edit = next(iter(fields.OpacityFields(evidence, graph)(state, Work.start(10))))
+    assert edit.partition is not None
     assert edit.partition.follows(partition)
     for oid in ("p1", "p2", "p6"):
         assert oid not in edit.ids
@@ -357,6 +368,7 @@ def test_nested_sibling_changes_are_rejected_even_with_declared_parent(change):
         )
     else:
         ids = (*ids, "nested")
+    assert edit.component is not None
     with pytest.raises(ValueError, match="cannot edit nested"):
         edit.component.validate(
             state.document,

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from vectrify.document import export_svg, import_svg, load_project, save_project
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import atoms as atom_module
@@ -97,6 +98,7 @@ def test_compound_stroke_reallocates_from_ancestor_at_saturated_cut_limit(
     monkeypatch.setattr(atom_module, "MAX_CUTS", 1)
     operators = Operators(e, graph, options, filled_bands=True)
     planner = operators.families.band_planner
+    assert planner is not None
     alternatives = list(planner(state, edit, Work.start(20)))
     assert len(alternatives) == 5, planner.diagnostics
     assert len({p.partition.atoms for p in alternatives}) == 1
@@ -123,6 +125,7 @@ def test_compound_stroke_reallocates_from_ancestor_at_saturated_cut_limit(
     assert proposed.partition.follows(state.partition)
     # This really is a distinct alternative namespace, never an edit claiming
     # to extend the already finished material ledger.
+    assert edit.partition is not None
     assert not proposed.partition.atoms.extends(edit.partition.atoms)
     operators.validate_partition(proposed.partition, Work.start(10))
     proposed.component.validate(
@@ -163,12 +166,14 @@ def test_compound_stroke_reallocates_from_ancestor_at_saturated_cut_limit(
         max(abs(local.evaluation.terms[k] - v) for k, v in native.terms.items()) < 2e-7
     )
     assert edit.document is state.document
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
 def test_unrepresented_source_pixels_keep_existing_owner_without_fake_support():
     e, graph, options, _, state, edit = fixture(missing=True)
     ops = Operators(e, graph, options, filled_bands=True)
+    assert ops.families.band_planner is not None
     proposed = next(ops.families.band_planner(state, edit, Work.start(20)))
     assert (
         proposed.details["planned_band_stroke"]["inherited_unrepresented_source_pixels"]
@@ -211,8 +216,12 @@ def test_cancelled_planning_publishes_no_partial_document_or_namespace():
     ops = Operators(e, graph, options, filled_bands=True)
     work = Work.start(10)
     work.stop.set()
+    assert ops.families.band_planner is not None
     assert list(ops.families.band_planner(state, edit, work)) == []
+    assert state.partition is not None
     assert state.partition.atoms is None
+    assert edit.partition is not None
+    assert edit.partition.atoms is not None
     assert len(edit.partition.atoms.cuts) == 1
 
 
@@ -220,6 +229,7 @@ def test_new_atom_cut_limit_excludes_whole_alternative(monkeypatch):
     e, graph, options, _, state, edit = fixture()
     ops = Operators(e, graph, options, filled_bands=True)
     monkeypatch.setattr(atom_module, "MAX_CUTS", 0)
+    assert ops.families.band_planner is not None
     assert list(ops.families.band_planner(state, edit, Work.start(20))) == []
     assert ops.families.band_planner.diagnostics["bounded"] == 1
 
@@ -232,6 +242,7 @@ def test_default_operators_leave_co_planning_disabled():
 def test_explicit_width_setting_does_not_offer_width_adjustments():
     e, graph, options, _, state, edit = fixture()
     ops = Operators(e, graph, replace(options, line_width=3), filled_bands=True)
+    assert ops.families.band_planner is not None
     edits = list(ops.families.band_planner(state, edit, Work.start(20)))
     assert len(edits) == 1
     details = edits[0].details["planned_band_stroke"]
@@ -241,12 +252,17 @@ def test_explicit_width_setting_does_not_offer_width_adjustments():
 def test_branch_co_planning_extends_actual_ancestor_prefix():
     e, graph, options, _, state, first = fixture()
     state = replace(state, partition=first.partition)
+    assert first.partition is not None
+    assert first.partition.atoms is not None
     current = first.partition.atoms.graph(e, graph, Work.start(10))
-    members = next(s.members for s in state.partition.surfaces if s.id == "ink")
+    members = next(
+        s.members for s in required(state.partition).surfaces if s.id == "ink"
+    )
     classes = (np.indices(current.labels.shape)[0] >= 32).astype(np.int32)
     ledger, groups = first.partition.atoms.partition(
         current, members, classes, 2, Work.start(10), compact=True, retain_parent=True
     )
+    assert state.partition is not None
     owned = state.partition.split(
         ("ink",), (Surface("ink", tuple(sorted(groups[0] + groups[1]))),), ledger
     )
@@ -259,8 +275,10 @@ def test_branch_co_planning_extends_actual_ancestor_prefix():
     )
     ops = Operators(e, graph, options, filled_bands=True)
     branch = ops.branch(state.partition, Work.start(10))
+    assert branch.families.band_planner is not None
     proposed = next(branch.families.band_planner(state, ordinary, Work.start(20)))
     assert proposed.partition.atoms.extends(state.partition.atoms)
+    assert ordinary.partition is not None
     assert not proposed.partition.atoms.extends(ordinary.partition.atoms)
     ops.validate_partition(proposed.partition, Work.start(10))
     proposed.component.validate(
@@ -296,9 +314,12 @@ def test_joint_cursor_offers_material_first_then_complete_band_alternative(monke
     scheduled = JointCells(ops.families, options, bands=ops.families.band_planner)
     edits = list(scheduled(state, Work.start(20)))
     assert len(edits) == 7
+    assert edits[0].details is not None
     assert edits[0].details["joint_cell_search"]["ink_fit"] == "source-intervals"
+    assert edits[1].details is not None
     assert edits[1].details["joint_cell_search"]["ink_fit"] == "source-widths"
     assert edits[1].document is ordinary.document
+    assert edits[2].details is not None
     assert edits[2].details["planned_band_stroke"]["stroke_nodes"] == 2
     assert edits[2].details["joint_cell_search"]["ink_fit"] == "source-widths"
     assert sorted(closed) == ["source-intervals", "source-widths"]
@@ -432,6 +453,8 @@ def test_separable_outline_in_mixed_shadow_owner_becomes_a_second_stroke(
 ):
     e, graph, options, policy, state, proposal = mixed_fixture(frame=frame)
     monkeypatch.setattr(atom_module, "MAX_CUTS", 2)
+    assert proposal.partition is not None
+    assert proposal.partition.atoms is not None
     assert len(proposal.partition.atoms.cuts) == 2
     # The largest contour belongs to the broad shadow with a real hole, so
     # the preceding largest-contour route cannot isolate the narrow outline.
@@ -440,6 +463,7 @@ def test_separable_outline_in_mixed_shadow_owner_becomes_a_second_stroke(
         is None
     )
     operators = Operators(e, graph, options, filled_bands=True)
+    assert operators.families.band_planner is not None
     variants = list(operators.families.band_planner(state, proposal, Work.start(30)))
     originals = [p for p in variants if "planned_band_strokes" not in p.details]
     extended = [p for p in variants if "planned_band_strokes" in p.details]
@@ -496,6 +520,7 @@ def test_isolated_band_requires_its_own_source_ink_role():
     drawn[45:60] = False  # Explicit uncertain source role on the smaller contour.
     e = replace(e, drawn=drawn)
     planner = Operators(e, graph, options, filled_bands=True).families.band_planner
+    assert planner is not None
     variants = list(planner(state, proposal, Work.start(20)))
     assert len(variants) == 5
     assert all("planned_band_strokes" not in p.details for p in variants)
@@ -505,6 +530,7 @@ def test_second_band_keeps_the_existing_source_child_bound(monkeypatch):
     e, graph, options, _policy, state, proposal = mixed_fixture()
     monkeypatch.setattr(atom_module, "MAX_CHILDREN", 1)
     planner = Operators(e, graph, options, filled_bands=True).families.band_planner
+    assert planner is not None
     variants = list(planner(state, proposal, Work.start(20)))
     assert len(variants) == 5
     assert all("planned_band_strokes" not in p.details for p in variants)

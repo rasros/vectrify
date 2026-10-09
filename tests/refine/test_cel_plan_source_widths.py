@@ -117,7 +117,8 @@ def test_mid_native_call_stop_does_not_publish_fitted_styles():
     work = Work.start(10)
     absence = Absence()
 
-    def stopped(*_args):
+    def stopped(geometry, width, cap, _work):
+        del geometry, width, cap
         work.stop.set()
         return True
 

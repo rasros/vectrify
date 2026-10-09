@@ -30,6 +30,7 @@ def source(kind):
         target[:, 47:49] = 240
     elif kind == "dot":
         target[31:33, 47:49] = 0
+    assert evidence.opacity is not None
     opacity = evidence.opacity.copy()
     if kind == "alpha":
         opacity[:, :48] *= 0.25

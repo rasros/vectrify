@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_piecewise_surfaces import step
 from tests.refine.test_cel_plan_regional_facets import factory
@@ -35,18 +36,28 @@ def test_native_paint_holes_ownership_and_reload_match_retired_encoding(alpha, h
         )
     )
     assert len(before) == len(after)
-    assert any(p.partition.atoms.cuts for p in after)
+    assert any(required(required(p.partition).atoms).cuts for p in after)
     ops = Operators(evidence, build(evidence), options)
     for old, new in zip(before, after, strict=True):
         assert old.parameters == new.parameters
+        assert new.details is not None
         assert new.details["core_material_cells"]["atom_layout"] == "residual"
-        assert all(isinstance(c, ResidualCut) for c in new.partition.atoms.cuts)
+        assert all(
+            isinstance(c, ResidualCut)
+            for c in required(required(new.partition).atoms).cuts
+        )
+        assert new.partition is not None
+        assert old.partition is not None
+        assert new.partition.atoms is not None
+        assert old.partition.atoms is not None
         assert (
             new.partition.atoms.namespace_count
             == old.partition.atoms.namespace_count - len(old.partition.atoms.cuts)
         )
         ops.validate_partition(new.partition, Work.start(10))
+        assert state.partition is not None
         assert new.partition.follows(state.partition)
+        assert new.component is not None
         assert new.component.validate(
             state.document,
             new.document,
@@ -69,7 +80,7 @@ def test_native_paint_holes_ownership_and_reload_match_retired_encoding(alpha, h
         assert local.canvas.matches(actual)
         assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
         document, _ = load_project(save_project(new.document))
-        Partition.from_metadata(new.partition.metadata()).validate(document)
+        required(Partition.from_metadata(new.partition.metadata())).validate(document)
         np.testing.assert_array_equal(
             render(export_svg(document), evidence.source_size), actual
         )

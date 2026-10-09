@@ -423,6 +423,7 @@ def test_real_paint_operators_remove_two_noisy_gradients_one_edit_at_a_time():
         "flat-paint",
         "flat-paint",
     ]
+    assert frontier.baseline is not None
     assert frontier.baseline.svg == INITIAL
     assert frontier.policy.evaluate(selected.svg).valid
     assert result["native_context_renders"] > 0
@@ -460,6 +461,7 @@ def test_rejected_individual_edit_leaves_seed_and_other_branch_unchanged():
     assert any(
         "local-objective-regression" in d["rejections"] for d in result["decisions"]
     )
+    assert frontier.baseline is not None
     assert frontier.baseline.svg == INITIAL
     selected = import_svg(frontier.select(50).svg)
     assert selected.element("left").get("fill") == "url(#a)"

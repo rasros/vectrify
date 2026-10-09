@@ -140,6 +140,7 @@ def test_material_seed_grows_coarse_checkpoint_without_losing_original_owners():
     entry = next(e for e in frontier.entries if e.label == "Coherent RGBA materials")
     partition = Partition.from_metadata(entry.details["planning_surfaces"])
     assert partition is not None
+    assert state.partition is not None
     assert set(partition.owners) == set(state.partition.owners)
     assert entry.evaluation.valid
     assert entry.evaluation.cost < state.snapshot.evaluation.cost
@@ -159,6 +160,7 @@ def test_streamed_source_moments_match_dense_weighted_outer_products(
     for r in graph.regions:
         support = (graph.labels == r.id) & ~evidence.empty
         y, x = np.nonzero(support)
+        assert evidence.opacity is not None
         alpha = evidence.opacity[support]
         basis = np.column_stack(
             (
@@ -222,6 +224,7 @@ def test_gradient_material_replaces_bands_and_retains_original_ownership_and_hol
     assert frontier.add(svg, "Coherent materials", exported)
     partition = Partition.from_metadata(exported["planning_surfaces"])
     assert partition is not None
+    assert state.partition is not None
     assert set(partition.owners) == set(state.partition.owners)
     assert len(set(partition.owners.values())) == 1
     document, _ = load_project(save_project(import_svg(svg)))
@@ -239,6 +242,7 @@ def test_gradient_material_replaces_bands_and_retains_original_ownership_and_hol
 def test_broad_continuous_alpha_can_use_a_gradient_but_an_abrupt_step_cannot():
     original = stripes(alpha=64)
     shown = ~original.empty
+    assert original.opacity is not None
     alpha = original.opacity.copy()
     alpha[shown] = np.broadcast_to(np.linspace(64, 200, 80) / 255, (48, 80)).ravel()
     ramp = replace(

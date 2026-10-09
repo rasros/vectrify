@@ -6,6 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_piecewise_surfaces import indented_family, step
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -113,7 +114,9 @@ def test_source_fit_compacts_fragments_and_avoids_shared_edge_core_seam(
     assert full.valid
     assert full.structure["nodes"] < state.snapshot.evaluation.structure["nodes"]
     assert full.structure["nodes"] <= (30 if hole else 18)
-    assert len([s for s in edit.partition.surfaces if s.role != "underlay"]) == 2
+    assert (
+        len([s for s in required(edit.partition).surfaces if s.role != "underlay"]) == 2
+    )
     assert full.terms["color"] < state.snapshot.evaluation.terms["color"]
     actual = render(full_svg, evidence.source_size)
     np.testing.assert_array_equal(
@@ -121,14 +124,19 @@ def test_source_fit_compacts_fragments_and_avoids_shared_edge_core_seam(
     )
     if hole:
         assert actual[25:39, 41:55, 3].max() == 0
+    assert edit.partition is not None
     Operators(evidence, graph, options).validate_partition(
         edit.partition, Work.start(10)
     )
     base = next(
-        s for s in edit.partition.surfaces if s.role != "underlay" and s.covered
+        s
+        for s in required(edit.partition).surfaces
+        if s.role != "underlay" and s.covered
     )
     shade = next(
-        s for s in edit.partition.surfaces if s.role != "underlay" and s.id != base.id
+        s
+        for s in required(edit.partition).surfaces
+        if s.role != "underlay" and s.id != base.id
     )
     assert base.covered == shade.members
     assert not set(base.members).intersection(shade.members)
@@ -152,7 +160,7 @@ def test_source_fit_compacts_fragments_and_avoids_shared_edge_core_seam(
     assert local.canvas.matches(actual)
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
     reloaded, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(reloaded)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(reloaded)
     np.testing.assert_array_equal(
         render(export_svg(reloaded), evidence.source_size), actual
     )
@@ -161,7 +169,7 @@ def test_source_fit_compacts_fragments_and_avoids_shared_edge_core_seam(
 def test_partial_actual_core_cannot_authorize_opaque_material_fit():
     evidence, _, _ = raster_edge(128, 0.21, hole=False)
     _, state, options = prepared(evidence, layers=True)
-    core = next(s for s in state.partition.surfaces if s.role == "underlay")
+    core = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Make actual core translucent") as tx:
         tx.set_attributes(core.id, {"fill-opacity": "0.5"})
@@ -189,6 +197,7 @@ def test_independent_exterior_screen_accepts_a_valid_mixed_shared_edge(alpha):
     assert frontier.policy.evaluate(export_svg(edit.document)).valid
     assert factory.diagnostics["supported_boundaries"] > 0
     assert factory.diagnostics["supported_boundary_pixels"] > 0
+    assert edit.partition is not None
     assert edit.partition.follows(state.partition)
     Operators(evidence, build(evidence), options).validate_partition(
         edit.partition, Work.start(10)

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_core_cells import material
 from tests.refine.test_cel_plan_families import prepared
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
@@ -110,16 +111,22 @@ def test_three_material_planes_keep_fragmented_ink_and_actual_source_gaps(
     frontier, state, options = prepared(evidence, layers=True)
     factory, edits = combined(evidence, state, options)
     faithful = [
-        p for p in edits if p.details["core_material_cells"]["material_planes"] == 3
+        p
+        for p in edits
+        if required(p.details)["core_material_cells"]["material_planes"] == 3
     ]
     assert faithful, factory.diagnostics
     edit = faithful[0]
+    assert edit.details is not None
     model = edit.details["core_material_cells"]
     assert model["ink_cells"] >= 1
     assert model["model_stage"] == "source-ink-and-facet-planes"
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
     ops = Operators(evidence, build(evidence), options)
     ops.validate_partition(edit.partition, Work.start(10))
+    assert edit.component is not None
     assert edit.component.validate(
         state.document,
         edit.document,
@@ -156,7 +163,7 @@ def test_three_material_planes_keep_fragmented_ink_and_actual_source_gaps(
     assert local.canvas.matches(actual)
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
     document, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(document)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(document)
     np.testing.assert_array_equal(
         render(export_svg(document), evidence.source_size), actual
     )
@@ -179,7 +186,9 @@ def test_broad_dark_paint_is_not_promoted_to_an_ink_layer():
     factory, edits = combined(evidence, state, options)
     assert edits, factory.diagnostics
     assert factory.diagnostics["ink_plane_cells"] == 0
-    assert all(p.details["core_material_cells"]["ink_cells"] == 0 for p in edits)
+    assert all(
+        required(p.details)["core_material_cells"]["ink_cells"] == 0 for p in edits
+    )
     assert all(frontier.policy.evaluate(export_svg(p.document)).valid for p in edits)
 
 
@@ -190,6 +199,7 @@ def test_cancellation_keeps_the_complete_original_namespace():
     work.stop.set()
     _, edits = combined(evidence, state, options, work)
     assert edits == []
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -211,8 +221,11 @@ def test_disabling_new_ink_reveals_its_material_underpaint_without_black_remnant
     _, state, options = prepared(evidence, layers=True)
     _, edits = combined(evidence, state, options)
     edit = next(
-        p for p in edits if p.details["core_material_cells"]["material_planes"] == 3
+        p
+        for p in edits
+        if required(p.details)["core_material_cells"]["material_planes"] == 3
     )
+    assert edit.details is not None
     count = edit.details["core_material_cells"]["ink_cells"]
     editor = Editor(edit.document, selection=Selection(whole_document=True))
     with editor.transaction("Inspect plane paint beneath ink") as tx:
@@ -242,6 +255,7 @@ def test_cancelled_final_component_seal_emits_no_partial_plane_or_ink_edit(monke
     factory, edits = combined(evidence, state, options)
     assert edits == []
     assert factory.diagnostics["proposals"] == 0
+    assert state.partition is not None
     assert state.partition.atoms is None
     assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
 
@@ -254,4 +268,6 @@ def test_seed_deduplication_is_local_to_one_call_and_cannot_discard_a_new_search
     assert first
     assert second
     assert [p.parameters for p in first] == [p.parameters for p in second]
-    assert [p.partition.atoms for p in first] == [p.partition.atoms for p in second]
+    assert [required(p.partition).atoms for p in first] == [
+        required(p.partition).atoms for p in second
+    ]

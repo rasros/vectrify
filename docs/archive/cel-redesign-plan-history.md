@@ -1,0 +1,1855 @@
+> Historical experiment record through PR #315. For current requirements and
+> checkpoint status, read [the plan](../cel-redesign-plan.md) and
+> [the progress summary](../cel-redesign-progress.md). Historical validation
+> claims describe their own checkpoints; some local type checks skipped tests.
+
+# CEL structural vectorization plan
+
+Build a CEL generator that produces clean, editable shapes closer to a human redraw. Introduce a complexity slider backed by a measured representation budget, combine line and color evidence in one structural planner, and refine the planned drawing automatically. Start with deterministic planning and add a small learned candidate ranker only if it improves held-out results.
+
+This is an implementation plan. The experimental method remains separate from the existing CEL method until it passes the rollout gates below.
+
+The recommended overhaul has three parts: CEL supplies ink and silhouette evidence; color segmentation supplies surface and shading evidence; a structural planner chooses an editable drawing from both. Automatic path optimization follows those choices. A small learned model may later rank the planner's proposals, after the deterministic version establishes a measurable baseline. The complexity slider controls the drawing's representation cost; quality controls how much time the planner spends finding it.
+
+The implementation status and measured experiments live in [CEL redesign progress](../cel-redesign-progress.md). This plan defines the intended behavior and completion gates; experimental code is not evidence that those gates have passed.
+
+## Agreed release design
+
+The release has one planner and one generated drawing. CEL contributes line,
+silhouette and junction evidence; color regions contribute material and shade
+evidence. The planner considers both before selecting shapes, paint and local
+draw order. Automatic fitting then improves that representation. The complexity
+slider selects a tradeoff from the validated alternatives.
+
+| User proposal | Decision | Reason from the sword diagnosis |
+| --- | --- | --- |
+| Overhaul CEL | Build the experimental structural planner, then migrate after evaluation | The human drawing uses coherent surfaces and deliberate contours; the trace preserves many incidental raster partitions |
+| Combine CEL and color regions | Combine their evidence in an owned graph before export | Independently generated SVGs cannot resolve disagreement about whether an edge is ink, shading or texture |
+| Use path optimization automatically | Enable bounded geometry, paint and width fitting after structural choices | Tidy on the default trace did not recover the missing abstractions; fitting needs appropriate shapes and constraints |
+| Add a complexity slider | Ship 0–100, default 50, with Simple/Detailed endpoints | Requested region count does not control actual contour/node cost; protected subdivisions can overwhelm it |
+| Add a mini-ML planner | Reserve a local action ranker as a measured second-stage experiment | Ranking can improve evaluation allocation or selection only after useful compact alternatives exist |
+
+The first release covers cel art and illustrations, editable paths, flat and
+linear-gradient paint, supported ink and bounded local layers. A deterministic
+release is complete without a learned model when the documented no-go branch
+for that experiment is recorded. The learned branch cannot delay or substitute
+for the deterministic quality gates.
+
+## Resumed implementation and reference policy
+
+The current outline experiment recovers open centerline runs from measured
+perimeters. Only their own native source gaps authorize new caps; serialization
+and observation chunk seams do not. Exported replacements must be actual
+`fill="none"` strokes with editable centerlines and widths, complete ink ownership
+and valid surrounding paint/alpha. The useful fitted materials remain available.
+
+Outline completion is a representation requirement: each supported physical ink
+chain must have an editable centerline and width, with shared endpoints at
+source-supported junctions. Its former filled outline must be removed in the
+same owned replacement. Counting stroke objects or reducing raster error alone
+does not prove this. A path containing both a shadow and an outline needs joint
+ink/material decomposition; the shadow remains a filled region. Preserve the
+inspected material candidate and the source's real gaps, including the handle
+defect that the human drawing repaired.
+
+Recovery now works in native controls and supplies a few source-only sword runs,
+but none composes into a usable replacement on the fitted material candidate.
+Long blade runs still fail native body/gap constraints. Cycle recovery therefore
+remains an explicit `SourceStrokes(outline_intervals=True)` experiment; the
+ordinary experimental High cursor retains its preceding whole-perimeter route.
+A prototype that enabled recovery there selected the dense fallback before useful
+material search. It supplies no quality or repeatability evidence. Next address
+complete exterior coverage and supported junctions with retained strokes in one
+owned replacement. New reference collection and learned ranking remain deferred.
+
+An additional explicit `Operators(filled_bands=True)` competitor now inverts a
+complete existing filled ink band in place. It retains that owner's paint,
+frame, order and source atoms, uses subpixel intrinsic coverage to fit an editable
+centerline and physical cap positions, and checks the actual painted result
+against independent original source observations. No new carrier or surrounding
+material restoration is needed for this complete-owner route. Compound marks,
+branches and strongly varying widths still require a richer owned interpretation;
+they are excluded rather than pruned into a longest stroke. This is not enabled
+in ordinary experimental High.
+
+Native source-line comparison now protects each original measured gap position;
+opening one gap cannot compensate for completing another. The compound-band
+competitor now co-plans the blade stroke and seven exact independent marks from
+the ordinary material proposal's ancestor. Source-class replay retains the
+ancestor ledger prefix and stays within the existing 64-entry limit. It never
+rewrites a finished material namespace or assigns the separate marks to the
+stroke. Four already unrepresented source pixels keep their existing ownership;
+this is not a claim that the stroke geometrically covers them.
+
+A bounded fitting ladder rejects the 0.25-pixel blade fit and admits a 0.15-pixel,
+35-node connected stroke. At most five width alternatives vary the measured
+width by min(0.25 pixels, 10 percent), with complete native source comparison for
+each; explicit width settings do not get width adjustments. The source-only
+captured-proposal audit admits four alternatives. Width 2.318235468864441 beats
+the preserved filled material proposal under the unchanged objective at every
+complexity value. All independent material paths and mark contours remain exact;
+the result has 2,923 nodes, 414 contours and 31 stroke contours. The original
+source raster alone supplies line observations; the human repair remains absent.
+
+The explicit route now preserves those original alternatives and adds siblings
+with a further isolated outline from a mixed shadow owner. Eligibility is tested
+on that contour's source ink pixels, with exact residual fills, original gaps
+and complete ancestor replay preserved. The offline sword has a four-node guard
+stroke alongside the blade: 2,915 nodes / 414 contours / 32 stroke contours.
+The captured pool chooses it at complexity 0/25 but retains the blade-only
+alternative at 50/75/100. Human MSE 524.897535 still worsens the preserved
+material parent's 508.055591. Attached outline/shadow branches, variable-width
+handle ink, calibrated stroke selection and actual-operation delivery remain
+unfinished; this is not completion of the outline requirement.
+
+A further source-only offline handle experiment fits a complete four-node
+centerline and recovers the two neighboring stroke caps within their own
+original measured intervals. `SourceCaps` provides the bounded reusable cap
+competitor; original physical endpoints, source gaps, paint, width and other
+controls remain protected. The complete combined replay has 2,910 nodes / 414
+contours / 33 stroke contours, native body absence for the new handle stroke,
+zero new completed inspected painted gaps, complete ownership and exact
+save/reload. Human MSE is 523.206190, still worse than the preserved material
+parent's 508.055591. The fitted handle and cap helper are not yet integrated into
+Generate. A further offline owned candidate now restores the exposed junction
+slivers by continuing adjacent material inside the removed fill and an opaque
+interior. It preserves original material contours and gradient frames. Complete
+native alpha remains byte-exact to the preceding stroke prototype; paint-order
+changes are confined to the removed fill and actual stroke body. The result has
+2,924 nodes / 415 contours / 33 stroke contours and human MSE 522.686750, still
+worse than the preserved material parent's 508.055591. `PaintContinuation`
+constructs this bounded competitor; callers must prove complete source ownership,
+native paint/alpha/gaps and locality.
+
+The explicit co-planner now selects a complete original source profile and
+automatically fits the assembled handle stroke, cap alternatives and adjacent
+material as one owned candidate. It preserves original physical endpoints and
+source corners, applies bounded transverse fitting, and uses the final native
+viewport. Complete painted-line/body, exact alpha/locality and same-ancestor
+ownership checks remain mandatory. Four new alternatives preserve the preceding
+eight artifact sets exactly and export a four-node handle stroke with 29 exact
+residual contours. The complete drawing has 2,920 nodes / 415 contours / 33
+stroke contours. The top endpoint shares an existing stroke endpoint; complete
+lower-junction coverage was initially unproved. `SourceJunctions` now recognizes
+the existing shared physical point from two distinct qualified source chains
+and normalizes the nearby continuation to it, after raw source-ink and full
+native gap checks. Both handle endpoints are literally shared with adjacent
+strokes; original controls and all shadow geometry/paint stay exact. Original
+physical terminals, ambiguous chains and real source gaps cannot authorize a
+snap. More attached filled outline sections and junctions remain unfinished.
+Actual editable strokes, supported connections and removal of filled outlines
+are the primary next acceptance criteria. No human repair supplies a connection.
+
+A source-only `StrokeInventory` now reports qualified source positions supported
+by exported editable stroke bodies and literal shared centerline ports. It
+distinguishes filled/stroked drawings even when their native pixels match and
+retains actual frame, width, cap, join and group opacity. The shared-junction
+candidate has 33 stroke contours; 2,287 of 13,145 qualified nongap source samples
+still lack stroke-body support. That 82.6-percent sample coverage does not prove
+complete chains, removed old fills or valid junctions. Attached-band probes are
+still excluded by pixel locality and have no complete ownership replay. Preserve
+the verified shadows and continue those stroke replacements; the inventory is
+diagnosis and a review preview, with no new accepted conversion or release gate.
+
+Post-generation MSE for the matching bundle improves from 524.897535 to
+521.989863; the preserved material parent's 508.055591 remains better. The
+unchanged objective still selects the preceding alternatives at the sampled
+slider settings. The final twelve-candidate replay takes 157.15 seconds and
+705,344 KiB peak RSS, so this is not automatic-operation latency or memory
+evidence. Next complete supported junction composition, representation-aware
+selection and reliable operation delivery within the existing budgets. These
+offline results pass no additional release gate.
+
+Those captured-proposal results are offline candidate/selection evidence, not a
+completed outline release. The co-planned alternative is available through the
+explicit `Operators(filled_bands=True)` joint cursor. Ordinary experimental High
+still does not enable that flag. Remaining blade/guard/handle outlines, complete
+operation scheduling, runtime/memory and the eight delivery/release gates remain
+open. Detailed identities, verification and pending work stay in the progress file.
+
+The explicit band route now offers a bounded complete-sibling prefix from the
+same ancestor and tries the finer existing material budget first. High defers
+fitting a fragmented fallback until a useful owned checkpoint is retained; the
+explicit large-core route's 40-percent opportunity stays within global reserves.
+One 60-second Generate/apply prototype selects a 2,893 / 412 / 31 blade drawing
+at complexity 75, with a 35-node editable blade, original gaps preserved and
+exact applied/save-reloaded pixels. Its all-101 frontier is monotonic, but 100
+still chooses the dense filled drawing. Human MSE 535.253845 is worse than the
+preserved material candidate's 508.055591. A same-source repeat instead returns
+the traced fallback in 65.348 seconds under observed host load; preparation/apply
+also falls outside the planner's reported deadline. Thus candidate delivery now
+works once, but quality, repeatability and operation latency remain unproved.
+The flag remains explicit. Preserve the useful material candidate, remove
+redundant initialization before reliable complete alternatives, and bind the
+operation's deadline across preparation, planning, validation and application.
+All eight delivery/release gates remain open.
+
+Validation now reuses bounded immutable parent line observations and indexes
+document references once, while retaining complete native gap and ownership
+checks. An isolated replay preserves all four candidates and their exact pixels,
+metadata and selection; one serial timing pair improves from 29.17 to 24.37
+seconds. Prior Generate probes selected filled drawings: the longer probe
+explores only the first coarse joint proposal on each parent, never reaching
+the fitted Detailed sibling or co-planned blade. Give complete original/fitted
+material alternatives an opportunity before descendant edits displace their
+ancestor cursors, then verify selection with supported editable outlines
+available. These diagnostics pass no additional delivery/release gate.
+
+The preceding checkpoint shares complete physical source extraction between the
+original-width and fitted-width interpretations. `JointCells` alternates both
+under unchanged native absence, carrier, ownership and ledger proofs and releases
+its one-record cache when the invocation ends. Experimental High-quality search
+tries the pair and complementary source-opacity fields automatically. Source
+repairs from the human redraw remain excluded. Ordinary CEL and Fast/Balanced
+scheduling do not adopt the pair. Thirty-percent discovery allocation for a large
+owned High core remains bounded by existing search/validation/fitting deadlines.
+
+The shared offline union exactly reproduces 113 previously native-valid drawings
+and 68 full native stroke-body checks across sword and four tuning families,
+with one physical extraction and one reuse per case. This is preservation of
+candidate availability, not a fidelity gain. The completed native/graph audit and
+1,410 passing regressions are recorded in the progress file.
+
+Owner inspection of the fitted Detailed candidate finds a large visual gain,
+with clean shadows comparable to the human drawing. Preserve those material
+choices. The next visible quality priority is replacing filled outline shapes
+with clean, connected editable strokes supported by the raster. Inspect actual
+stroke elements and complete-chain coverage, and recover physical exterior
+observations before conditioning them on an opaque carrier. Any replacement
+needs atomic ownership, source-gap/alpha checks and restoration restricted to
+its affected ink footprint; unrelated material/shadow choices stay available.
+This feedback
+does not authorize copying the human's repaired source connection or collecting
+new references yet.
+
+Operation scheduling still fails the release requirement. Prior 60-second sword
+runs retained a dense fallback or the 10,285-node / 1,711-contour owned core,
+without editable strokes. An earlier prototype's 1,978 / 327 / 30 result did not
+reproduce reliably. Park also exposes a clean-error regression under the source
+objective. Neither early allocation nor native validity establishes a quality,
+runtime, memory or repeatability gate. Deliver a compact verified candidate
+before optional initialization/context exhausts the deadline, then address
+missing source-supported lines, material gaps and scoring calibration. All eight
+deliveries remain open, and new references remain deferred. Full identities,
+negative probes and validation limits are in the progress record.
+
+The preceding explicit offline `--ink-fit source-widths` competitor fits complete
+stroke bodies only after physical chain/link discovery and raw observations
+are frozen. It tries bounded narrower widths, keeps original widths when
+there is no gain, honors width overrides and falls back atomically on its
+256-fit bound. Actual compound absence, exact carrier, interval, junction and
+ownership proofs still apply. It recovers one complete missing source-ended
+handle chain. Four tuning families retain exact drawings and metrics.
+
+A native common-frontier replay retains both original and fitted alternatives
+and freezes the validated detailed initializer's cost scale. Sword complexity
+0/25/50 keeps the original 1,638 / 235 / 30 / MSE 525.5007 drawing; 75/100
+chooses **2,941 nodes / 414 contours / 30 editable strokes / MSE 508.0556**,
+with handle MSE 855.9546 and 222 rather than 809 missing inspected raw samples.
+Cost is monotonic over all 101 slider values; all tuning choices are unchanged.
+This is offline native-frontier replay, not a Generate-operation result.
+Using the benchmark's 54,564 override instead would select differently; it is
+not the actual detailed cost scale. Coarse fitted candidates still regress.
+Ten matched reports / 113 native and source-graph validations / 68 body checks
+and 1,372 regressions pass. Generation ignores the human repair. Connected-line
+quality, the 800 / 140 / 497.39 gate, selected-operation/runtime/memory evidence
+and all eight deliveries remain open; new references stay deferred.
+
+The preceding explicit offline `--atom-layout residual` competitor retains a
+split parent's residual label in the immutable source revision, allocating
+only its other children. Exact complete-area/RLE replay, original-root
+protection, primary/secondary ownership and the 64-entry/128-new-label bounds
+remain required. Legacy atom metadata and the default retired layout remain
+unchanged. This makes a previously unavailable regional cut feasible: the
+sword's first-facet opacity drawing has **1,665 nodes / 237 contours / 30
+editable strokes / MSE 516.2704**. Three cuts reach **MSE 511.0618** at
+2,021 / 331 / 30. These are candidate-availability gains; the source objective
+over the union of diagnostic pools still favors the earlier 1,645 / 236 /
+521.5049 drawing. Actual selection, connected-line fidelity and the combined
+quality/structure gate remain open. Ten matched reports / 112 native-valid
+proposals and source-graph checks / 68 native stroke-body checks complete.
+
+A preceding source-width prototype preserves the raw observation
+bank and source endpoints, recovers a complete missing handle chain and lowers
+inspected missing samples from 809 to 222 in a more detailed candidate.
+Its coarse candidates regress substantially. It is a lead for bounded joint
+width/material fitting, rather than a production width rule or new reference.
+Human raster repair supplies no geometry. All eight deliveries remain open;
+defaults and reference collection remain unchanged. Exact controls, diagnostic
+limitations and verification are in the progress record.
+
+The preceding explicit offline `--facet-fit regional` competitor cuts existing
+material regions while retaining exact source-supported stroke geometry,
+widths, caps, paint and ownership. It ranks at most eight cuts per material
+budget by complete-source RGB gain, advances only locally constructed complete
+ledgers and preserves the baseline. Raw source ink/empty pixels supply no
+material votes. The one-facet opacity sword has **1,645 nodes / 236 contours /
+30 editable strokes / MSE 521.5049**, compared with 1,638 / 235 / 30 / 525.5007.
+It wins the source objective over the exported diagnostic pool at complexity
+50; this is not a selected-operation/frontier result. A three-facet parent
+reaches **MSE 518.4957** at 2,016 nodes / 330 contours; its source objective is
+worse. Handle MSE falls from 930.3179 to **913.8427**, while the line/junction
+coverage remains weak. Best clean-error exported compact alternatives also
+improve on all four tuning families at greater contour cost. All original
+compact alternatives remain available; no human repair supplies generation.
+An independent audit caught and fixed a child/region key collision before the
+final rerun. **10 matched reports / 64 native-valid and source-graph-validated
+proposals / 68 native body checks** complete; **1,311 regressions pass**. The
+64-cell/128-child bounds and two-parent opacity cap remain unchanged. Defaults,
+reference collection and all eight delivery gates remain unchanged/open.
+Next reconstruct missing source-supported junctions and material-gap coverage,
+and combine compact alternatives in bounded common-frontier selection. Exact
+identities, negative material-boundary experiments and the limits of these
+modest gains are in the progress record.
+
+The preceding explicit offline `--ink-fit source-intervals` competitor retains
+source-supported intervals of a chain rejected by the native gap check. Only
+that same physical profile's own observed internal gaps authorize new caps;
+surviving source terminals and junctions remain exact, and a recovered chain
+can authorize a link only at a surviving original port. Native positive samples,
+actual absence, exact carrier footprints and full ownership remain checked.
+The sword recovers **five editable intervals**, changing the gap-only result
+from 1,611 / 230 / 25 to **1,638 nodes / 235 contours / 30 strokes**, with human
+MSE **525.5007**. Fixed missing samples fall from 1,602 to **1,048 of 6,320**;
+all seven fixed gap positions remain unfilled. This is better source-line
+retention than whole-chain rejection, but still worse recall than the carrier
+control's 835 misses, and far above the 800 / 140 / 497.39 gate. Nineteen
+recovered intervals across all five drawings have independently checked source
+lineage. Tuning tradeoffs remain, and the finer face proposal is withheld at
+65 cells against the unchanged 64-cell limit. Fifteen matched reports / 29
+native and independent source-graph proposal checks / 67 native body checks
+complete; 1,164 regressions pass. References stay deferred, defaults remain
+unchanged and all eight deliveries stay open. Next address missing supported
+junctions and material-gap coverage with coherent regional reconstruction and
+bounded common-frontier alternatives. Exact identities and limits are in the
+progress record.
+
+The preceding explicit offline `--ink-fit source-gaps` competitor tests actual
+native stroke bodies and caps at inspected raw-source gap centres, including
+observations from chains that failed export. Complete source chains retain
+original geometry, endpoints, paint, caps and width overrides; an offending
+chain remains source-derived fill. Removed hosts cannot authorize a short
+junction link. No human repair, cropped chain or invented endpoint is used.
+The matched sword with opacity fields has **1,611 nodes / 230 contours / 25
+editable strokes / MSE 524.7823**. Five filled positions in the fixed inspected
+gap bank become zero, but missing line samples rise from **835 to 1,602 of
+6,320**. This validator loses useful ink and is not a quality solution. The
+four tuning drawings also change: actual exported strokes preserve their own
+inspected gaps, while some material interpretations still fill fixed gaps and
+line recall worsens. All eight deliveries remain open, references stay deferred
+and defaults are unchanged. Next reconstruct source-supported portions and
+junctions of rejected chains without bridging real gaps, then resolve material
+coverage, coherent regional facets and common-frontier selection. Ten matched
+reports / 20 native and independent source-graph proposal checks / 33 full
+native model-body checks complete; 1,132 relevant regressions pass. Exact
+identities and limits are in the progress record.
+
+The preceding source-only width diagnosis finds individually feasible complete
+chains, but taking them together exceeds the child ledger: the next allocation
+needs at least 130 children against the unchanged 128-child limit. Resource
+failures now distinguish entries, children and RLE runs without publishing a
+partial drawing. A bounded per-chain alternative reduces the fixed inspected
+missing samples from 835 to 705 and gap completion from five positions to three;
+its human MSE changes only from 526.3567 to 526.2171 and remains unsuitable as a
+new reference. No source-chain ordinal or narrower-width rule is adopted in
+production. Stroke-removal attribution shows the coarse gap failures come from
+strokes; the finer material interpretation also fills gaps. Next prove raw
+source absence along exported bodies and retain generic alternatives under a
+fixed source bank before common-frontier selection. Human repair remains
+outside generation. Four tuning families stay exact, 226 focused regressions
+pass, and all eight deliveries remain open. Full controls, identities and
+unsuccessful carrier/width experiments are in the progress record.
+
+The latest offline `--opacity-model components` competitor preserves independent
+connected faint supports while coalescing their paint/alpha fragments into exact
+source contours. It replaces 122 paths with 29 fields and keeps all 32 editable
+stroke contours and main material geometry/paint exact. The sword changes from
+1,973 nodes / 329 contours to **1,631 / 237**, with effectively unchanged MSE
+(526.3518 to 526.3567) and identical handle error. This is a structural gain, not
+a fidelity gain. Full native coverage policy still applies; excessive flat
+opacity keeps the original component. Twenty matched reports and 38 proposal/
+source-graph checks complete, and 1,208 regressions pass. The remaining weak
+representation alone still has 776 nodes / 162 contours. Compact coverage,
+source-faithful wrap junctions and coherent regional facets remain required;
+the 800 / 140 / 497.39 gate and all eight deliveries remain open. Generated
+references stay deferred, and human repairs stay outside generation. Exact
+identities, prototype failures and verification limits are in the progress record.
+
+The preceding source-ridge eligibility fix preserves a valid inner stroke body
+when the darkest source peak is outside its carrier. Nine regression controls
+cover recovery, opacity invariance and true-gap rejection. The **1,177-case**
+suite and **28 native/source-graph proposal validations** pass; all tuning
+renders and quality metrics remain unchanged. This is a fitting correction,
+not a visual gain. Retained-owner attribution exposes the larger bottleneck:
+254 faint paths in a different paint scope alone retain **1,118 nodes / 254
+contours**, above both structural limits before counting the reconstructed
+materials or strokes. Compact source-supported opacity/fringe models must
+preserve independent faint marks and real gaps across those scopes. Global
+material planes remain poor even in a separately labelled larger-capacity
+diagnosis, so coherent region-guided facets are also still required. Details,
+identities and unsuccessful diagnostics are in the progress record. Human
+repair stays outside generation; all eight deliveries remain open.
+
+The latest offline `--ink-fit carrier` competitor recovers six complete
+source-ended chains through precise/original-source fitting or genuine source
+ridge coverage inside the existing carrier. Exact footprint, source endpoint,
+paint, width-override and real-gap checks remain. Direct multiway source
+partitions remove binary intermediate children without raising resource limits:
+the sword uses 54 entries / 120 children / 984 RLE runs / 33 cells, within
+64 / 128 / 16,384 / 64. Binary metadata remains compatible; defaults do not adopt
+the competitor. Its sword has **1,973 nodes / 329 contours / 32 editable strokes /
+human MSE 526.35**, versus 1,927 / 323 / 27 / 544.63 at the preceding checkpoint.
+The fixed pre-fractional source bank shows missing samples falling from 18.51%
+to 13.21%; the detailed control remains at 1.84%. These are inspected diagnostic
+samples, not global recall or a calibrated gate. Source gaps and incorrect wrap
+junctions remain, guard error worsens, and handle error barely changes. The
+four tuning families retain exact geometry, paint and rendered output.
+
+The 800-node / 140-contour / 497.39-MSE gate, source/feature/coverage fidelity,
+selected-operation quality and runtime/memory requirements remain open. All
+15 matched reports complete with 28 native/source-graph validations, and 1,177
+relevant regression cases pass. Native validity is not exact initializer-alpha
+retention or source fidelity. All eight deliveries remain open; generated
+references stay deferred and human repair geometry stays outside generation.
+Full source/driver identities, failed diagnostics and verification limits are
+recorded in the progress document. Next correct source-faithful wrap junctions,
+missing chains and gap preservation in material reconstruction, then compact
+coherent facets/opacity and common-frontier selection.
+
+The preceding checkpoint adds an explicit fractional-alpha stroke profile and
+bounded source-line diagnostics. Source opacity fringes contribute fractional
+coverage, normalized locally so full/half/quarter opacity retains intrinsic
+width. Original source anchors, width overrides, paint and carrier/ownership
+checks remain fixed. The offline `--ink-coverage fractional` competitor with
+fitted roles emits **1,927 nodes / 323 contours / 27 editable strokes / human
+MSE 544.63**, versus 2,355 / 325 / 25 / 570.39 with visible coverage. Two handle
+exterior contours and one guard contour become strokes; one lower-handle
+contour is no longer emitted. Handle/guard/jewel fidelity worsens slightly,
+while tip/facet and overall error improve. Paired tuning outputs stay exactly
+unchanged. Defaults, UI preferences and automatic scheduling do not adopt this
+competitor.
+
+`--source-line-diagnostics` observes all measured source troughs, including
+failed-export chains, and reports loss and filled source gaps after generation.
+Version 2 requires absence throughout the same normal matching window used
+for positive line matching, so antialiased nearby ink cannot become a false
+gap. It never proposes a connection. Engineering allowances remain diagnostic
+and uncalibrated, with explicit sample/profile/cancellation limits. A single
+fixed pre-fractional bank shows missing sword source samples at 18.51%, down
+from fitted roles' 20.87%, versus the detailed control's 1.84%. These are
+inspected profile samples, not global recall or a release gate. The handle
+still has broken wraps and missing exterior segments. Correct source-line,
+gap and feature fidelity before scheduling; preserve the 800-node /
+140-contour / 497.39-MSE balanced gate. All eight deliveries remain open and
+new reference collection stays deferred. Human repair geometry remains solely
+evaluation context. Current implementation evidence and exact identities are
+in the progress document.
+
+The preceding offline ink/material interpretation competitor discovers exactly the
+same complete source strokes, then treats their actual bodies as ink and the
+uncertain dark remainder as material/shading. It retains all 25 sword stroke
+contours unchanged, with no human repair hint. A 32-cell material alternative
+uses 2,355 nodes / 325 contours / human MSE 570.39; the existing higher-detail
+connected interpretation uses 6,440 / 765 / 537.31. The competitor's 64-cell
+attempt exceeds the unchanged final-cell limit. Three paired cases improve
+nodes and clean paint error, while local sword/girl/park features regress. The
+competitor is available explicitly for offline comparison, with 1,053 passing
+regression cases and nineteen native/source-graph validated proposals. It is
+not automatically scheduled. Source-line guards, coherent facets, compact
+supported opacity and the shared cost frontier remain required; all eight
+deliveries and release gates remain open. Full matched measurements and source
+hashes are in the progress record. Reference collection remains deferred.
+
+The current short-junction checkpoint recovers one existing six-pixel direct
+sword link, without changing original fitted strokes, style paints or widths.
+Every intervening raw source sample and the complete carrier must support it;
+real gaps and the human repair remain excluded. Fourteen new controls and 1,036
+relevant passing cases verify this behavior. The finer direct sword changes
+from 6,430 / 762 / 24 strokes / MSE 537.50 to 6,440 / 765 / 25 / MSE 537.31.
+The four paired drawings and the 3,907-node composed sword are unchanged.
+This tiny continuity gain does not make generated references useful. Excess
+material/opacity contours and incomplete source line construction remain the
+main quality gap; all eight deliveries remain open. The matched composition
+matrix has fourteen complete reports and one interrupted band plane report,
+which cannot establish complete-pool/runtime evidence. Details and source hash
+are in the progress record.
+
+
+The owner resumed implementation after the verified pause checkpoint and
+clarified the handle interpretation: use clear, connected editable strokes
+rather than filled outline shapes. Discover physical ink chains from the source
+before grouping paint palettes, preserve source junctions and real gaps, and
+reconstruct neighboring material underneath those strokes in the same proposal.
+The human redraw corrects a source defect on the handle; that correction must
+not become a generation hint or an invented connection. Reference scoring can
+record the discrepancy without asking the generator to reproduce that repair.
+
+The current bounded experiment combines source-connected ink, compatible
+width/paint models and material underpaint. A subsequent experiment replaces
+source strokes while retaining existing paints, then compacts those materials
+without deleting the editable strokes. It produces a finer sword candidate at
+3,630 nodes / 387 contours / human MSE 548.48; its handle still has missing lines
+and filled remnants, and it exceeds legacy's structure counts. A boundary-contact
+hypothesis now admits a 17-run source group, retaining contact ends as exact
+filled evidence and using editable strokes for existing interior intervals.
+Its finer composition has 3,491 nodes / 381 contours / human MSE 552.12. Source
+handle error falls from 298.07 to 215.10 against the previous experiment, still
+above legacy's 156.20; human handle error improves slightly while tip and overall
+human error worsen. The human repair is still excluded from generation. No
+quality, runtime or delivery gate passes. The remaining 3,491-node drawing
+contains 2,237 nodes in new material/cut paths and 1,118 in unchanged paths with
+intrinsic partial opacity. Coherent material boundaries and compact opacity
+models both need work; more stroke discovery alone cannot meet the 800-node
+target. Independent source marks and gaps must survive, including disconnected marks sharing a
+source owner with a line. This remains an offline candidate-pool
+comparison until native and cross-artwork evidence supports automatic planning.
+All eight deliveries remain open. Generated drafts are still too poor to serve
+as useful new references; defer that collection until a practical quality gain.
+
+A complete-owner fit hierarchy now ranks unions with the existing flat/linear
+paint model rather than flat RGB means. Materials are fitted under the fixed
+coverage carrier; native source RGBA remains the admission target. This remains
+an offline competitor, and fitting paint costs does not itself reconstruct
+coherent facet geometry. The first finer sword fit has 3,511 nodes / 380
+contours / human MSE 557.47, versus the matched Ward candidate's
+3,491 / 381 / 552.12. The face tuning candidate improves nodes 9.7% and clean
+error 8.4% with unchanged line F1, but the girl loses line F1 from 0.356 to 0.032.
+This mixed candidate pool does not justify automatic adoption or complete a
+release gate. The source-owner audit also corrects the opacity
+inventory: the 1,118 retained opacity nodes represent 135 separate faint source
+components, not a continuous silhouette fringe. The 25 components with at
+least four source pixels alone use 605 nodes in 127 paths. Their established
+mass checks remain mandatory. Evaluate compact supported opacity models and
+source-based incidental-texture hypotheses alongside coherent facet geometry;
+do not substitute a blanket low-opacity exemption for either model.
+
+The next offline competitor offers a complete binary material-plane tree with
+bounded multiscale, source-supported color-edge directions. It retains actual
+source strokes and coverage and uses the unchanged exact ownership ledger and
+native admission. The first sword three-plane drawing falls to 1,226 nodes /
+274 contours, but human MSE rises to 2,208.53. The blade crop loses its dark
+outlines even though the handle's 17 retained strokes survive. A source-only
+plane fit can compact broad paint while erasing essential ink; this is not a
+practical gain or a passed gate. A separate explicitly altered cut-limit
+ablation also damaged paint and introduced native-rejected crossings, so
+production ownership limits remain unchanged. Continue coherent source ink
+and supported shared material boundaries; neither more cuts nor a learned
+ranker can recover an outline absent from the proposal pool. Full matched
+measurements, controls and source hashes are in the progress document.
+
+A joint ink/plane competitor now excludes source-classified ink from material
+paint and edge observations, preserving that ink above explicit underpaint in
+one complete ownership edit. It includes actual strokes and still-unmodeled
+filled ink; it does not satisfy the handle's editable-line requirement. Its
+four-plane sword candidates retain more ink but remain much worse than the
+finer region pool. The initial class-wide anchored ink-boundary fitter reduced
+the first finer region drawing from 3,491 to 3,231 nodes with nearly unchanged
+human error (552.12 to 551.83). It still had 381 contours, exceeded legacy's node
+count and failed the sword gate. That version also lost girl line F1
+from 0.356 to 0.275 despite similar pixel error. Local source-band movement
+limits now replace the class-wide area/perimeter estimate: a broad shape cannot
+lend width to an attached hairline. Straight fits satisfy per-point bounds;
+corner/junction-anchored cubics and complete ellipses use conservative local
+bounds. The matched girl replay restores line F1 to 0.374 with a smaller
+3.5% node saving. The matched sword now has 3,341 nodes / 381 contours /
+human MSE 551.86, still failing the sword gate. This fixes a measured fitter
+regression, not the incomplete ink/material interpretation or any release gate.
+A subsequent both-sided guard also stops the profile at each neighboring
+source-label change. It restores two lost star-tip pixels but worsens the
+star's total error, so this does not pass feature protection. The finer sword
+now uses 3,437 nodes / 381 contours / human MSE 551.84: only a 1.5% node saving
+against curve fitting, with the same 17 retained strokes and incomplete handle.
+The girl retains line F1 0.374 at 1,380 nodes. Local bounds supply constraints;
+coherent exterior strokes and surface interpretation are still missing.
+Source profiles now use visible-paint contrast and contiguous coverage
+centroids; geometric per-run width ceilings recover safe headroom without
+allowing grouped widths to leave the carrier. Crossing fits fall back to the
+precise original source chain or retain filled evidence. The latest finer sword
+has 3,462 nodes / 380 contours / 18 strokes / human MSE 549.56. Handle error
+falls only 2.6%, while guard and jewel error worsen. All 15 tuning replays and
+162 proposals pass native validity, and 982 regression cases pass, but the
+handle still contains filled contact ends and the quality gates remain unmet.
+Source-supported exterior measurement is implemented; complete editable
+contact geometry and coherent surfaces remain missing. A naive clip-based
+contact model also fails partial-alpha coverage under the actual renderer.
+The next source-contact experiment corrects a footprint bug: the fill adapter
+silently closes open chains, adding an invisible chord. Source fitting and
+material retention now use the editor's actual open-path adapter. Original-ended
+butt-cap bodies can compete before trimmed intervals, with cap-specific width
+ceilings and complete old/new carrier coverage. Fourteen new controls cover
+native open/closed footprints, caps, carrier holes, source gaps/alpha/reload,
+old-support rejection and material retention; 996 regression cases pass.
+The finer round parent uses 3,428 nodes / 385 contours / 14 strokes / human MSE
+559.93. The finer butt parent uses 3,942 / 396 / five strokes / MSE 543.08,
+but loses much of the wrapping ink still represented as fills. They are separate
+interpretations, not a complete connected drawing. The next experiment
+offers an atomic candidate combining all five source stroke styles with exact
+owned cuts and one underpaint restoration. Finer material fitting retains 22
+strokes at 3,297 nodes / 388 contours / human MSE 555.83. Against the same
+report's single-round parent, editable handle-stroke recall rises from 0.450
+to 0.537, while displayed line F1 remains about 0.638. These are post-generation
+human diagnostics, including its repair; they do not guide generation. Filled
+scraps and uneven junctions still prevent a practical redraw improvement.
+Preserve source-supported chains still represented as fills while fitting
+neighboring surfaces, using source-only probes with full/local agreement.
+All 15 matched tuning reports now complete and 180 proposals pass native
+validity, ownership, component and local/full raster checks. Nevertheless,
+the girl's bundle more than doubles its initializer's pixel error and loses
+line F1. Its damaging two-run group claims 46 source pixels more than two
+native pixels beyond its actual replacement footprint. Bound source ownership
+to the supported replacement body and retain unrepresented ink independently;
+also check unsupported new stroke coverage and width/paint interpretation.
+This source-only diagnosis supplies no human repair or new admission tolerance.
+989 current-scope regression cases pass, while the quality gates remain open.
+The replacement mask now uses the actual exported stroke's bounded rendered
+coverage, preserving source ink with no replacement coverage independently.
+1,000 current-scope regression cases and 15 isolated tuning reports pass native
+checks. The finer sword bundle improves MSE to 551.32 but grows to 3,907 nodes /
+460 contours; the girl improves considerably but still trails its initializer,
+and band paint error worsens. Body coverage alone does not establish faithful
+width/paint or complete material interpretation. Additional source cuts exclude
+more plane models under unchanged atom limits; assess joint final source/material
+classes before consuming cuts on an intermediate ink edit. Coherent variable-width
+ink and surfaces plus source-only missing/unsupported chain guards remain needed.
+Intermediate cuts/underpaint may not be cheap until composed; assess the complete candidate
+rather than rejecting it solely by intermediate representation cost. Line and
+local-feature gates remain mandatory alongside pixel error.
+These experiments do not enter automatic scheduling. Continue source-supported exterior ink, shared curved
+material boundaries and compact opacity interpretations, preserving physical
+gaps and independent marks. These comparisons improve diagnosis, not release
+status.
+
+### Previous verified pause checkpoint
+
+On 2026-10-07 the owner requested a pause after the verified graph-sharing and
+neighbor-frame checkpoint. That checkpoint removes two composition blockers and
+passes 826 regression tests; it does not achieve the quality milestone. The
+matched 60-second sword remains 8,588 nodes / 1,315 contours / human MSE 551.16.
+All eight deliveries and the frozen release gates remain open. Detailed source
+hashes, diagnostic proposals and checks are in the progress document.
+
+Broaden evaluation before more sword-only tuning.
+Improved generated drawings can seed human cleanup, with explicit provenance
+and retained before/after edits. Unedited generated outputs are candidates,
+not reference truth. Use generator-assisted references for development and
+compare both legacy and planned CEL against the same reviewed target. Preserve
+independently authored human redraws and a fresh held-out set, with artwork
+families and source lineages split before tuning. Cover coherent outlines,
+facets/highlights, wrapping, lettering, hatching, gradients, holes, tiny marks
+and occlusion. Existing corpus and blind-review requirements still apply.
+
+The resumed experiment must report gains, damage and runtime on existing tuning
+artwork as well as the sword. The pause was a practical checkpoint, not a claim
+that the overhaul was complete.
+
+## Decisions and immediate priority
+
+The architecture decision is to combine CEL ink/silhouette evidence with color-region surface evidence in one owned graph. Choose surfaces, ink, shared boundaries and layers together, then automatically fit their geometry and paint. Keep the current editor representation and operation preview/apply contract.
+
+The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
+
+The latest native sword experiment (the coupled piecewise-surface implementation and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
+
+| Drawing | Nodes | Contours | Error against the human render |
+| --- | ---: | ---: | ---: |
+| Completed human fixture | 523 | 93 | 0 |
+| Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
+| Experimental piecewise surfaces with retained marks and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
+| Experimental whole-component material replacement, same budget and settings | 8,588 | 1,315 | 551.15 |
+| Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
+
+The experimental rows use complexity 50, balanced quality and refinement disabled. Both fail all three numerical targets. Whole-component replacement reduces nodes by 14.2% against the previous prototype, but increases human-reference error by 7.1% and worsens all five measured feature crops. It still has 3.7 times the legacy node count. This is an integration result, not a practical redraw improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; merging color patches cannot compensate for thousands of partitions or reconstruct deliberate outlines. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
+
+Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
+
+### Practical gain is the next milestone
+
+The latest result lowers human-reference MSE by **16.9% against legacy CEL**,
+but uses **3.71 times the nodes and 3.88 times the contours**. It has **16.42
+times the human drawing's nodes**. The latest source-ridge package leaves the
+selected sword raster and all five feature errors unchanged. This is a
+structural regression with a fidelity tradeoff, not a useful overall win.
+Reaching 800 nodes from this result requires a **90.7% reduction**. Local rim
+improvements, cache fixes and passing synthetic controls cannot establish that
+reduction. Compare every quality claim with legacy CEL and the human fixture;
+keep infrastructure progress explicitly separate.
+
+Use this experimental sequence before expanding another isolated operator:
+
+1. **Keep admission diagnosis current and visible.** The native audit now uses
+   score version 4 and source-only coverage version 1. The sword has no protected
+   holes; human/legacy opacity residuals are below the unchanged allowance.
+   Both omit 25 faint components (454 pixels, total alpha mass 2.349 opaque-pixel
+   equivalents, peak alpha 1–5/255). The human has two guard crossings with
+   sampled small-loop areas of about 0.263 native pixels² each. These are the
+   remaining actual failures, not the earlier fringe/hole conflicts. The
+   reusable `scripts/audit_cel_admission.py` records all failed supports and
+   native crops on black/white backgrounds. Maintain general controls for real
+   faint marks, holes and opacity steps. Preserve these supports independently
+   and emit valid noncrossing geometry; this audit supplies no basis for a
+   blanket low-opacity exemption or relaxing the crossing rule.
+2. **Build a compact whole-component competitor from source structure.** Choose
+   silhouette, continuous ink, long shared shade boundaries and local order
+   before expanding color fragments into SVG paths. Fit flat/gradient material
+   cells to those shapes, retain supported highlights and marks as independent
+   details, and fit geometry/paint/width jointly. Source atoms remain a complete
+   evidence ledger; their number must not dictate the number of output paths.
+   Propose the complete component atomically rather than requiring a poor
+   intermediate paint or ink edit to win selection. The previous inventory
+   locates 10,256 initializer nodes in 1,657 primary paint paths and only 30 in
+   the coverage base: removing those paint partitions is the central task.
+3. **Audit the whole candidate before tuning search.** Save the proposed drawing
+   even when validation rejects it, with source ownership, counts, native loss,
+   admission failures and frozen feature crops. Human scoring stays entirely
+   outside generation. Distinguish four outcomes: no compact interpretation was
+   proposed; compact geometry causes visible damage; a faithful interpretation
+   conflicts with admission; or an admitted faithful candidate loses selection
+   or the time budget. Each outcome requires a different fix. Cache sharing is
+   an enabling task where composition requires it, not the next quality claim.
+4. **Require a practical comparison before adding product controls.** First
+   demonstrate an admitted candidate with no more than legacy CEL's 2,312 nodes
+   and 339 contours and lower human error than 663.31, with the existing local
+   feature/coverage checks. This is an interim diagnostic, not a replacement
+   release gate. The balanced milestone remains **800 nodes, 140 contours and
+   MSE 497.39**. Then verify selection within the frozen 60-second operation
+   budget and on paired tuning controls. Only a useful shared frontier can
+   establish that the complexity slider controls the drawing users receive.
+
+Do not interpret repeated absent compact candidates as evidence that a ranker
+needs more training. A ranker can only select existing alternatives. If the
+whole-component experiment still lacks suitable interpretations, evaluate a
+separate **learned structural proposer** that predicts bounded boundary, ink
+and material hypotheses for the same exact evaluator. Keep this distinct from
+the optional action-ranker experiment: compare candidate availability, selected
+quality and total runtime separately. Use licensed paired raster/vector data,
+keep artwork families split, and exclude the sword human fixture from training.
+A learned proposer remains experimental until it beats the deterministic
+competitor on held-out artwork under unchanged admission and release gates.
+No model choice or learned benefit is established by the current evidence.
+
+The sword admission diagnosis is now reproducible and visually inspected;
+broader corpus validation remains open. The next quality experiment is a
+whole-component structural candidate, followed by the specific integration
+fixes it exposes.
+General multi-owner paint, open ink and facet modeling remain required behavior;
+they should contribute to that candidate rather than be reported as separate
+quality successes. Automatic optimization follows a viable compact structure.
+Slider calibration, UI migration and learning claims remain downstream.
+
+### Compact paint is insufficient: the next structural contract
+
+The paint-budget ablation now produces admitted native sword candidates at
+1,361 nodes / 321 contours and 2,582 nodes / 449 contours, with human MSE
+3,283.28 and 1,671.98 respectively. Both damage every frozen feature crop.
+These are diagnostic proposals, generated under a separate 180-second allowance;
+they are neither selected operation results nor 60-second runtime evidence.
+The production search does not use this mode. Complete ownership, valid native
+coverage and local/full agreement do not establish resemblance to the human.
+
+This closes the tested shortcut: ordering original color adjacencies once,
+then forcing merges until 32/64 material groups remain, does not reconstruct
+the drawing. On the 32-cell candidate almost the entire component becomes one
+material field; many remaining cells represent narrow fringes. It does not
+establish that all color-region methods fail or that ML is required. Dynamic
+merge costs and paint-fit residuals are still valid deterministic competitors,
+but useful ink and facet hypotheses must also exist. The subsequent dynamic
+hierarchy and shared-curve experiment confirms this distinction: an unprotected
+1,750-node candidate improves global error but erases handle wrapping and harms
+the tip. Protecting source ink restores the paired controls, yet its 32/64-budget
+component proposals have 3,485/4,056 nodes and human MSE 2,321.17/573.05. Neither
+passes the practical comparison. The experiment remains offline; its temporary
+early-search integration consumed time and left a denser selected drawing.
+
+Disconnected ink may share a source-supported paint model without sharing
+physical geometry. Charge every contour and node, retain complete original
+owners, and use physical support alone to determine component eligibility.
+Colour-compatible co-paint links cannot invent bridges or turn tiny independent
+marks into a large component. Broad dark material also needs actual trough
+evidence before being treated as ink. These safeguards preserve small marks;
+they do not establish stroke continuity or a complete component interpretation.
+
+The next implementation must satisfy this component contract before another
+quality claim:
+
+1. **Propose structural edges before allocating paint paths.** Use scale-stable
+   ink ridges, corners, junctions and material contrast to offer competing ink,
+   material-boundary and incidental-detail interpretations. Keep the exact
+   source-atom ledger, but permit one contour or stroke to own many atoms.
+   Do not freeze an entire paint fragment simply because one pixel meets ink.
+2. **Decode complete components.** Couple supported continuous strokes or filled
+   ink bands with restored surrounding paint, shared facet boundaries,
+   flat/linear-gradient surfaces and separately supported highlights. Optimize
+   the component's draw order together with these replacements. A rejected
+   intermediate ink removal must not prevent evaluating the complete drawing.
+3. **Fit the planned geometry and paint automatically.** Anchor corners and
+   junctions; constrain shared boundaries and width; evaluate multiscale image,
+   line, alpha and representation errors. Retry collapsed material chains on
+   both neighbors, and independently validate the complete native render.
+   Fitting parameters cannot substitute for proposing the missing structure.
+4. **Use ML to propose missing interpretations when justified.** The first
+   learned structural experiment should predict bounded edge roles and stroke
+   continuations from source patches and neighborhood evidence, then feed the
+   same constrained decoder. Compare it with deterministic evidence at matched
+   runtime. It is distinct from ranking already available edits. Use licensed
+   clean-vector pairs, artwork-family splits and reviewed role labels; exclude
+   the sword human drawing from training. Keep deterministic fallback and
+   unchanged exact admission. Model architecture and benefit remain unproven.
+5. **Publish controls from a useful common frontier.** Complexity selects actual
+   drawing cost; quality selects search effort. Require an admitted drawing
+   that first beats legacy CEL in both structure and human/feature fidelity,
+   then the frozen 800-node / 140-contour / 497.39-MSE balanced gate. Check five
+   slider levels, automatic fitting, editing behavior and the broader corpus
+   before rollout. Smaller inaccurate drawings are not slider successes.
+
+[DiffVG](https://people.csail.mit.edu/tzumao/diffvg/) demonstrates fitting vector
+parameters through raster losses. [DeepSVG](https://alexandre01.github.io/deepsvg/)
+studies hierarchical vector generation. Our inference is that parameter fitting
+and learned structure are separate responsibilities; neither paper demonstrates
+the proposed Vectrify decoder or establishes a suitable small local model.
+The complete delivery, runtime, corpus and release requirements below still apply.
+
+### Reset after the baseline comparison
+
+The 19,528-node result is a structural regression against the 2,312-node legacy
+baseline, despite its approximately 29% lower human-reference error. Compare
+against legacy CEL and the human fixture, not only the previous dense prototype.
+Neither the slider nor a learned ranker is ready to present as a quality solution.
+
+The subsequent material-silhouette experiment reinforces that conclusion. A
+color-only initialization reaches 3,818 nodes but worsens human-reference error
+to 683.61 and loses the jewel rim. Keeping ink and ridge barriers yields 12,618
+nodes and error 517.60. Both fail the frozen sword gate. The latter meets the
+current nominal slider budget only because that budget is normalized by a
+54,564-cost detailed trace; that is not evidence of useful product complexity.
+Admission-compatible coverage and source ownership are necessary foundations,
+but reducing alpha partitions does not produce the human's coherent contours.
+
+Subsequent bounded shade-contact and internal-ink proofs reduce the drawing to
+10,286 nodes. Reusing strict geometric order proofs lets a source-contained
+jewel ellipse reach local evaluation, and a separate live checkpoint reserve
+publishes four validated local alternatives. The selected ink replacement
+reaches 10,121 nodes and human error 514.67; the isolated ellipse alternative is
+dominated and does not reach the selected drawing. The jewel paint remains
+fragmented. These fixes expose useful alternatives but do not establish the
+required whole-surface abstraction or a combined structural solution. The next
+experiment must couple compact closed contours with coherent enclosed paint,
+preserved highlights and supported facet geometry, then measure whether those
+edits can compose within the search budget. A larger ranker cannot supply a
+missing compact drawing.
+
+The coupled closed-contour/material proposal now reaches local evaluation,
+retaining independent highlights and ink. It is not part of the latest selected
+drawing, which contains two ink replacements and remains at 10,009 nodes and
+human error 514.85. A depth-priority search experiment leaves that sword output
+unchanged and substantially worsens western-park lettering on a paired tuning
+control; the experiment was removed. This is evidence against treating search
+priority as the current quality solution. The next model work must address
+broad coherent shade/facet surfaces and their supported boundaries, while the
+candidate audit separates interpretation, admission and selection failures.
+
+Broad whole-owner material hypotheses now compete across compatible shade
+fragments, including coarse ink labels that fit the complete source paint.
+Fixed atoms and selected ink overlays remain protected. Exact unions and
+batched geometric order proofs admit larger surfaces without changing native
+coverage or feature gates. A discovery deadline now preserves the measured
+full-check duration when the shared validation window is short. The retained
+60-second run publishes four independently validated alternatives, but still
+selects the same 10,009-node drawing with error 514.85. This closes a proposal
+availability and checkpoint timing gap; it supplies no sword quality gain.
+The operator keeps the existing exterior geometry, so coherent paint alone
+cannot remove its jagged or fragmented boundaries. General supported geometry
+and true atom splitting remain required before claiming structural compaction.
+
+Structured RGBA export now grants bounded permissions to generic interior
+curves while retaining fitted primitives and native contacts as the exact
+protected complement. Exact surviving permissions can pass through a contour
+union; unproved boolean subdivisions remain frozen. Shared fitting skips
+redrawing an already identical neighbor run, preventing a false edit of a held
+underlayer. A source audit finds 1,233 paths with usable permissions and validates
+eight fitting alternatives, but the largest independent fit removes only 22
+nodes. The latest matched run publishes three checkpoints and selects one ink
+replacement, with 10,121 nodes and error 514.67. This is not a practical gain over
+the previous 10,009-node/514.85 drawing. Generic curve permissions alone do not
+rebuild compact canonical boundaries through fragmented junctions. That geometry
+and true source atom splitting remain the next structural work.
+
+True source atom splitting now has an immutable pixel ledger, branch-local
+canonical graphs and native-validated synthetic cases. A bounded straight shade
+cut can split one original region into two editable paints and compose with the
+existing operators. This does not improve the sword: the matched run returns
+10,009 nodes and human MSE 514.85, matching an earlier dense result. The new
+cursor does not reach discovery in that run. An independent source-only audit
+reaches it on both the initializer and a broad union, but produces no candidate
+from the bounded eight-owner prefixes. Complete paint disagreement excludes
+20 of 28 initial and 24 of 32 post-union line hypotheses; the others fail side
+support. Existing surfaces do not supply suitable broad piecewise-painted
+parents. The next candidate must therefore couple whole-family contour
+replacement with piecewise paint and new source atoms in one edit, without
+requiring a poor intermediate drawing to enter the beam. General supported
+boundary rebuilding, coverage interpretation and admission auditing remain
+necessary. A slider or learned ranker still cannot resolve the missing compact
+alternatives.
+
+The coupled operator now grows a connected family against two side-paint
+models directly, then proposes exact or contained compact contours and complete
+source ownership in one edit. It reaches local evaluation in the matched sword
+run. Two compact gradient variants save 496 representation units but regress
+the frozen native objective and are rejected. The selected drawing is unchanged
+at 10,009 nodes and human MSE 514.85. A source-only diagnostic admits four
+alternatives; its best contained straight/flat variant has 10,072 nodes and MSE
+511.75, removing 214 initializer nodes, including 23 beyond the corresponding
+exact union. This is real proposal coverage, but it is still far from the sword
+milestone. Four paired tuning controls remain byte-identical. The next model
+work must rebuild coherent whole-surface boundaries and continue material under
+retained marks with proved local order. Exact-union containment, fragmented
+contacts and the bounded original-atom member limit still restrict the current
+operator. Keep those limitations visible before considering score calibration
+or learned ranking as the explanation for the missing compact drawing.
+
+Two shade surfaces can now continue beneath independently owned enclosed marks
+in one proposal. Actual core, containment and joint order proofs protect their
+alpha and unrelated paint. The supported atom namespace replaces the arbitrary
+512-member discovery cap; actual pixel, path, node and split bounds remain.
+Synthetic proposals keep the crossing highlight and pass native/local agreement,
+but the matched sword produces no continued candidate and retains the same
+10,009-node drawing. All four paired tuning renders remain byte-identical.
+Anime face now reaches 160 source-line hypotheses instead of the member cap;
+complete paint screening rejects all of them. This is useful implementation and
+diagnostic coverage, with no practical quality gain. The immediate priority is
+source-supported whole-surface boundary proposals and coverage interpretation,
+including joint paint and marks, rather than further increasing family bounds
+or training a ranker on the current inadequate pool.
+
+Independent straight/cubic exterior fits now compete without clipping back to
+the old fragment union. They retain exact holes and require actual opaque core,
+complete source-paint screening, visibility beneath higher opaque geometry and
+proofs against new overlap with lower unrelated paint. Controlled cases admit
+them, but the matched sword and four paired controls remain byte-identical.
+The sword diagnostic rejects all 16 independent fits in its bounded prefix:
+newly exposed pixels belong to neighboring light facets or dark marks, with
+source/paint disagreement up to 108 RGB levels. This narrows the next work to
+joint source-supported boundaries, adjacent paints and exact ownership, with
+coverage-aware compositing. Isolated contour fitting still cannot supply the
+needed compact faithful candidate. No quality or release gate is passed.
+
+The coupled operator now also fits a subpixel shared shade edge and two paints
+using geometric pixel coverage. A proved opaque core permits one whole-family
+base plus a shade overlay, avoiding core-color seams between adjoining fills.
+Source voting initializes bounded continuous angle/offset fitting; pure-side
+paint fitting and complete mixed-pixel screening replace a hard pixel-side
+assumption for this competitor. Source atoms still split exactly and the base
+records shade members as secondary support. This model remains one bounded
+two-material interpretation, not the source-first whole-component silhouette
+and coverage solution required to remove the remaining fragmentation.
+
+The matching diagnostic now supplies a native-valid post-union joint-edge
+candidate at human MSE 506.01, but still 10,062 nodes; native visual loss
+regresses and the matched selected sword stays byte-identical at 514.85.
+Ownership/geometry accounting corrects the count diagnosis: the coverage base
+has only 30 nodes, while 1,657 primary paint paths carry 10,256 initializer
+nodes. Prioritize source-driven replacement of many paint fragments together,
+with coherent multi-material cells, shared edges, retained ink and exact atoms,
+rather than another fringe-only contour model. Keep unsupported opacity and
+hole cases explicit. Fitting effort also needs allocation: the new solver
+emits no coupled control candidates yet reduces paired search coverage from
+48 evaluations to 16/16/24/16. This is unfinished experimental work, not a
+quality or runtime gate passed.
+
+Whole-core material cells now provide a source-contour competitor instead of
+unioning the old fill fragments. Connected color families keep complete atoms;
+straight cuts use exact bounded atom splits. The coverage carrier keeps its
+original geometry and fill rule. Native pixel proofs restrict both removed
+paint and new overlays to its opaque interior, allowing material reconstruction
+under retained translucent marks without changing alpha. Source ridge evidence
+requires two painted sides with comparable opacity, so a dark facet or alpha
+fringe alone cannot declare ink. This remains an experimental interpretation.
+
+The final source-only audit validates six connected-region candidates. Its
+lowest-node initializer alternative has 8,588 nodes, 1,315 contours and human
+MSE 551.16; a post-union alternative has 8,659 nodes and MSE 533.99. These are
+still far above the legacy and human structure counts and miss the fidelity
+gate. That matched generation selected 10,009 nodes and MSE 514.85 because its
+coarsest proposal exceeded the search's 256-object local dependency limit.
+The four paired control renders remained unchanged. That run diagnosed an
+integration limit as well as missing compact, faithful alternatives.
+
+A separate bounded whole-component dependency contract now admits the broad
+proposal while preserving the 256-object ordinary edit limit. It seals the full
+source document and ownership, validates every changed path, retains external
+paint and order, protects locked/pinned geometry, and includes the complete
+target revision in rejection proofs. All actual representation charges, native
+context checks and independent full checkpoints remain in force. The matched
+run now selects a 22-cell replacement plus one ink edit: 8,571 nodes, 1,313
+contours and MSE 550.85. There are no local/full score disagreements, but its
+fidelity regresses. Restoring availability did not solve the quality problem.
+
+Continue with coherent ink, canonical long boundaries and justified
+source-coverage interpretation. The crop comparison exposes jagged blade
+facets, fragmented guard outlines and an irregular jewel rim. Replace their
+supported boundary chains jointly with adjacent paint and ink; then fit the
+resulting compact representation automatically. Keep the unrestricted
+interpretation as a competitor and verify complete native alpha, holes,
+retained marks and source ownership. Calibrate selection on the tuning pool
+after faithful alternatives exist: the independently audited pool has no
+candidate meeting the combined sword gate, so changing weights or adding a
+ranker cannot establish that milestone. Do not present this package as a
+quality improvement, a calibrated slider or a completed delivery. The detailed
+source hashes, negative runs and verification requirements are in the progress
+record.
+
+A paired closed-ink competitor now fits the complete inner/outer source
+perimeters and continues adjacent paint under the rim. A compact cavity and
+surrounding material share a boundary that native rasterization proves hidden
+by opaque ink; visible antialias pixels retain the correct side paint. The
+controlled ring falls from 94 nodes / 15 paths to 23 nodes / 4 paths, with
+unchanged alpha, ownership, gradient frames and independent local/full checks.
+This is a verified operator foundation, not a sword quality improvement.
+
+The matched sword and four paired tuning renders remain unchanged. A deeper
+diagnostic exhausts 60 eligible ink groups on the initializer and 59 after
+material replacement without finding a complete annular ink family. It
+temporarily inspects up to 64 groups, outside production's unchanged 16-group
+limit; neither diagnostic phase hits that larger cap or its deadline. More
+search over the existing palette-owned families would not expose the required
+rim. Prioritize ridge continuity across palette boundaries, with tangent/width
+and complete source support. Split mixed original atoms exactly when ink uses
+only part of an owner. Preserve deliberate gaps and separately owned marks;
+an additive outline or majority ownership assignment does not complete this
+replacement. The source hashes and bounded/deeper pool records are in the
+progress document.
+
+Source-first closed-ridge discovery now competes independently of palette
+families. It selects only existing drawn pixels around a complete RGB cavity,
+proves both-sided ridge support and cuts mixed owners through exact source
+atoms. Whole disconnected contour groups stay exact when all their source
+samples agree; true partial groups are cut with their remainders retained.
+Graph copies use the planner's existing bounded cache. Complete-atom
+reassignments retain their namespace. Controlled fragmented ink with a distant
+shared-owner mark falls from 98 nodes / 15 paths to 28 nodes / five paths, with
+exact native alpha and mark pixels.
+
+The final native sword emits a rim proposal, but retains the preceding selected
+drawing and misses every frozen sword target. The compact underpaint route
+requires two complete neighboring material owners; this proposal has six.
+Giving source discovery the first search slot caused timing-dependent
+regressions, so that priority was removed. The independent source-cut audit,
+matched tuning controls and source hashes are recorded in the progress file.
+The next closed-ridge change must model the multiple surrounding/enclosed paint
+owners jointly, retaining highlights and deliberately distinct marks. General
+open ridges, junctions and shared long facets remain separate missing behavior.
+Neither a better ranker nor the slider completes this representation work.
+The earlier source-cut audit after coarse material replacement hit the 32 MiB
+branch-cache bound because live namespaces duplicated full source graphs.
+The verified pause checkpoint now shares immutable original values and exact
+unchanged cut records, counting unique retained allocations including active
+evicted branches. Accounting version 2 reports original storage separately:
+29,506,944 bytes original plus 5,659,800 bytes additional branch storage in the
+audit. The unchanged 32 MiB limit bounds additional cache storage, not total
+graph storage or process RSS. Neighbor-frame conversion removes the subsequent
+restoration blocker. The composed proposal now reaches native evaluation but
+still lacks compact paint for its 13 neighboring owners and misses quality
+criteria. See the progress document for reproducible evidence.
+
+The next structural milestone must propose long supported facet boundaries and
+closed ink contours across color fragments, with underlying paint and local
+draw order included in each replacement. Validate the jewel rim/highlight,
+tip and handle marks before accepting a cost reduction. Compare the generated
+pool's best faithful compact candidate with the selected candidate to distinguish
+missing interpretations from bad selection. Hold the 800-node/140-contour/
+497.39 target and local feature checks. Automatic fitting follows these viable
+structural choices; slider UI and learned ranking still depend on that milestone.
+
+An earlier benchmark-only audit rejected human/legacy drawings for fringe holes
+and opacity residuals as well as crossings/component loss. The implemented
+source-only material-coverage interpretation resolves the fringe/hole conflicts:
+the current native audit has zero protected sword holes and residuals below the
+85-pixel allowance. Human/legacy omit 25 faint supports and the human retains two
+small guard contour folds. These remaining diagnostic failures are localized;
+they do not establish that thousands of paint paths are necessary. Keep faint
+supports independently and construct clean geometry. No human geometry enters
+generation and no fixture exception is granted. Candidate ranking cannot supply
+the missing coherent drawing.
+
+The next work follows this order:
+
+1. **Audit admission against the intended abstraction.** Locate each rejected
+   crossing, hole, component and opacity residual on the source and diagnostic
+   drawings. Distinguish visible damage from fringe reconstruction, faint
+   isolated raster artifacts and deliberate redraw changes. Develop and test
+   evidence-based hard support for meaningful holes, ink and opacity marks;
+   keep uncertain reconstruction differences in the finite native visual score
+   where justified. Preserve explicit regression cases for genuine faint marks,
+   thin protrusions, holes and intentional opacity steps. Version any policy
+   change and validate on tuning fixtures before freezing it. Do not waive
+   failures or tune thresholds simply to admit this particular sword.
+2. **Propose structure before color/alpha partitions dictate geometry.** Build
+   competing silhouettes, continuous ink, compact closed contours and coherent
+   shade surfaces directly from boundary and ridge evidence. Let color regions
+   fit paint and support those choices. Palette fragmentation must not prevent
+   a closed contour or straight facet from reaching evaluation. Maintain whole
+   source ownership, or introduce explicit new atoms for a real split; a
+   majority assignment cannot claim complete ownership after splitting an atom.
+3. **Fit coverage, geometry and paint together.** Treat edge transparency as a
+   coverage interpretation separate from intrinsic material opacity. Prefer
+   bounded shared geometry over many nested traced alpha contours. The first
+   15-band envelope plus opaque interior tracing experiment produces 6,769
+   nodes and human MSE 645.40, and fails native checks; it is not an accepted
+   operator or a quality improvement. Test new interpretations on synthetic
+   antialiasing, genuine variable opacity and tuning artwork before integration.
+4. **Calibrate selection and expose complexity after compact faithful choices
+   exist.** Preserve the 800-node/140-contour/497.39 sword gate and feature
+   checks. Report nominal budget shortfalls separately from the observed,
+   unproven search floor. Then validate automatic fitting and slider behavior
+   on one common frontier. A small learned ranker remains conditional on useful
+   candidates and measurable held-out benefit.
+
+The audit and rejected envelope experiment are recorded in the progress
+document. They change implementation priority; no release gate is passed or
+relaxed by these findings.
+
+The bounded paired-ridge check now lets coarse line evidence compete with a
+surface interpretation when a sufficiently long chain lacks a dark ridge.
+Supported ridges remain barriers even when a weak adjacency route connects the
+same regions. In the sword run, 107 chains were examined: 101 supported a ridge
+and six did not. Another 5,490 strong-edge encounters remained unresolved under
+the conservative bounds; these are encounters, not unique boundaries. This
+limited relaxation does not solve the fragmentation. Measure why chains remain
+unresolved before widening those bounds or changing the score.
+
+## Evidence and success criteria
+
+The completed sword fixture merged on 6 October 2026 contains 80 paths, 93 contours, 523 nodes and six gradients. The current default CEL output contains 137 paths, 339 contours, 2,312 nodes and 24 gradients. Requesting 12 regions still produces 64 visible regions because protected shadows and features are exempt from the target. The default budget uses canvas area even though only about 10% of the sword reference is foreground.
+
+The sword experiments used the merged fixture from commit `4e93ccf` and CEL and Tidy sources unchanged between that commit and `07b5406`. Full-resolution RGB mean squared error was measured over the reference's alpha of at least 0.5, dilated by four pixels, with both images composited over white. Error against the raster was 415.65 for the human drawing and 292.65 for default CEL. The human drawing deliberately simplifies the reference, so raster error cannot be the sole acceptance criterion.
+
+Two joint Tidy runs selected every traced path, allowed two rounds, and had 30-second limits. Both exhausted their limits and retained the shape step. Default CEL grew from 2,312 to 2,319 nodes and did not improve its full-resolution match. A trace using 12 regions and tolerance 3 followed by Tidy reached 1,040 nodes and lowered its error against the human rendering from 733.95 to 578.07. Default CEL's error against the human rendering was 663.19.
+
+Use these initial engineering targets for the sword at balanced complexity and quality: at most 800 nodes, at most 140 contours, and at least 25% lower foreground error against the human rendering than default CEL, which means at most 497.39 under the frozen scoring mask. These are proposed targets, not achieved results. Keep the jewel, blade tip, handle wrapping and main shade boundaries identifiable. Do not impose an exact path count, copy the fixture's geometry, or introduce sword-specific recognition rules.
+
+Evaluate the broader illustration set before changing defaults. Photos remain a separate workload; the first release targets cel art and illustrations.
+
+### What the prototype establishes
+
+The current development prototype is evidence for the next steps, not a completed delivery. A native-render run at complexity 50 produced 435 nodes, 71 contours and nine gradients in about 4.75 seconds. Its human-reference MSE was 749.68, worse than legacy CEL's approximately 663.31 through the same operation/export benchmark. Reducing geometry alone therefore does not pass the sword milestone. Earlier experiments also showed that centering a continuous outer stroke on the alpha boundary creates substantial spill; the fitted stroke must account for its width and the intended outer silhouette.
+
+The small difference between the original diagnostic's 663.19 and the operation benchmark's 663.31 comes from its rendering/export path. Freeze the operation benchmark, mask and renderer for future comparisons, and retain the conservative 497.39 target. Version source hashes as well as commits for experiments on a dirty worktree.
+
+Prioritize cleaner boundary interpretations and local ink/feature preservation before further aggressive merging. Do not use this prototype to justify default migration. In particular, accepting `refine` or a budget setting in the operation schema does not complete that setting until it changes behavior and has validation evidence.
+
+A later structured candidate measured 449 nodes, 87 contours and human-reference MSE 744.49. When additional merge candidates finished, the score instead selected 329 nodes and MSE 816.46. Both fail the human-match target. Time-limited searches completed different candidate sets, so these runs cannot establish a quality improvement at equal search effort. The guard, jewel and blade-tip crops show why global counts are insufficient:
+
+| Observation | Likely mechanism to investigate | Required competing proposal |
+| --- | --- | --- |
+| Small shade fragments remain within broad blade facets | Segmentation retains raster variation; curve fitting preserves its bends | One coherent shade surface with straight facet boundaries and a preserved tip |
+| Ink breaks around the guard and jewel | Initial line detection, region boundaries and later ink reconstruction disagree | Continuous locally supported ink, with a filled mark when stroke width varies |
+| The jewel remains subdivided despite its compact outline | Whole-shape proposals depend on fragmented region families | A closed compact outline fitted from boundary evidence across adjacent shades |
+| Lower-cost output scores well while human resemblance worsens | The visual score and detail penalty may reward the wrong simplification | Individually validated edits and score calibration against clean paired targets |
+| Selected output changes with the completed search prefix | Candidate availability changes under the deadline | A recorded common frontier, deterministic proposal order and explicit search completion status |
+
+These are development hypotheses, not semantic rules for recognizing swords. Test each mechanism on synthetic and tuning artwork. A learned ranker cannot choose a clean facet or continuous outline if the proposal generator never offers it.
+
+Opacity-aware validation subsequently exposed another initialization problem:
+most of the sword reference is slightly translucent. The conservative RGBA
+fallback reaches human MSE 446.79, but uses 54,320 nodes and 8,217 contours. It
+therefore fails the structural milestone despite passing the error ceiling.
+Compact proposals must preserve native low-opacity marks and holes while
+combining paint variation into coherent surfaces; treating each alpha byte as
+a separate region is not viable. The measured run and limitations are recorded
+in the implementation evidence. This does not change the rollout gates below.
+
+## Product and API decisions
+
+Introduce `generate/cel-planned` as an experimental method using the existing operation contract. Preserve the existing `generate/cel` behavior and settings while comparing the methods. After rollout, the UI can recommend the planned method while API callers retain the legacy method during migration.
+
+The primary controls are:
+
+| Control | Proposed contract | Effect |
+| --- | --- | --- |
+| Complexity | Integer 0 to 100, default 50 | Sets the cost and budget of shapes, contours, nodes and paint models |
+| Quality | `fast`, `balanced`, `high`; default `balanced` | Sets search breadth and refinement effort independently of complexity |
+| Automatic refinement | Boolean, default true | Refines the completed plan within the quality and operation time limits |
+| Gradients | Boolean, default true | Allows a linear gradient to compete with a flat fill |
+| Line width | Zero measures ink; positive overrides it | Preserves an explicit user choice of stroke weight |
+
+Keep palette size, boundary tolerance, feature protection and budget overrides in advanced settings. An advanced override must declare which derived value it replaces; changing complexity must not silently erase it. Do not expose a second region-count control as the primary complexity setting. Do not add a learned-planner toggle to the initial UI.
+
+Use the setting keys `complexity`, `quality`, `refine`, `gradients`, `line_width`, `palette`, `tolerance`, `protection` and `node_budget`. Zero means automatic for width, palette, tolerance and node budget. A positive tolerance is expressed in source-reference pixels and replaces the derived geometry tolerance; a positive palette replaces the color-proposal palette limit. Protection scales the finite feature penalty, without disabling mandatory coverage or topology checks. A positive node budget requests an explicit node ceiling. If no candidate satisfies it without breaking those checks, return the best safe candidate and report the unmet budget. Validate unknown keys and invalid types using the existing method-setting contract.
+
+Label the slider **Complexity**, with **Simple** and **Detailed** endpoints. Explain that lower values keep main shapes and higher values retain more fine detail. Show paths and nodes in preview summaries and give candidate alternatives useful labels such as “Simpler” and “More detailed.” Keep raw reference error available in diagnostics without presenting it as the definition of quality.
+
+Apply adds one generated group as one undoable edit. Stop returns the best fully validated candidate available; before any candidate exists, cancellation behaves as the job contract already specifies. Changing the reference, target scope or settings invalidates a pending preview. Initially, dragging the slider invalidates the preview and updates the label; Generate starts the new job. Reusing cached candidates for immediate slider previews is a later enhancement.
+
+## Pipeline and intermediate representation
+
+Use a temporary planning representation; the editor document model and project format do not need a new geometry type. The pipeline is:
+
+`Reference → evidence → region and boundary graph → structural candidates → complexity frontier → geometry and paint fitting → exact validation → SVG proposal`
+
+The evidence bundle contains original premultiplied RGBA, alpha confidence, analysis images at several scales, color statistics, ink confidence, centerline chains, texture confidence and boundary samples. Preserve original pixels for final scoring. Do not discard partial alpha or bake the white preview background into the model.
+
+The graph contains regions, adjacency, shared boundary chains, junctions and proposed occlusion relationships. Each shared boundary has one canonical geometry owner and references from the regions either side. A region records its area, paint samples, texture, contrast, feature confidence and component membership. A stroke records its chain, width evidence, ink evidence and junction relationships.
+
+A plan contains component groups, shape candidates, paint models, draw order, shared edges, representation cost and scored alternatives. It also retains evidence that explains accepted or rejected decisions. The diagnostic record includes stage timings, real path/contour/node counts, score terms and rejection reasons.
+
+Use ordinary SVG paths, groups and supported gradients on export. Fit ellipses into ordinary path geometry for this release. Assign neutral component names unless a semantic label is actually known. Do not pack unrelated parts into one compound path merely because their colors match; merging for storage should respect component membership and editing usefulness.
+
+## Evidence and segmentation
+
+Reuse CEL's line detection, trapped-ball fill, color splitting, boundary chains and alpha handling as the initial evidence generators. Factor them behind a stage interface without changing the legacy method's behavior.
+
+Estimate complexity from foreground content and boundary structure, excluding empty canvas padding. For opaque images, infer a simple background only when border connectivity and color consistency support it; retain the whole scene when they do not. Background classification affects budgeting and grouping without silently removing opaque reference pixels. Normalize feature sizes and tolerances by a defined analysis scale; map fitted geometry back to source coordinates. Keep final silhouettes and thin-feature checks at source resolution or in native-resolution crops so a downsampled analysis cannot erase them.
+
+Generate color evidence at more than one spatial scale. Broad shading should support a region or gradient, while a narrow coherent dark mark should support a stroke. Use local color models where one global palette loses differences within a component. GPU palette fitting may accelerate this stage, but CPU processing remains available.
+
+Replace unconditional shadow exemptions in the new planner with finite protection costs derived from contrast, size, coherence and stability across scales. High-confidence small features remain strongly protected. Texture fragments compete against the cost of retaining them. Keep alpha-derived empty space and intentional holes as topology constraints rather than ordinary merge candidates.
+
+Separate silhouette cleanup from inner texture cleanup. A long supported edge may become a straight segment or a few smooth curves, while the tip remains a corner. Do not force symmetry globally; a symmetric interpretation is eligible only when bilateral evidence supports it and validation accepts it. Evaluate pale lines, dark fills, hatching and blurred edges as distinct ambiguity cases.
+
+## Structural planning and layer construction
+
+Start from an oversegmented graph and a valid CEL-derived candidate. Use bounded local search with a small beam of alternatives rather than enumerating every combination. Recompute proposals only near an accepted graph edit.
+
+The first candidate operators are:
+
+| Operator | Competing interpretations |
+| --- | --- |
+| Merge adjacent regions | One flat surface, one gradient surface, or retain the separating edge |
+| Split a region | Two stable shades or one surface with texture |
+| Reclassify a dark mark | Stroke, filled ink shape, shade boundary or texture |
+| Join stroke chains | One continuous stroke or separate marks, using ink support and tangent continuity |
+| Replace boundary geometry | Straight segment, smooth cubic chain, or retain corners |
+| Fit a compact closed shape | Ellipse-like path or unrestricted contour |
+| Reorganize coverage | Base fill with overlays or adjacent regions sharing boundaries |
+| Change paint model | Flat fill or linear gradient |
+
+Rank proposals by the change in validated visual error and representation cost. Do not accept a merge solely because it reduces region count, or a stroke join solely because its ends are nearby. Width transitions, junctions, corners and ink across gaps must support the resulting shape.
+
+Use a two-stage proposal test. An inexpensive local estimate prioritizes edits; it cannot accept them. Rasterize a candidate in the affected source-resolution crop, including a margin for strokes and antialiasing, before changing the retained plan. Score the same visible context before and after the edit. Run full-canvas validation before retaining a preview or final result. Cache rejected edits by graph revision and operator parameters, and invalidate only proposals whose neighborhoods changed.
+
+For the initial search, cap the beam at one, four and eight states for fast, balanced and high quality. Start with exact local evaluation caps of 16, 48 and 128 proposals per run, subject to the deadline; measure and revise these caps on the tuning corpus. Do not spend that allowance only on merges. Reserve proposals for stroke interpretation, boundary geometry and paint models. Beam states must share immutable evidence, while graph edits and geometry are independently owned. Deterministic ordering breaks ties by operator and stable region/boundary IDs.
+
+### Local proposal contract
+
+Each proposal records its operator, stable planning IDs, parent revision, affected geometry and paint, native-coordinate bounds, representation delta and evidence features. Its affected area includes the union of old and new visible bounds, stroke expansion, renderer antialiasing, score filter support and dependent layers. A gradient or order change can affect an entire shape; evaluating only its boundary is insufficient.
+
+Render before and after with the same surrounding layers and coordinate mapping. Compute changed score contributions using the full policy's fixed denominators. Update cached feature contributions and their worst-feature aggregate; do not normalize a crop independently or average away damage to one feature. Count representation changes over the complete plan. Cheap graph estimates determine evaluation order, while exact local objective improvement determines whether an edit enters a working beam state.
+
+Keep a separate fully validated checkpoint. Before publishing a beam state to the frontier, export and render the complete candidate and run document, coverage, topology, shared-edge and feature checks. If the local estimate disagrees with full scoring, reject the checkpoint and record the disagreement. This also tests whether crop margins or dependency tracking are incomplete.
+
+Rejected proposals are reusable only while their dependency revisions and relevant settings remain unchanged. Cache by neighborhood revisions, operator parameters and score version, with a bounded entry count. Changes to a shared edge invalidate both adjacent regions and their ink; changes to draw order invalidate affected visibility dependencies. A candidate owns its edited geometry so rollback never mutates another beam state.
+
+Stroke-versus-fill proposals compare local width variation, paired-edge support, junction topology and ink color. Keep tapered or strongly varying marks as filled ink shapes when constant-width strokes cannot explain them. Estimate ink and width locally rather than forcing one global style. For joins, measure tangent continuity and evidence across the entire connecting gap; reject unsupported bridges even when endpoints are close. A continuous exterior stroke is a competing interpretation only where ink supports it, including separate decisions for holes.
+
+For boundary fitting, retain evidence-supported corners and graph junctions as fixed anchors. Compare straight runs, cubic fits and unrestricted contours between anchors. An ellipse proposal needs low fit residual, stable support at multiple scales and no supported corner that it would remove. The accepted model's constraint remains active during later refinement. These operators address the sword's straight blade facets, pointed tip and compact jewel without naming or recognizing those objects in algorithm code.
+
+Build component groups from connectivity and boundary evidence. Establish a base fill, local shade/highlight overlays and linework in a consistent draw order. Treat partial occlusion explicitly: a base may continue underneath a covering shape instead of tracing every hidden edge. In the first release, restrict order changes to locally supported relationships and reject cycles or unexplained changes in visible coverage.
+
+Maintain shared boundaries for truly adjacent visible fills. A base fill beneath adjacent subdivisions can close antialias seams without adding same-color strokes around every fill. Intentional overlaps are allowed; uncovered opaque interior and visible spill are not. Avoid introducing clip paths as a shortcut until the fitting and exact scoring paths support them consistently.
+
+For a nearly uniform translucent component, let an isolated opacity group with a native core fill compete against adjacent RGBA surfaces. Normalize child fill and gradient-stop opacity by the group opacity so the base does not double translucency. Keep intentional holes out of the core and retain weaker fringes outside it. Group only connected material evidence; disconnected components and thin marks keep independent coverage. Broad variable-alpha surfaces require their own RGBA interpretation. Core thresholds are proposal parameters that must pay the full native color/alpha and feature score, rather than exemptions from it. Test project export/reload as well as the initial renderer, and include this coverage interpretation when establishing a validated detailed cost normalizer.
+
+## Scoring and complexity
+
+Use a normalized objective of the form:
+
+`J = visual error + alpha and edge error + protected feature error + λ(complexity) × representation cost + geometric regularization`
+
+Visual error combines robust color differences at native and coarser scales. Alpha error uses premultiplied RGBA and checks transparent references on contrasting backgrounds. Edge error measures supported contours and ink positions rather than every texture edge. Feature error gives annotated benchmark features and automatically detected high-confidence marks local weight. Geometric regularization discourages unsupported wiggles, abrupt tangent changes away from corners and needless width oscillation.
+
+Representation cost charges for nodes, separate contours, primitive objects and gradients. Charge contours inside compound paths so color grouping cannot disguise complexity. Preserve useful component grouping rather than penalizing all groups indiscriminately. Calibrate weights on the tuning set and version them with the algorithm. A flat model should win when the gradient's improvement does not justify its extra parameters.
+
+Low slider values increase the cost of detail and lower the available budget. Higher values reduce that penalty. Normalize budgets to visible content and structural evidence, not raster canvas size. The endpoints still preserve mandatory coverage and protected features; the UI reports actual counts when a requested budget cannot be met.
+
+Cache a frontier of candidates that offer different tradeoffs between visual error and representation cost. Choose slider results from that common frontier where possible so total representation cost progresses consistently as complexity increases. Individual path and node counts can trade off; do not promise every count is independently monotonic. Test endpoints, intermediate levels, repeated runs, resized inputs and added transparent padding.
+
+Hard validation rejects nonfinite geometry, new unintended self-crossings, broken shared junctions, lost protected holes, unsupported layer changes and visible coverage failures. Candidate retention uses the same documented score as planning, with exact rasterization for checkpoints. Raw pixel MSE is a diagnostic, not a veto against intentional simplification.
+
+### Initial score and slider implementation
+
+Start with representation cost `C = nodes + 4 × contours + 2 × (paths + primitive objects) + 12 × gradients`. Primitive objects are visible SVG elements such as rectangles, circles and ellipses that do not store path nodes; they still pay object and contour costs. Compact models exported as ordinary paths pay their actual path/node costs. Count every contour inside a compound path and every rendered use of reused geometry; exclude unused definitions. Report the raw counts alongside this cost. These weights are initial engineering choices to calibrate on the tuning set, not inferred human preferences.
+
+Normalize cost by a reference-dependent structural estimate `C₀` computed once from the detailed candidate and foreground evidence, with a positive lower bound for empty or tiny images. Keep that normalizer fixed across slider levels and search states. Use `λ(c) = λ₅₀ × 2^((50 − c)/25)` as the initial detail-penalty schedule. Calibrate `λ₅₀` against the tuning corpus, freeze it with the score version, and do not tune it against held-out human drawings. Derive a soft representation budget from the same structural estimate; it increases with complexity and excludes transparent padding. Mandatory features establish a budget floor. A requested node ceiling is a separate, explicitly reported constraint.
+
+Calibrate that structural estimate independently of the conservative fallback's
+raw path count. Byte-level alpha partitions must not inflate `C₀` until a
+50-percent budget still permits tens of thousands of nodes. Compare the initial
+detailed-candidate estimate with an evidence estimate based on foreground
+components, supported boundary length and stable shade/ink structure. Freeze
+the chosen estimator, its units and coefficients on tuning artwork; verify
+padding and scale behavior before declaring the slider implemented. Keep the
+dense fallback available for correctness without treating its complexity as the
+desired detailed representation.
+
+Use `B(c) = max(B_min, C₀ × 2^((c − 100)/50))` as the initial soft-budget schedule: one quarter, one half and one detailed-reference cost at complexity 0, 50 and 100 before the mandatory-feature floor. Estimate `B_min` from the simplest validated interpretation that preserves mandatory coverage and features. This is a search target to calibrate, not permission to remove features or a promised node count. Report the target and achieved cost. Frontier selection remains governed by the common objective; a positive `node_budget` adds its separately documented feasibility rule.
+
+| Complexity | Detail penalty relative to level 50 | Soft cost target before the feature floor |
+| --- | ---: | ---: |
+| 0 · Simple | 4× | 25% of `C₀` |
+| 25 | 2× | Approximately 35% of `C₀` |
+| 50 | 1× | 50% of `C₀` |
+| 75 | 0.5× | Approximately 71% of `C₀` |
+| 100 · Detailed | 0.25× | 100% of `C₀` |
+
+Use these targets to schedule useful proposals as well as report them. When a candidate is far above budget, prioritize coherent family and layer replacements by expected cost reduction subject to local visual risk. Reserve opportunities for ink, boundary and feature corrections even when their immediate cost savings are small. Once near budget, emphasize visual improvements within the retained tradeoff frontier. Bound all priorities and retain deterministic ties; the requested budget never relaxes a hard gate. A cheapest-so-far candidate is a conservative observed floor, not proof that a lower safe cost is impossible.
+
+The initial shared-pool scheduler now uses the unclamped nominal target at
+complexity 50, with the fixed detailed normalizer. The reported budget still
+includes the cheapest observed validated floor, explicitly marked unproven.
+Using that observed floor to stop compaction would prevent exploring cheaper
+interpretations. A positive node ceiling supplies a separate scheduling signal.
+The selected slider value does not change this shared-pool scheduling context.
+Far above target, balanced/high quality offers two/three family opportunities
+before a reserved round; fast uses one. Closed overlays, paint, boundary,
+additive ink and owned ink interpretation keep rotating opportunities.
+Per-parent evaluation slices
+now resume from bounded cursors rather than silently discarding the remaining
+proposals after a rejected prefix. This is initial budget-directed ordering,
+not complete visual-risk, spatial or learned ranking.
+
+Make the visual score's terms executable and separately inspectable:
+
+- Compare premultiplied colors and alpha at native scale and two coarser scales. Use a bounded robust color loss so isolated corruption cannot dominate the entire plan. Weight coarse surface evidence more where texture confidence is high, while retaining native ink and silhouette checks.
+- Measure alpha on both white and dark backgrounds; separately measure missing opaque interior, spill and intentional-hole preservation. Keep full-canvas alpha checks independent of the foreground RGB scoring mask.
+- Compare bidirectional distances between high-confidence reference ink/contours and candidate ink/contours. Weight by ink confidence and distinguish an outer silhouette from an inner shade edge.
+- Score automatically detected stable small features locally, so a long blade cannot dilute the loss of a jewel or wrapping mark. Human benchmark rectangles and clean SVG geometry are evaluator inputs only; generation never receives them.
+- Penalize unsupported curvature changes, excessive handles and width oscillations. Exempt supported corners and intentional hatching.
+
+Normalize each term by its fixed evidence support, not by the candidate's area or remaining features. Record term values, weights, score version and hard rejection reasons. Calibrate weights and per-case tolerances using a declared parameter grid and the tuning split, then freeze them before evaluation. This is a required delivery artifact; the current MSE diagnostic is not yet the proposed acceptance policy.
+
+Build one nondominated frontier using visual score and representation cost. For a fixed evidence/settings key, choose candidates by `visual score + λ(c) × C/C₀`, breaking ties toward lower cost. This gives a consistent ordering of total cost as complexity increases. Prune dominated candidates only after exact validation. Keep at most 12 frontier candidates and three user-facing alternatives; retain a valid baseline even if it is dominated so interrupted runs have a known fallback. A separately generated frontier for each slider level cannot establish the promised ordering.
+
+Generate the shared frontier from a bounded range of merge penalties and geometry tolerances, including the five slider checkpoints, then evaluate its candidates under the common score. Complexity-dependent proposal settings cannot change the scoring evidence or normalizer. With an explicit tolerance override, use that tolerance for all those candidates. Test monotonic selection against the same frozen frontier; do not compare unrelated time-limited searches and claim a monotonicity guarantee.
+
+Refinement proposals also enter the common frontier before it is published. For a cached slider preview, reselect from that frozen frontier and expose its version. Independent fitting of each selected slider result creates different candidate sets and therefore does not support a monotonic cost promise. A later Generate run may extend the frontier; report the new version and completed search stages. Quality and time limits can change candidate availability, but do not change what complexity means.
+
+### Score calibration and candidate diagnosis
+
+Separate three failures before changing the score or training a model. Candidate coverage fails when no generated proposal resembles the clean target. Candidate selection fails when such a proposal exists but the production objective selects a worse one. Search scheduling fails when the useful proposal exists in a longer run but is unavailable at the matched deadline. Record the best clean-target result within each generated candidate pool as a benchmark-only oracle; it never guides production generation.
+
+For tuning, retain clean target renders, all exactly evaluated candidates, production score terms, local feature metrics, representation counts and elapsed search effort. Compare production selection with the oracle at each complexity checkpoint. Inspect explicit conflicts such as a smooth but missing outline, lost small mark, flattened intentional gradient, or retained injected noise. Correct evidence and operator coverage before attempting to learn an ordering over inadequate candidates.
+
+Declare the calibration grid in a versioned benchmark artifact before running it. Include color/alpha/edge/feature weights, geometric regularization, the detail penalty and soft-budget schedule. Choose parameters by aggregate clean-target quality subject to per-case feature, hole, coverage and line gates, then representation cost; do not optimize only the pooled average. The current initial weights supply the center of this grid, not a trained policy. Run each configuration against the same candidate pools for selection diagnosis, then rerun bounded search to measure the effects on proposal generation and runtime. Freeze the chosen grid result, metric tolerances and score version before held-out evaluation.
+
+Make the first replay grid explicit: hold color weight at 1; use alpha weights
+0.25/0.5/1, edge weights 0.075/0.15/0.3, feature weights 0.25/0.5/1 and
+`λ₅₀` values 0.02/0.04/0.08. This gives 81 inexpensive same-pool configurations.
+After implementing normalized geometric regularization, evaluate its declared
+three-value grid against the retained configurations; do not tune a term that
+the evaluator does not compute. Compare the current soft-budget curve with
+flatter and steeper exponent schedules on the same frozen frontier. Keep score
+selection separate from reruns that change proposal availability. Report
+per-artwork results, feasibility and feature failures for every finalist, then
+rerun at most three finalists with the same deterministic evaluation caps and
+matched deadlines. These are proposed experiment settings, not calibrated
+production weights. The initial 81-configuration declaration is saved in
+[`scripts/bench_data/cel_score_calibration.json`](../../scripts/bench_data/cel_score_calibration.json).
+Its current center matches `Weights`, and its result remains null. Same-pool
+replay, frozen broader per-case tolerances and the subsequent matched generation
+reruns are still required; missing faithful alternatives cannot be calibrated away.
+
+## Automatic refinement and runtime
+
+Run a planned refinement sequence rather than invoking the entire Tidy job unchanged:
+
+1. Simplify and fit compact geometric models before expensive gradient work.
+2. Fit colors and choose flat versus linear gradient with geometry fixed.
+3. Fit boundaries and stroke widths jointly within connected spatial groups.
+4. Refit paint after geometry changes.
+5. Remove redundant geometry and validate the final candidate.
+
+Reuse shared-edge handling, joint fitting, stroke support, simplify and paint-fitting helpers. Introduce a score policy for the planned generator; existing manual Tidy keeps its current default acceptance behavior. Structural edits occur between fitting rounds, not inside a differentiable geometry step. Evidence-supported primitive constraints remain active during refinement.
+
+Reserve time for cheap simplification and final validation before assigning the remainder to fitting. Schedule spatial groups by expected useful improvement and give groups minimum opportunities to run. Large compound paths must not consume the entire refinement budget. Check stop and time limits between stages, graph edits and fitting iterations. Bound graph size, beam width, raster buffers and cached candidates independently of input dimensions.
+
+Start with planning budgets of roughly 5, 20 and 60 seconds for fast, balanced and high quality, subject to measurement on the benchmark hardware. These are tuning targets, not performance promises. An explicit operation time budget takes precedence. Both rendering and validation must fit within the scheduling policy; document any unavoidable deadline overshoot.
+
+Keep deterministic planning and basic refinement available with the base CPU dependencies. PyTorch enables additional gradient fitting; CUDA accelerates supported work. Missing optional acceleration reduces effort rather than making generation unavailable. Audit existing GPU ownership before adding acceleration: use one gate owner for a fitting section, respect cancellation while acquiring it, and avoid nested acquisition or holding the GPU during CPU planning.
+
+Use a bounded analysis cache keyed by reference pixels, alpha, crop, coordinate mapping, evidence settings and algorithm version. Planning/refinement entries additionally include complexity, quality, overrides, score version and any model version. Never reuse a candidate across changed reference content or scope. Cache memory limits and eviction are part of the implementation.
+
+The shared-frontier cache omits the selected complexity, but includes quality/search limits and every override that changes candidate generation. Selection and refinement cache entries include complexity. Store the reference-to-document transform and target-group context with the proposal so cache reuse cannot place correct geometry into an outdated scope.
+
+Assign an initial 96 MiB limit to immutable evidence and a separate 64 MiB limit to candidate/preview data. Bound analysis to a 1,536-pixel long side; use source-resolution crops for thin features and final checks. Use at least 10% of the run budget for validation, with a measured minimum needed to export and render one candidate. Do not begin another fitting round if it would consume that reserve. Check cancellation during graph loops, proposal evaluation and optimizer iterations, not only at stage boundaries. Measure uncancellable renderer/export calls and report their deadline overshoot explicitly.
+
+Maintain `best_validated` separately from the current working state. A stopped or failed optional fitting step returns that checkpoint; a partially edited graph never becomes a preview. Disabling refinement still runs structural planning, paint selection and final validation. The CPU path provides geometric simplification, local paint fitting and bounded proposal search. Optional PyTorch fitting is an additional stage, with a single owner of the existing GPU admission gate for each accelerated section. It must not acquire that gate again inside helpers or hold it during CPU evidence/search.
+
+### Refinement acceptance and fallback
+
+Every refinement stage proposes an independently owned document, preserves fixed corners, junctions and accepted compact-model constraints, and uses the same objective and validation policy as planning. CPU paint fitting compares flat and gradient candidates locally, charging the gradient's actual representation cost. Geometry fitting runs on connected spatial groups, followed by a paint refit because changing coverage changes the fitted color. An explicit line-width override stays fixed. Automatic width changes require local evidence and bounded exact acceptance.
+
+Reuse the joint fitter's injected score callback for exact checkpoints rather than its legacy raster-MSE acceptance. Preserve the manual operation's existing defaults. Until compact models can be optimized in their own parameter space, hold their constrained geometry fixed during unrestricted fitting. Follow shared-edge links after a geometry change and reject the result if the links or anchored junctions no longer agree.
+
+Record whether refinement was disabled, completed, interrupted, skipped for lack of time, or limited by missing optional dependencies. Also record attempted and accepted edits and before/after objective values. A returned checkpoint need not improve in every run, but an accepted refinement cannot worsen the defined objective or break a hard gate. A constant `refinement_complete: false` does not implement this contract.
+
+Produce and independently validate a conservative CEL-derived fallback before expensive search. Preserve partial opacity and intentional holes in that path, and test it in transformed target groups. If the structured initial candidate fails, try this fallback without weakening hard checks. If neither can be validated, report generation failure with its reasons and leave the document unchanged. Cancellation before a checkpoint remains cancellation. A deadline before a checkpoint must not publish unfinished geometry; report the unavailable result and measured unavoidable overshoot. Once a checkpoint exists, stop or optional-stage failure returns it.
+
+## Small learned planning model
+
+First ship a deterministic proposal ranker with recorded features and decisions. The learned experiment predicts which candidate action will provide useful visual and structural improvement. It does not emit SVG coordinates or bypass geometry validation.
+
+Start with a small feature-based classifier or ranker and compare it with a compact MLP. Features include region size, color/gradient fit residuals, boundary length and contrast, texture, scale stability, stroke continuity, junctions and primitive fit quality. A graph neural network is a later experiment only if neighborhood features prove insufficient. Select the simplest model that improves held-out results within the runtime and memory budget.
+
+Create paired training data by rendering clean structured SVGs and applying blur, JPEG artifacts, noise, resizing, edge contamination and alpha degradation. Supervise decisions against the clean geometry/render and compact representation, not only against the degraded raster. Add human-edited projects with reviewed operator labels. Do not use the sword or future human comparison set for training if they remain evaluation fixtures.
+
+Split by original artwork/component family before generating augmentations. Hold out style families as well as degradation types. Avoid random patch splits that place near-duplicates of one drawing in training and testing. Store provenance, asset licenses and consent for any collected human projects.
+
+Compare deterministic-only, learned ranking and full candidate evaluation. The learned model must improve human-reference quality or achieve comparable quality faster; it must not simply optimize the same noisy pixel score. Keep a deterministic fallback when no model is installed, inference fails or confidence is poor. Package a versioned local model without automatic downloads, network inference or user-image upload. A small model must meet a measured CPU inference budget and cannot change the hard validation rules.
+
+Train only after proposal logs contain accepted and rejected alternatives from all core operators. Store feature vectors, graph/evidence versions, exact score deltas, representation deltas and rejection reasons. Hard-invalid proposals are excluded by rules before ranking. Start with a linear model and a two-hidden-layer MLP of at most 64 units per layer; treat architecture and weights as versioned experiment artifacts. Target less than 5 ms for ranking a batch of 128 proposals on benchmark CPU hardware. Compare at equal runtime and equal exact-evaluation budgets so fewer evaluations cannot disguise worse output.
+
+Keep blur, JPEG and RGB noise in the first training augmentation set. Reserve alpha-edge degradation and combinations of degradations for evaluation, in addition to the artwork-family split. Four tuning drawings are a plumbing fixture, not enough evidence to ship a learned model. Expand licensed family coverage before training a release candidate. Proceed only if the model passes all deterministic safety/feature gates and either improves the frozen quality measures or saves at least 20% runtime at equivalent quality. Otherwise record the negative result and ship deterministic planning.
+
+## Benchmarks and release gates
+
+Turn the sword diagnostic into a reproducible benchmark that loads the compressed fixture through the project-file API, exports the human drawing, traces the embedded reference, and computes native-resolution metrics on frozen masks. Save SVGs, full previews and crops of the blade tip, blade edges, guard, handle and jewel. Record the source version, settings, device, time limits and stopped stages.
+
+Extend the existing line, shadow and trace benchmarks rather than replacing them. Add a clean-vector/degraded-raster paired suite and a small curated human-redraw suite. Include alpha edges, legitimate tiny features, lettering, holes, tapered strokes, hatching, nearly straight contours, real gradients, dark surfaces and partial occlusions. Synthetic ground truth makes structural checks possible; human examples test whether the abstractions are useful.
+
+| Area | Required evidence |
+| --- | --- |
+| Human match | Frozen foreground, component and feature errors against human renders; blind side-by-side review |
+| Geometry | Nodes, contours, useful groups, stroke fragments, gradients, corners, self-crossings and shared junctions |
+| Coverage | Silhouette/alpha overlap, opaque interior gaps and unintended visible spill |
+| Linework | Existing line scores, continuity, width fit and preservation of hatching |
+| Shading | Missing-shadow benchmark and broad shade/highlight preservation |
+| Complexity | Stable tradeoffs at 0, 25, 50, 75 and 100; padding and resolution invariance |
+| Runtime | Stage timing, peak memory, cancellation latency and CPU/CUDA behavior |
+| Editing | One undo entry, target group placement, valid references, and save/export/reload equivalence |
+
+Use the sword targets above as the first milestone. For the broader suite, freeze metric tolerances from the baseline before tuning. Aim for at least a 30% median node reduction and better blind preference than legacy CEL at matched runtime. On synthetic clean-vector cases, use an initial maximum line F1 drop of one percentage point and require preservation of annotated critical features and intentional holes. Set per-case silhouette and feature tolerances from the frozen baseline, with a documented allowance for removing injected corruption. Use local feature and silhouette checks so whole-image averages cannot hide damage. Investigate every important-feature loss or new coverage failure; do not average it away. Track raw raster MSE alongside perceptual and structural scores without requiring it to improve for a cleaned redraw.
+
+Run cheap invariants and small synthetic cases in CI. Keep time-sensitive GPU and full-corpus comparisons as explicit benchmark jobs. Test meaningful behavior: preserved features under texture suppression, supported versus unsupported stroke joins, shared-edge changes without gaps, primitive fits retaining corners, gradient rejection on flat noise, stop returning a validated candidate, and legacy settings retaining their behavior.
+
+The held-out evaluation set is used for release evaluation, not repeated parameter tuning. If failures inform new work, retire the affected examples into a development set and refresh held-out coverage before the next release decision.
+
+Run the ablation sequence at matched time limits: legacy CEL; legacy CEL plus current Tidy; color-region generation; planned graph with merges only; planned graph with geometry/ink operators; planned graph with local layers; full deterministic planning with refinement; and learned ranking if eligible. Include refinement off, gradients off and each quality level. This identifies which part improves the human result instead of attributing every gain to the overhaul.
+
+Blind review requires reviewers and additional licensed human redraws; it cannot be completed by a pixel score or an automated claim of preference. Randomize presentation order, hide method names, compare at the same scale, and ask separately about visual resemblance and ease of editing. Record sample size and uncertainty. Until that evidence exists, delivery 8 remains pending and the method remains experimental. The development sword is never a held-out test or ranker-training example.
+
+## Code boundaries and delivery sequence
+
+Add a focused package such as `src/vectrify/refine/cel_plan/` with modules for evidence, graph values, candidates, score policy, planning, primitive fitting, refinement and export. Keep module boundaries based on responsibilities rather than prematurely splitting every helper. Add `src/vectrify/operations/methods/cel_planned.py` for operation orchestration. The existing document model remains the exported editing representation.
+
+Integrate through `operations/generate.py`, the method registry, the existing job/result contract, the Generate UI in `ui/static/index.html` and `app.js`, and the MCP generate tool. Extract reusable helpers from `refine/cel.py`, `joint.py`, `shared.py`, `simplify.py` and the paint-fitting code only when a new stage uses them. Do not combine the monolithic CEL and color-region SVG outputs.
+
+The MCP integration is `src/vectrify/mcp/server.py`: extend the generate method literal and tool documentation together. The UI integration adds a method panel and `generateSettings` entry, uses the existing result choices and preview lifecycle, and updates preview counts without creating a second Apply workflow. Operation metrics expose resolved settings, counts, unmet budgets, stage timings and validation diagnostics. Candidate labels identify actual differences; do not label identical results as alternatives.
+
+| Delivery | Scope | Completion condition |
+| --- | --- | --- |
+| 1 | Reproducible sword/human benchmarks, score definitions and corpus split | Baselines and masks reproduce the diagnosis; proposed gates are recorded |
+| 2 | Stage interfaces, graph representation and experimental operation | Legacy tests pass; a CEL-derived candidate can complete, stop, apply and reload |
+| 3 | Foreground budgeting, finite feature protection, merge/paint model search and complexity frontier | Slider controls actual representation cost; coverage and critical features survive |
+| 4 | Stroke classification/joining, corner handling and compact primitive fits | Sword targets and line/feature development checks pass |
+| 5 | Local layers, automatic refinement, scheduling and CPU/CUDA fallback | Exact checkpoints, runtime/memory limits and cancellation checks pass |
+| 6 | UI/MCP controls, preview summaries, candidate labels and documentation | Browser/API round trips, settings invalidation and undo checks pass |
+| 7 | Ablations, broad evaluation and optional learned ranker experiment | New behavior improves the frozen suite; learned model has separately measured benefit |
+| 8 | Held-out evaluation and default migration | Release gates pass and remaining regressions have an explicit disposition |
+
+Deliver each stage as a reviewable change with the required checks for its behavior. Keep conventional single-line commit messages without scopes, bodies or trailers. Start delivery 1 from current main so the compressed fixture loader is available.
+
+The critical path is benchmark → valid fallback and owned graph → coherent
+surfaces, ink and local layers → calibrated score and common frontier →
+automatic refinement → product integration → release evaluation. Use the
+initial executable score while developing operators, then calibrate it against
+the resulting candidate pools. Deliveries 4 and 5 share the sword gate: supported
+layers and fitting may be needed to pass it, so a failing delivery-4 checkpoint
+does not prohibit that delivery-5 work. UI work can begin when the settings
+contract stabilizes. Training depends on recorded candidate decisions and clean
+paired data. Deterministic rollout does not depend on training a model.
+
+Complete the deliveries in order of their dependencies, with these explicit decision points:
+
+1. Freeze a reproducible baseline and executable score before accepting structural changes by that score. Existing benchmark scaffolding and operation tests are a foundation; numerical reproduction alone does not complete corpus coverage.
+2. Establish a valid fallback and stop/apply/reload behavior before adding beam search. Test transparent-empty inputs, partial alpha, opaque scenes, holes and target-group transforms.
+3. Prove cost control at all five slider checkpoints using a shared frontier, with actual overrides and reported budget infeasibility. Then freeze the setting contract for UI/API work.
+4. Pass the sword's numerical and local-feature gates with structural operators. If it fails, inspect the feature crops and revise the operators or evidence; do not relax the target merely to admit the prototype.
+5. Demonstrate that automatic refinement improves or retains the selected plan under the same score and hard checks, and that CPU/cancellation paths meet their contracts.
+6. Complete browser and MCP round trips and user documentation while corpus evaluation runs.
+7. Run deterministic ablations first. Launch the learned experiment only when measured candidate-evaluation cost or ranking errors justify it.
+8. Collect independent review and held-out evidence. Promote the new UI default only after the gates pass; retain the explicit legacy API method and an easy default rollback.
+
+Each delivery records changed files, reproducible commands, settings, input/mask/source hashes, results and remaining failures. A test passing, a schema accepting a setting, or a small SVG is not by itself evidence that an entire delivery is complete.
+
+### Next implementation changes
+
+Continue from the experimental package in the following order. These changes complete missing behavior within the eight deliveries; they do not replace their broader release gates.
+
+| Change | Main code boundary | Evidence required to retain it |
+| --- | --- | --- |
+| Freeze and expand paired tuning evidence | `scripts/cel_pairs.py`, `scripts/bench_cel_pairs.py`, `scripts/bench_data/planned_pairs.json` | The runner exists; expand artwork coverage, freeze baseline tolerances and record clean/degraded hashes, native masks, line/feature metrics and candidate scores |
+| Complete bounded native evaluation | `cel_plan/local.py`, `search.py`, `families.py`, `opacity.py` | Long edits, streamed paint samples, cumulative edits, gradients and opacity groups agree with full scoring; interruption discards partial work and preserves the checkpoint |
+| Compact the valid opacity-aware starting drawing | `cel_plan/evidence.py`, `materials.py`, `export.py`, `pipeline.py` and the generate operation | Connected flat/gradient RGBA and core/layer competitors avoid byte-level partitions while preserving empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope round trips |
+| Extend individual exact acceptance to graph edits | `cel_plan/ownership.py`, `families.py`, `ink_replace.py`, `local.py`, `search.py`, `proposals.py`, `planning.py`, `frontier.py` | Owned families, paint/boundary/ink edits and initial filled/stroke replacements have a bounded working beam; complete split, richer surface/ink and order operators with native full-render agreement, independent rollback, bounded dependencies and stop within loops |
+| Complete the CPU refinement path | A focused `cel_plan/refine.py`, existing simplify/shared/paint helpers | Refinement on/off changes behavior; accepted edits improve or retain the common objective; primitive anchors, explicit width and best-checkpoint semantics survive |
+| Diagnose and improve facets, ink and compact outlines | `cel_plan/geometry.py`, `ink.py`, `strokes.py`, `layers.py` | Candidate-pool/oracle diagnosis, native feature crops, variable-width alternatives, supported joins and passing sword development gates |
+| Calibrate scoring and complete common-frontier caching | `cel_plan/policy.py`, `frontier.py`, `model.py`, `pipeline.py` | Frozen tuning grid, cost progression on one frontier, padding/resizing checks, target/achieved budgets, bounded memory and reference/scope invalidation |
+| Add optional joint fitting and spatial scheduling | `cel_plan/refine.py`, `joint.py`, `gpu.py` | CPU works without Torch; gate contention is cancellable; exact acceptance, minimum spatial opportunities and measured runtime/memory limits |
+| Expose and document the stable contract | Generate UI, MCP `generate`, operation docs | Slider/quality/overrides round trips, preview invalidation, truthful counts and alternatives, one Apply/undo flow |
+| Run the ablations and decide whether ranking needs ML | Benchmark tools and optional versioned ranker | Matched runtime and evaluation counts, operator coverage separated from selection error, measured benefit meeting the learned-model gate |
+| Complete release evaluation | Held-out suite, review artifacts and default configuration | Fresh held-out results, independent blind review and all coverage/feature/editing gates before default migration |
+
+The paired tuning runner is available for independent quality checks; expand and freeze its evidence while finishing bounded native evaluation. Structural compaction comes next because the current safe drawing is too dense. CPU refinement can proceed once it has compact eligible shapes, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior. Learned ranking remains a conditional branch after deterministic ablations.
+
+The joint-source checkpoint introduces virtual ink/material roles within
+current owners and complete source-chain discovery before material grouping.
+Native atoms are partitioned only for final classes. The 1,017-case regression
+and 20-report tuning diagnostic pass native validity/ownership checks; face
+line fidelity improves in the direct control, while several other line/paint
+metrics regress. The sword's composed region result remains 3,907 nodes / 460
+contours / MSE 551.32. See the current evidence record for exact controls and
+source hashes. This is partial delivery-4 work; coherent surfaces, faithful
+width/paint alternatives and all eight completion
+conditions remain open.
+
+The subsequent final-class correction budgets all compatible source styles
+together, before contours or native atom cuts. Virtual roots above 255 cannot
+alias material IDs, and hundreds of observations can compact into a few final
+editable strokes under the unchanged cell/cut limits. The 1,022-case regression
+passes; all ten proposals in five direct controls and ten separate source-graph
+checks remain valid. Those drawings and metrics exactly match the preceding
+checkpoint, so this fixes rejection semantics without improving quality. The
+human handle repair supplies no generation connection. Continue faithful
+source junction/width/paint interpretation and coherent material/opacity
+surfaces. Generated-reference collection and all eight deliveries remain open.
+
+### Structural compaction work packages
+
+The native opacity-aware drawing still contains thousands of color/alpha
+partitions. Owned family merges and individual paint/boundary edits now have an
+exact acceptance path, but the current alternatives still fail the structural
+targets. Original region ownership and atomic regrouping are implemented;
+splitting original graph atoms and rebuilding their canonical edges remain open.
+Complete the following work before spending effort on a learned ranker:
+
+1. Preserve stable region membership through merges and export. Maintain an
+   owned planning state linking each visible SVG surface, its source regions,
+   canonical edges and covering ink. A graph edit updates both adjacent edge
+   owners and records the original members; exporting must not lose that link
+   by renumbering labels. Test successive merges, splits and rollback on sibling
+   beam states, including opacity groups and shared gradient ownership.
+2. Propose coherent region families as one surface. Compare a flat RGBA model,
+   a linear color/opacity gradient and the existing subdivisions. Grow families
+   using connectivity, residuals, boundary contrast and stability across scales.
+   Retain supported shade breaks and corners. Pairwise merges remain useful,
+   but a fixed allowance of 48 evaluations cannot remove thousands of fragments
+   one pair at a time. Bound family size and model work; record the rejected
+   alternatives rather than exempting dark or small partitions from all merges.
+3. Reinterpret ink together with its underlying surface. Compare continuous
+   strokes, variable-width filled marks and the current fragmented fills.
+   An accepted replacement removes the corresponding fragments and restores
+   supported surface coverage beneath them. Simply adding a stroke can improve
+   pixels while increasing complexity. Validate entire connecting gaps, local
+   width and junction evidence, translucent compositing, holes and draw order.
+4. Evaluate long affected areas as bounded native tiles. Use identical renderer
+   coordinates and complete relevant layers, plus the score halo. Accumulate
+   each changed pixel contribution once with global denominators, then update
+   feature maxima and topology aggregates. Verify agreement against independent
+   complete renders for overlapping tiles, long gradients, opacity groups and
+   strokes crossing tile boundaries. Keep the existing safe checkpoint when a
+   renderer cannot meet the tile contract within the budget.
+5. Diagnose proposals separately from selection. Record the clean-target oracle
+   for the common candidate pool, including a cost ceiling, before calibrating
+   the score. If no compact faithful interpretation exists in the pool, improve
+   these operators. If it exists but loses selection, calibrate on the declared
+   tuning families. Compare identical pools and measured search effort; keep
+   the sword as development evidence and preserve held-out separation.
+
+Each work package needs synthetic native-alpha cases and paired tuning evidence.
+The combined milestone remains the frozen sword count/error gates plus local
+ink, feature and coverage checks. Passing only the error ceiling with a dense
+trace does not complete structural compaction or establish slider usefulness.
+
+### Immediate geometry and surface experiment
+
+The next investigation separates oversegmentation from excessive geometry
+protection. The sword reports 3,986 regions with native-alpha geometry holds.
+The current hold applies to the whole path when any boundary touches protected
+transparent space, a thin component or a large opacity discontinuity. That can
+also prevent fitting an unrelated interior shade boundary. Do not remove these
+holds wholesale: diagnose the contacts and introduce finer constraints.
+
+1. Record hold reasons and affected canonical chains, their native lengths and
+   node counts, separately for exterior/hole contacts, thin components, explicit
+   width, alpha discontinuities and repaired crossings. Record unique unresolved
+   line boundaries by short-chain, large-chain and proof-limit reason. Compare
+   their contribution to cost with the cost of already refinable interiors.
+2. Preserve source-chain identity and ownership through SVG export, regrouping
+   and rollback. A surviving native contact retains its actual geometry; corner
+   and junction anchors stay fixed. A constraint on one chain must not authorize
+   movement of another constrained chain on the same object. Existing whole-path
+   holds remain the fallback when correspondence cannot be proved.
+3. Offer straight and smooth interior-chain competitors between fixed anchors,
+   updating both adjacent fills atomically. Compare unrestricted geometry on
+   the same current surface partition, so the geometry experiment does not
+   simultaneously change segmentation or paint. Test exterior contacts, holes,
+   partial alpha, transformed groups and subsequent family merges.
+4. Separately compare larger coherent surface proposals against the current
+   bounded families. Use paint residuals and supported separating edges, with
+   a bounded work allowance. Record why a large surface is unavailable: source
+   ownership, paint residual, protected ink, candidate bounds or scheduling.
+   A different family cap alone is not evidence of a useful surface model.
+5. Retain edits only through native local scoring and independent full checks.
+   Run the synthetic and tuning cases first, then save sword feature crops,
+   cost, alpha, line and human-error diagnostics. Compare candidate availability
+   and selection at matched effort; a lower global error or node count alone
+   cannot admit a missing outline or feature.
+
+This experiment has two reviewable outputs: chain-level constraint metadata and
+exactly validated interior fitting; and independently evaluated coherent
+surface alternatives. Its result determines whether the next bottleneck is
+geometry, surface membership or search scheduling. Learned ranking waits for
+those alternatives to exist and for candidate-pool comparisons to demonstrate
+a selection or evaluation-cost problem.
+
+The first output now has an initial implementation: bounded export-chain
+permissions verify the current geometry and coordinate frame, freeze every
+other segment, update both shared-edge copies and refresh permissions after
+exactly accepted fitting. Unproved or replaced geometry retains whole-path
+holds. This does not yet rebuild original canonical edges after atom splits,
+or optimize compact primitives in their own parameter space.
+
+The sword diagnostics count 6,155 alpha-step chains and 4,215 transparent-contact
+chains, with 6,897 and 5,827 emitted canonical segments respectively. Reasons
+can overlap; these totals are not independent path counts. The retained plan
+has only 700 paths with interior permissions. Merely enabling interior fitting
+therefore cannot remove most of this cost. Complete the second output next:
+compact connected RGBA surface/coverage competitors, with preserved holes,
+supported fringes and intentional low-opacity marks. Measure their candidate
+availability under the deadline and reserve useful family opportunities.
+
+Two further development observations narrow that work. The native reference
+has 136 visible connected components: two have an eroded core, and 134 are
+thin. Of those components, 110 contain fewer than four pixels, together only
+166 pixels, with peak alpha at most 7/255. These are source measurements, not
+permission to discard them; intentional faint marks still need independent
+tests and exact validation. Canonical-chain reason counts above must not be
+misread as component counts. The initial compact closed-overlay export helper
+runs in the opaque branch. Structural search now also offers owned closed RGBA
+families, with continued neighboring paint, geometric core proofs and primitive
+holds. This closes an operator-availability gap but does not solve the sword.
+Earlier prefixes excluded every closed candidate through topology, restoration
+bounds or unproved coverage. The latest coupled material can reach native
+scoring, but its independent audit improves jewel error by only about 1.8% and
+still exceeds 10,000 nodes overall. Complete broader coherent material and
+supported boundaries before treating primitive models or learned ranking as a
+solution to the jewel/guard interpretations.
+
+### Complete RGBA overlay interpretations
+
+Extend the initial compact closed-overlay operator in the RGBA planning path. Its input is
+the current owned region family and native evidence, not a human outline or an
+artwork label. Start with connected families inside a geometrically verified
+opacity core, where neighboring material provides a supported underpaint model.
+Retain the existing unrestricted surface as a competitor. Defer families with
+unproved alpha variation, silhouette contacts or holes until their coverage can
+be represented and independently checked.
+
+Fit an ellipse-like ordinary SVG path and an anchored closed contour to the
+family's native boundary samples. Replace the owned fragments, assign their
+original members to the surviving overlay, and restore neighboring paint under
+the former footprint. Reuse the ink-replacement restoration checks for paint
+frames, core coverage and isolated-group opacity. Preserve the overlay's draw
+order and primitive constraints. An additive outline that leaves all fragments
+in place does not complete this operator.
+
+The initial implementation continues neighboring fills rather than adding
+duplicate underpaint outlines. It records hidden source coverage separately
+from primary ownership and uses bounded geometric intersection proofs for
+local order changes. Its synthetic native-alpha cases compact correctly, and
+some tuning contours reach exact acceptance. Later native sword experiments
+also admit a coupled ellipse/gradient interior while retaining highlights, but
+it is absent from the selected drawing and does not meet the structural gate.
+Extend this whole-material reasoning to broad shade/facet surfaces, and
+distinguish genuine alpha holes from interior opaque marks that may remain
+above a continuing base. Prove that interpretation's
+ownership, complete coverage and draw order; do not discard the interior marks
+or merely increase raw neighbor limits to force availability.
+
+Initial nested RGB interpretations now preserve wholly enclosed opaque mark
+owners above a continuing family or closed overlay. They use actual fill/order
+proofs and retain the adjacent interpretation as a competitor. Source-alpha
+variation is eligible only with opaque current mark paint and geometric core
+coverage of the old family and marks, followed by a complete proof for the new
+fill. True alpha holes, translucent current paints and partly enclosed owners
+remain excluded. These implemented restrictions are a foundation for broader
+RGBA material inference, not completion of that work or the sword gate. Inspect
+the progress record's final-source candidate availability before widening them.
+
+Keep discovery, fitting, dependencies and raster evaluation within the existing
+bounded operator contracts. Record exclusion reasons and actual removed nodes,
+contours and gradients. A failed or interrupted proposal leaves its parent's
+ownership, geometry and checkpoint intact. Native local acceptance and an
+independent full checkpoint decide retention; neither a successful fit nor a
+lower representation cost alone is sufficient.
+
+Verify translucent flat and gradient underpaint, an intentionally irregular
+closed shape, holes, faint intentional marks, transformed groups and successive
+replacement/rollback on sibling states. Compare the tuning drawings first, then
+the sword jewel and guard crops. Success means that a compact faithful
+alternative becomes available and survives the same checks; the combined sword
+gates still determine the structural milestone.
+
+In parallel with diagnosis, prepare the declared score-calibration grid and a
+same-pool replay runner. Use the measured Western Park selection conflict to
+check that the runner distinguishes score ordering from missing proposals.
+Choose weights on the tuning split with local feature and coverage constraints,
+then rerun generation under matched effort. Do not change production weights
+from the sword result alone.
+
+For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
+
+### Experiments that determine the next change
+
+Run each experiment on synthetic cases and tuning artwork before using the sword as a development check. Change one mechanism at a time and retain identical scoring supports, settings and source hashes. Save every exact candidate needed for the comparison, with explicit omission status when diagnostic storage is exhausted.
+
+| Question | Controlled comparison | Decision |
+| --- | --- | --- |
+| Can compact RGBA surfaces replace alpha/color fragments? | Current subdivisions versus connected flat RGBA, linear RGBA and core-with-overlays proposals | Retain models that reduce actual cost under the native objective and preserve holes, fringes and thin marks; fix missing models before changing weights |
+| Does ink replacement improve both structure and continuity? | Existing fragments versus a supported stroke and variable-width filled mark, each with restored underlay | Require fragment removal, supported complete gaps/junctions and valid compositing; additive strokes alone do not establish compaction |
+| Can fitting recover straight facets and compact outlines? | Unrestricted contour versus anchored straight/cubic and ellipse-like alternatives | Require corner/junction preservation and local boundary/ink evidence; retain the unrestricted interpretation when the prior is unsupported |
+| Is automatic optimization useful after planning? | The same retained candidate with refinement off and on | Compare geometry, paint and width stages separately; retained checkpoints must satisfy the common objective, and record time or interruption without assuming an improvement |
+| Is the score selecting the wrong drawing? | Production selection versus the clean-target oracle from the same hard-valid pool at the same cost ceiling | Calibrate selection only when a materially better alternative exists; otherwise extend proposal coverage |
+| Is search missing useful candidates within the deadline? | Fixed proposal order/evaluation count versus bounded deadline runs, with operator and parent coverage logs | Improve scheduling when useful proposals are available only late; a different completed prefix cannot prove a scoring gain |
+| Is a small learned ranker justified? | Deterministic ranking, linear ranking and compact MLP ranking at equal time and exact-evaluation caps | Proceed only after all core operators are represented and the held-out benefit meets the quality or 20% runtime gate |
+
+For each retained change, record the hypothesis, actual representation savings, score deltas, local feature results, hard rejections, runtime and memory. A negative result closes the tested hypothesis only; it does not authorize weakening coverage checks. The current evidence favors improving proposal coverage and compact opacity handling before ML.
+
+### Completion record and rollout
+
+Maintain one checklist row for each of the eight deliveries, linked to its implementation changes, reproducible evidence and unresolved failures. Mark a delivery complete only when its stated condition is met. A PR adding an operator can finish a work package while the containing delivery remains open.
+
+The first externally usable milestone is an experimental `cel-planned` method with working complexity/quality controls, automatic refinement, valid preview/stop/apply/reload behavior and truthful diagnostics. It can remain experimental while broader evaluation continues. Default migration requires the combined sword gates, frozen broader feature/coverage/line gates, runtime and editing checks, fresh held-out evaluation and independent blind review. Reviewer availability and licensed human redraws are external requirements; record them as pending until evidence exists.
+
+Initial scope is cel art and illustrations using ordinary editable SVG paths and supported gradients. Keep photo-specific abstraction, general semantic recognition, unrestricted layer ordering and generative coordinate prediction as later research. They do not need to be solved to complete this release. Preserve the explicit legacy method and make UI-default rollback a configuration change with no project-format migration.
+
+### Execution order from the current prototype
+
+Work through these packages without treating the existing prototype or its
+unfinished working-tree experiments as completed deliveries. Each package
+produces a reviewable implementation and an evidence record; packages A–D are
+the immediate compaction work, before broad optimization or model training.
+
+| Package | Concrete output | Required exit evidence | Dependencies |
+| --- | --- | --- | --- |
+| A · Nested coverage | Classify enclosed transparent holes separately from separately owned opaque RGB marks; continue a base beneath retained marks with proved local order | Genuine holes, partial-alpha marks and unrelated overlap remain intact; owned marks keep their geometry/paint; changed antialiased boundaries pass native scoring and independent full checks | Existing ownership and native evaluator |
+| B · Coherent material | Replace fragment families and fragmented surrounding paint with bounded flat/linear RGBA surfaces, including eligible base-with-marks interpretations | Compact proposals reach exact evaluation on tuning artwork and the native sword; log exclusions by ownership, paint residual, alpha/core proof, geometry and work limit | A for nested material; flat families can proceed independently |
+| C · Constrained shapes and ink | Parameterized straight/cubic boundaries, ellipse-like outlines and supported stroke/variable-width filled replacements, with fragment removal and restored underlay | Native local/full agreement, preserved corners/junctions/width, and useful alternatives in the relevant feature crops; no artwork-specific detection | B plus existing canonical-chain constraints |
+| D · Selection and complexity | Same-pool replay, frozen score/normalizer and bounded common frontier/cache | Five-level cost progression, meaningful distinct tradeoffs on eligible cases, documented plateaus/infeasibility, padding/scale checks and reduced tuning selection conflicts | Candidate coverage from B/C |
+| E · Automatic fitting | CPU fitting sequence and optional joint fitter operating on the same retained plan and constraints | Refinement off/on comparison, exact checkpoint acceptance, best-result stop behavior and measured memory/runtime | Compact models from C and score from D |
+| F · Product integration | Experimental Generate panel, complexity/quality/refine controls, MCP settings and preview diagnostics | Browser/API setting round trips, preview invalidation, correct scope, one Apply/undo and save/reload | Stable D/E contract |
+| G · Release evidence | Expanded corpus, deterministic ablations, blind review and fresh held-out evaluation | Combined sword gate, frozen broader gates and documented performance/editing checks; optional ML decision recorded | A–F |
+
+Package A must not require unchanged RGB at the retained mark's antialiased
+edge: continuing a different base can correctly change those mixed pixels.
+Prove unchanged mark geometry and paint, check opaque interiors, and score the
+complete old/new visible context. Source coverage metadata alone is neither a
+containment proof nor a compositing proof. Unsupported nested translucency keeps
+the existing representation until a valid competing model exists.
+
+For B, compare three initialization routes under the same native policy:
+current detailed fallback; coherent surface fitting before SVG export; and
+coherent replacements after owned export. Choose a route by compact-candidate
+availability, valid-checkpoint latency and retained quality at matched effort.
+Avoid relying exclusively on a few pairwise edits to compact an eight-thousand
+contour starting drawing. Keep discovery bounded by source pixels, paths,
+nodes, samples and time; reaching a bound records an exclusion rather than
+silently relaxing coverage.
+
+The initial pre-export material route is an optional competitor. It uses
+streamed premultiplied RGBA moments and a common-axis linear fit, retains
+supported or unresolved ridges and explicit-width atoms, and lets actual SVG
+paint and the native frontier charge the final representation cost. Synthetic
+bands, continuous alpha ramps and holes compact correctly. Its first sword
+proposal lost eight faint components and cost more than existing alternatives.
+Growth could accept a linear alpha estimate while export selected a flat, and
+analytic byte rounding disagreed with the native renderer on tiny alpha values.
+
+Material growth now starts from the validated detailed partition. Bounded
+native paint rectangles screen thin families; unsupported paint restores their
+original source atoms. Full geometry, alpha, ownership and compositing checks
+still decide acceptance. On the sword this restores 25 families, makes the
+material seed eligible and lowers selected cost from 53,260 to 38,868. Its
+human error and all five feature-crop errors rise, while nodes/contours remain
+far above target. The linear-family estimate is not the final gradient count.
+Do not call this a completed fidelity or structural milestone.
+
+The paired runner now offers `--composition-opacity` variants applied to the
+clean SVG before both clean and input rendering. They retain original artwork
+families/splits and are distinct from input-only alpha degradation. Four
+half-opacity tuning variants exercise material growth; three regress in global
+clean error against the previous implementation, and local feature regressions
+include lost eye detail. They provide calibration and proposal diagnosis, not
+new independent corpus coverage or held-out evidence. Next test faithful
+alternatives for alpha fringes and broad surfaces, preserve small ink/feature
+detail, and run the declared same-pool scoring grid. Export ownership, gradient
+frames and local layers must remain consistent throughout.
+
+For D, a monotonic frontier that returns one identical drawing at every slider
+value is correct ordering but insufficient product evidence. Include fixtures
+with removable texture and progressively useful fine detail; require at least
+two distinct retained tradeoffs on those fixtures. Simple must preserve their
+critical marks, Detailed must offer additional supported detail, and the
+preview must report plateaus when the available safe candidates coincide.
+Use a frozen frontier for ordering tests and separate Generate runs for
+runtime/repeatability tests.
+
+### Evaluation artifacts and pending inputs
+
+Before broad calibration, version the corpus manifest, metric definitions,
+per-case gates and benchmark environment. Use an initial collection target of
+at least 24 tuning artworks spanning eight illustration families, 12 fresh
+held-out artworks spanning at least four additional families, and six licensed
+human redraw comparisons. Include the development sword in the human collection
+but exclude it from held-out and ranker training. These are coverage targets,
+not claims of statistical power; record shortages as pending inputs. The current
+four tuning and four held-out paired fixtures are runner coverage, not the
+completed collection. Any new data used to fix a failure becomes development
+data before a subsequent release evaluation.
+
+Each retained experiment bundle contains:
+
+- Input, clean-target and source/mask hashes; split/provenance; settings and
+  score/graph/renderer versions; CPU/GPU/dependency details.
+- Selected and retained alternative SVGs, native full renders and fixed feature
+  crops; real counts, representation target/achievement, local feature/line/
+  alpha/coverage metrics and hard rejection reasons.
+- Completed operator/evaluation counts, parent revisions, exact score terms,
+  candidate-pool oracle with the selected cost ceiling, and explicit storage
+  omissions. Oracle target data remains outside generation.
+- Stage and operation/apply timing, stop latency, deadline overshoot, process
+  peak RSS, retained-cache bytes and optional-device memory. SVG/raster bytes
+  alone do not establish the memory limit.
+- A verdict for candidate coverage, selection, scheduling and release gates,
+  with negative findings and the next mechanism to investigate.
+
+Freeze performance gates on the recorded benchmark machine before release
+runs. Measure CPU runs at fast/balanced/high budgets, optional acceleration and
+contention, then cancel during evidence, discovery, rendering and fitting.
+Report the maximum uncancellable call separately; a stopped run must return its
+validated checkpoint or the documented no-checkpoint outcome. The proposed
+96/64 MiB cache limits are independent of unavoidable source-image and renderer
+memory; report both cache compliance and total peak memory. Do not describe a
+5/20/60-second budget as a measured latency guarantee.
+
+Blind review uses randomized method order, identical viewing scale and separate
+questions for resemblance and ease of editing. Start with five independent
+reviewers over at least 12 artworks, report per-artwork votes and uncertainty,
+and expand review if the comparison is inconclusive. Reviewer availability,
+licensed redraws and the enlarged corpus are explicit external inputs. Default
+migration remains pending until those inputs and the release gates are met.
+
+The completion record links each delivery to its implementation commits and
+experiment bundles. It also distinguishes the usable experimental milestone,
+the deterministic release gate, and the conditional learned-ranker decision.
+This document completes the plan; it does not assert that implementation or
+release evaluation is complete.
+
+## Main risks and responses
+
+Aggressive simplification can erase small marks; use local feature confidence, protected benchmark regions and alternatives for ambiguous cases. Straight or ellipse priors can erase intentional irregularity; require supporting evidence and retain unrestricted competitors. Incorrect layer inference can create spill or hide features; restrict early order changes and validate exact visibility. A new score can favor smooth but inaccurate shapes; freeze local shape/ink tests and review paired outputs. Runtime can balloon through candidate search; cap proposals and cache local results before adding ML. A learned ranker can overfit artwork styles; split by artwork family and keep deterministic planning available.
+
+Do not make the slider a cosmetic wrapper around region count, enable current Tidy globally and call the redesign finished, or train a model before establishing the deterministic scoring and candidate baseline.
+
+## Research references
+
+[Towards Layer-wise Image Vectorization](https://arxiv.org/abs/2206.04655) supports investigating progressive component initialization and layered construction. [Layered Image Vectorization via Semantic Simplification](https://arxiv.org/abs/2406.05404) separates structural buildup from visual refinement. [Differentiable Vector Graphics Rasterization for Editing and Learning](https://people.csail.mit.edu/tzumao/diffvg/) establishes the differentiable fitting machinery. These references motivate the architecture; the proposed Vectrify pipeline and release targets require their own evaluation.

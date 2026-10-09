@@ -1,0 +1,9097 @@
+> Historical experiment record through PR #315. For current requirements and
+> checkpoint status, read [the plan](../cel-redesign-plan.md) and
+> [the progress summary](../cel-redesign-progress.md). Historical validation
+> claims describe their own checkpoints; some local type checks skipped tests.
+
+# CEL redesign implementation evidence
+
+The requirements remain those in [the complete plan](../cel-redesign-plan.md).
+This record distinguishes working infrastructure from release evidence. The
+method remains experimental and the existing CEL default is unchanged.
+
+## Resumed source ink and material experiment
+
+The owner resumed the implementation goal after the pause checkpoint, then
+clarified the handle: clear, connected editable lines, rather than filled
+outline shapes. The human drawing repairs a defect in the raster source. That
+repair is evaluation context only; generation must not invent a connection to
+match it. The full goal and all eight deliveries remain open. Generated-reference collection remains deferred while existing tuning artwork
+checks the experiment. On viewing the fitted Detailed sword, the owner judged
+the material/shadow treatment vastly improved and visually comparable to the
+human result, with slightly different choices. The primary remaining visual
+and editing problem is outlines represented by filled shapes instead of clean
+connected strokes. Preserve this material candidate while improving source-only
+ink extraction, complete-chain coverage and continuity; the human raster repair
+still supplies no connections.
+
+The owner subsequently emphasized continuing on strokes rather than wrapping up
+on an error-score comparison. Actual editable centerlines, supported endpoint
+connections and removal of former filled outlines are the primary acceptance
+criteria for the next work. Raster-error measurements remain secondary
+diagnostics. Preserve the inspected shadows throughout that work.
+
+### Owner feedback: preserve materials and fix stroke representation
+
+The owner inspected the actual fitted Detailed image and identified a large
+visual improvement: shadows are clean and comparable to the human rendering,
+with different choices. Filled outlines are now the primary visible/editing
+problem. SVG inspection confirms eight actual `fill="none"` stroke objects with
+30 contours; remaining outline appearance comes from filled material/ink paths.
+A lower global target MSE cannot establish that those outlines are editable.
+
+An observer at `.bench/cel-actual-outline-stages` captures the exact source mask,
+carrier and native source models inside the benchmark, ending intentionally before
+material generation. Its eight model records and all 43 raw profile records are
+exactly equal to the preceding fitted pool after canonical JSON serialization.
+The source identity remains
+`3ae55a1aa1260c2fa78394dcbedf8207cbad6c9cc396169ed63d0e33cb6a3340`;
+the observer driver SHA-256 is
+`f0ef566eb3a7f83410a990f7a4684d78a26c6404be7f2ea94757b23128447807`.
+It inspects 108 runs / 3,917 points. Five inspected spans wholly inside the blade
+crop fail ridge measurement; none reaches complete carrier fitting. Some supported
+guard and handle chains also fail complete-carrier fitting and retain fills.
+These observations diagnose this pool, not a newly generated quality result.
+
+The current joint extractor uses `ink_pixels & support`, where support belongs
+to the selected coverage carrier's source atoms. Its physical extraction is
+independent of material budgets, but it is still conditioned on that carrier.
+Source ink outside this opaque core cannot become a complete outline through
+that pool; exact complete-body containment can exclude a fitted exterior chain
+as well. Preserve independent source observations before carrier conditioning,
+then offer an atomic source-supported outline/coverage interpretation with
+complete ownership, native alpha/gap checks and material restoration confined
+to the old/new ink footprint. Replacing a dark fill with an additive stroke while
+leaving the old outline behind does not satisfy the editing requirement.
+
+The next comparison should hold the useful material candidate available and
+inspect actual stroke elements, complete source-chain coverage, supported
+junction continuity and real-gap preservation alongside native renders. Do not
+copy the human's repaired connection, blindly stroke every shade boundary,
+change unrelated shadow regions, or waive alpha/ownership proofs. No new
+references or learned ranker are introduced by this feedback.
+
+### Source-only editable stroke inventory checkpoint
+
+`StrokeInventory` now measures the representation directly, using the frozen
+original source bank and exported `fill="none"` bodies in the complete native
+viewport. It uses actual widths, transforms, caps, joins and group opacity.
+Filled bands, dormant definitions, invisible or locked strokes and unsupported
+effects supply no editable support. It reports literal shared centerline ports
+without authorizing a source repair. Coverage of sample positions does not prove
+complete chains, correct paint, ownership, removed old fills or valid junctions;
+the report explicitly leaves outline completion unproved. This checkpoint adds
+diagnosis and a reproducible preview; it does not add another accepted conversion
+or change Generate, fitting, candidate ranking or its objective.
+
+The source-only replay at `.bench/cel-stroke-inventory-final` inspects the
+unchanged shared-junction candidate 11. It finds 11 actual stroke objects, 33
+stroke contours and 143 centerline nodes. Of 13,145 original qualified nongap
+sample positions, 2,287 lack actual stroke-body support at alpha 0.05: 82.60175
+percent are supported. This is sample coverage, not the percentage of complete
+outlines. Both fitted-handle endpoints remain literally shared with adjacent
+strokes. The inventory reports 15 shared ports across the drawing; this count
+does not establish 15 supported physical source junctions. The earlier independent
+junction/gap/ownership audit remains the proof for the fitted handle.
+
+The preview uses blue centerlines, green literal shared ports and pink missing
+source samples. The remaining samples lie heavily on the handle exterior and
+inside the compound ink/shadow owner, with some blade exterior support missing.
+This is a concrete inventory of the remaining stroke work, without a human target
+or raster-error ranking. Source-only attached-band probes remove another old
+filled section and fit a two-node stroke, but they still change native pixels
+outside the edit footprint. The initial Boolean rewrite changes 34 such pixels;
+preserving original shadow curves with an equivalent cutout reduces this to one
+transparent fringe pixel, whose alpha changes from 10 to 11 / 255. These probes
+have no complete ownership replay and are not accepted candidates. They do not
+replace the verified material/stroke checkpoint or waive locality/alpha proofs.
+
+Reproduce the terminal inventory with:
+
+```sh
+PYTHONPATH=src:. python scripts/bench_cel_stroke_inventory.py --case sword \
+  --candidate .bench/cel-source-junction-band-plans-final/candidate-11.project.json \
+  --out .bench/cel-stroke-inventory-final --crop 310 1640 420 1870
+```
+
+The inventory source SHA-256 is
+`25958416b4337782e536fb43c9c24263d4bef77a93e0a356869abb10725d00f3`,
+driver SHA-256 is
+`0a26d22af086beedfb0e52477eec0802d431a186ffc639ad6c68340a7926af06`,
+and inspected project SHA-256 is
+`b606759c1237cab277e5ba383e418839467c68aeb29e857cf15dd1fc82f3bb1f`.
+Seventy-one targeted inventory, source-fit, junction and co-planning tests pass.
+Fifteen new controls distinguish byte-identical filled/stroked rasters, actual
+native caps/rotation, inherited group opacity, unsupported/dormant strokes,
+frozen source observations, shared ports, bounds and cancellation. Ruff and
+formatting pass; Pyrefly reports zero errors and 63 warnings. No release gate
+passes from this diagnostic. Continue on complete attached ink/shadow
+decomposition, exterior stroke coverage, supported junctions and owned removal
+of former filled outlines while preserving the inspected material choices.
+
+### Shared physical source junctions between editable strokes
+
+The next checkpoint focuses on stroke topology, with no human-target error
+fitting or evaluation. Inspection finds that original source profiles 46 and 77
+share `(331.5, 1833.5)`, while the existing continuation starts one pixel right
+of that point. The new handle already retains the original shared point.
+
+`SourceJunctions` now offers a general bounded endpoint alternative. Two distinct
+qualified original chains must share the exact physical point and source
+component. An existing complete stroke must retain that junction. A nearby
+continuation must uniquely match a consecutive qualified outgoing source
+interval and pass raw ink measurement across every intervening half-pixel
+sample. Width/paint/frame compatibility, source visibility, scope, pins/effects,
+references, movement (at most 1.5 native pixels), profile/path/node/port and
+cancellation bounds apply. Original physical terminals and junctions never move;
+duplicate observations cannot establish an incident chain. All other node
+values, controls, identities, styles and frames remain exact.
+
+The first integrated replay excludes the desired connection because its single
+lookahead lands on an obscured side probe. The final matcher requires a
+consecutive qualified interval within the outgoing stroke corridor instead.
+It still requires raw source ink and preserves the original qualification/gap
+bank. A crossing control exercises this case, while ambiguous outgoing chains,
+different components, duplicated profiles, missing holders, original physical
+terminals, source gaps, incompatible paint, pins and cancellation exclude edits.
+
+The explicit band co-planner applies this endpoint competitor after fitting and
+includes every changed stroke in the declared component and actual covered
+membership. Full native white bodies independently permit no increased coverage
+at original absence positions. Complete painted source comparison, restoration
+alpha/locality proof, original-graph ownership and native policy remain required.
+No near-distance rule alone can create a connection or copy the human repair.
+
+The terminal `.bench/cel-source-junction-band-plans-final` replay emits twelve
+complete candidates and preserves the first eight SVG/PNG/project/partition sets
+byte-for-byte. Each new candidate moves exactly one continuation endpoint from
+`(332.5, 1833.5)` to the existing original source junction `(331.5, 1833.5)`.
+The handle remains an actual four-node open stroke. Its top endpoint is shared
+literally with the upper stroke, and its bottom endpoint is now shared literally
+with the lower continuation. Every shadow contour, paint server, original
+control and unrelated path remains exact to the preceding fitted candidate.
+The drawing still has 2,920 nodes / 415 contours / 33 stroke contours; more
+attached filled outline sections remain unfinished.
+
+All twelve candidates pass complete original-graph/component ownership,
+64-entry ancestor replay, native hard validity, exact local/native pixels
+(maximum score-term difference 6.943e-10), and exact project reload. The separate
+source-only topology audit verifies both literal shared endpoints and no new
+full-native body coverage at any of 404 original gap positions. Painted source
+comparison retains 13,145 qualified / 1,628 missing samples and zero newly
+completed inspected gaps. The actual strokes and node diagram are saved in
+`stroke-comparison.png`; no human geometry or error score supplies this change.
+
+Helper/benchmark SHA-256 is
+`85712bdfb1e334babe924397b9bb19035d0e160bdd8d644072b63252cb51e62e`;
+independent source-only audit SHA-256 is
+`1a01eb5e07a0df0ffc4a931a828ad81fd2bf5fa9e32546cc938bda006c6bcfa0`.
+The final captured replay takes 97.86 seconds and peaks at 706,532 KiB RSS;
+this remains offline evidence, not operation-budget delivery. The 252 focused
+tests (including 19 junction controls), Ruff and formatting pass; Pyrefly reports
+zero errors and 63 warnings. The common objective still selects older candidates
+and ordinary experimental High still leaves the flag off. Next continue on
+actual stroke coverage, remaining attached outline/shadow decomposition and
+source-supported junctions while preserving the inspected materials. All
+release gates and the full implementation goal remain open.
+
+### Automatic source-profile fitting in the explicit band co-planner
+
+`SourceBands` now selects a unique complete original physical source profile
+for a separated ink contour. It uses copied source anchors and the original
+qualification/gap bank. Short fragments, ambiguous matches, observed internal
+gaps, unsupported frames and work bounds exclude the interpretation. Neither
+artwork identifiers nor the human redraw select its profile, paint or material.
+
+The explicit `Operators(filled_bands=True)` route assembles the stroke, exact
+residual marks, source-supported neighboring caps and adjacent-material
+continuation before fitting. `BandFit` moves at most 24 transverse parameters
+within two native pixels, retains physical endpoints and source corners, and
+keeps explicit width settings fixed. At most 600 evaluations share the caller's
+deadline/cancellation signal. Interrupted fitting publishes nothing. Complete
+original native painted-line and actual stroke-body checks precede owned ancestor
+replay. Material continuation independently proves exact composite alpha against
+its complement and confines pixel changes to removed fill / actual stroke body.
+
+The fitting renderer retains the full native viewport while culling only
+independent distant paths. A cropped viewport had changed 13 native pixels by
+up to 26/255 in a diagnostic; that version was rejected. Final fitting crops
+must equal independent full native renders exactly. One bounded parameter-vector
+cache reuses only identical source/painted contexts; complete native/body proofs
+run again for each sibling. Original line-bank observations remain frozen and
+are not remeasured from fitting crops or mutable identity records.
+
+The terminal replay at `.bench/cel-source-fitted-band-plans-final` preserves all
+eight preceding SVG/PNG/project/partition artifact sets byte-for-byte and emits
+four additional complete blade/guard/handle candidates. The handle is an actual
+four-node `fill="none"` stroke at native width 1.678925366437946. Its 29 residual
+shadow/mark contours, all original material curves/paint servers, and unrelated
+strokes remain exact. Two neighboring caps move within their own source
+intervals; ten exclusive material nodes continue the source-selected gradient
+under the removed fill. The complete drawing has 2,920 nodes / 415 contours /
+33 stroke contours / representation cost 5,696, with zero self-crossings.
+
+All twelve drawings pass native hard validity, original-graph ownership,
+component validation, 64-entry same-ancestor replay, exact local/native RGBA,
+score agreement (maximum 6.943e-10) and exact project reload. The new candidates
+retain 13,145 qualified / 1,628 missing inspected samples with zero newly
+completed painted gaps. A separate full-native white-body audit validates all
+404 original gap queries for the new handle. Its original endpoints remain
+exact; the top endpoint literally shares an existing stroke endpoint, while
+the lower endpoint has no literal neighbor. Complete supported junction
+coverage is not established, and the human's repaired connection stays absent.
+
+Only after terminal source-only generation, human evaluation measures the
+matching new/old bundle at MSE 521.989863 / 524.897535. The preserved filled
+material parent remains better at 508.055591. Across all twelve alternatives,
+the new bundles measure 510.696238 / 497.476653 / 502.187965 / 521.989863; these
+human measurements do not fit or select candidates. The unchanged common
+objective still selects the preceding blade/guard bundle at complexity 0/25
+and blade-only at 50/75/100. Representation-aware selection remains unfinished.
+
+Source/benchmark SHA-256 is
+`e12fef190f649df834c2dcf8080ff28f28ca1b7531abb94445bcd5e7aa7cbaf8`;
+independent audit driver SHA-256 is
+`dffa489c93fb764958b4faba1a34469394ace4473be4c285738d970b6f71c8f4`.
+Source raster and evaluation mask hashes remain
+`fdfc4bf6d6621f79994e82b113c7e726928d58508324208871b08528b0d6413f` and
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The final offline replay takes 157.15 seconds and peaks at 705,344 KiB RSS;
+an earlier replay takes 112.38 seconds with all twelve artifact sets byte-exact.
+Neither demonstrates the 60-second operation or process-memory release limits.
+The 233 relevant tests, Ruff/format checks and Pyrefly (zero errors, 63 warnings)
+pass. Tests cover frozen identity observations, ambiguity, rotation, partial
+opacity, fixed width, fractional native crop phase, cache invalidation, and
+cancellation inside the optimizer, in addition to existing ownership controls.
+
+This completes generic source-profile selection and automatic fitting within
+the explicit candidate constructor. Ordinary experimental High still leaves the
+flag off. Next improve supported junction composition and complete-chain
+coverage, then representation-aware selection and reliable operation scheduling
+within the existing budgets. Preserve the useful materials and original source
+gaps. New references and learned ranking remain deferred; every release gate
+and the full implementation goal remain open.
+
+### Material continuation beneath the editable handle stroke
+
+`PaintContinuation` appends exclusive material contours inside the complete
+removed fill footprint. It retains the existing material contours, paint server,
+gradient frame and node identities exactly. Bounding-box gradients, partial
+object/fill opacity, shared assets, references, different parents, pins, locks
+and unsupported effects exclude this competitor. The stroke moves above the
+continued material while other siblings retain their relative order. The helper
+constructs a bounded candidate; it does not prove source ownership or acceptance.
+
+An unrestricted diagnostic removes the blue junction slivers but introduces
+19 new alpha-excess pixels against the old filled parent. It also changes 39
+pixels outside the old fill because moving the stroke exposes its own body.
+Native policy alone admits that version. The accepted offline audit therefore
+uses an explicit native opaque-interior core for paint and independently proves
+full alpha equality. Added material stays strictly inside the old fill; stroke
+order changes stay inside the actual stroke body. There are zero changed native
+pixels outside their union, zero new alpha excess, and full alpha is byte-exact
+to the preceding cap/stroke prototype. Its four existing alpha-excess pixels
+against the earlier filled parent remain; this does not claim exact alpha to
+that earlier parent. No source contract is relaxed.
+
+The source-only adjacent-material vote selects the existing gradient neighbor.
+Fourteen new material nodes remove the visible junction slivers; the handle
+remains a four-node `fill="none"` stroke with its 29 independent residual contours
+exact. All other material geometry and paint remain exact. Complete ancestor
+replay retains 64 ledger entries. Original-graph ownership, component validation,
+native hard validity, zero new completed inspected painted gaps, independent
+local/native pixels, score agreement (maximum 6.943e-10) and exact save/reload
+pass. The new handle's independent native body absence still passes. This is
+not an absolute body-absence proof for every recovered neighboring cap.
+
+`.bench/cel-owned-handle-paint-continuation` saves the independent audit, candidate,
+partition and comparison. Helper/benchmark source SHA-256 is
+`24591824316cec0ec800bf6c442dc31ed7cec39e251869b178a2322365d0cc3b`;
+audit driver SHA-256 is
+`fa51914cabd26a96cf26b37f7b4ce84c5e13107e603acf1543f95932c9252fed`.
+The source raster hash remains
+`fdfc4bf6d6621f79994e82b113c7e726928d58508324208871b08528b0d6413f`.
+Post-terminal evaluation uses the same frozen source mask and yields human
+MSE **522.686750**, versus the matching prototype's **523.206190** and the
+preserved material parent's **508.055591**. The candidate has **2,924 nodes /
+415 contours / 33 stroke contours**, representation cost 5,700, and zero
+crossings. No human geometry supplies fitting, restoration or connection repair.
+
+Thirteen synthetic controls cover exact original curves, transforms, holes,
+gradient frames, unsupported context, pins/shared assets, atomic interruption,
+order, an explicit core, and a translucent outer-edge failure. The combined
+line/absence/interval/band/cap/continuation suite passes **166 tests**. Ruff,
+format and whitespace pass; Pyrefly reports zero errors and 62 warnings.
+
+This is a verified offline combined candidate and a reusable restoration helper.
+The fitted handle, cap recovery and restoration are not scheduled by Generate.
+Next integrate generic source-profile selection and bounded joint fitting with
+these helpers, preserving complete ownership and exact native acceptance.
+Attached outline/shadow branches, score calibration, actual operation delivery,
+runtime/memory and all eight release/delivery gates remain open. Reference
+collection and learned ranking remain deferred; the full goal remains active.
+
+### Source-fitted handle and recovered neighboring caps
+
+The remaining nine-node handle contour is a complete physical band, but its
+90th/10th intrinsic width ratio is about 2.38. A uniform inversion is excluded.
+Its filled terminals also supply small pieces of two neighboring wrap lines.
+Replacing it alone either completes an inspected gap or loses those neighboring
+samples. Relaxing the width-ratio proposal filter does not solve this: all 30
+constant-width trials fail the unchanged native line/gap comparison. All 16
+piecewise-width trials fail too. Forty-eight source-profile fitting/paint/cap
+trials retain neighboring line failures; nine joint default-source-model trials
+also fail. These are diagnostic-only probes, not generator changes.
+
+A bounded source-only geometry experiment holds the original native junctions
+at (331.5, 1790.5) and (331.5, 1833.5). It fits eight horizontal cubic coordinates
+within two native pixels and the width within 1.5–4, keeping vertical coordinates
+and endpoints fixed. Powell performs 278 crop evaluations under a 600-evaluation
+bound, using source RGB, original line observations and actual body alpha at
+source gaps. Its four-node stroke at width 2.6998074474145435 passes independent
+native body absence. It still fails the two neighboring wrap profiles in
+isolation. This artwork-selected diagnostic is not an automatic fitting policy.
+
+`SourceCaps` now provides a reusable complete cap competitor. Both existing
+stroke endpoints must match the same original physical source profile inside
+one non-gap interval; ambiguous matches exclude the subpath. Only that profile's
+own original gaps authorize extending a truncated cap toward a qualified sample.
+Physical terminals/junctions, paint, width, frame, other controls and unrelated
+subpaths remain exact. Native movement is bounded at three pixels, with explicit
+path/node bounds, scope, pins/effects exclusions and cancellation. A copied
+source-observation query protects this process from later mutation of the
+original identity object. This helper constructs a proposal; qualification alone
+is not a native body or painted-gap proof. A zero-margin control explicitly
+creates a native gap violation and must be rejected by the caller.
+
+With the helper's 0.5 margin, the neighboring wrap starts/ends move only to their
+own qualified samples: (335.1666666666667, 1791.1909249753837) and
+(337.25, 1832.1459336690525). No endpoint crosses its original source gap. Combined
+with the fitted stroke, this passes the complete native painted comparison:
+zero new completed inspected gaps, no line rejections, 13,145 qualified samples
+and 1,629 missing, versus the preceding parent's 1,634. The former handle fill
+becomes a real `fill="none"` stroke; its other 29 contours retain exact geometry.
+All independent materials and all other stroke nodes/controls remain exact.
+
+The complete ancestor replay at `.bench/cel-owned-handle-source-caps` passes
+original-graph ownership, component validation, independent local/native pixels,
+score-term agreement (maximum 6.943e-10), zero crossings and exact save/reload.
+It retains 64 ledger entries with no inherited unrepresented handle pixels.
+The result is **2,910 nodes / 414 contours / 33 stroke contours**. Native validation
+is successful. Post-terminal human evaluation gives **MSE 523.206190**, versus
+the matching blade-plus-guard parent's 524.897535 and the preserved material
+parent's 508.055591. The frozen source-mask hash remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+Human geometry supplies no fitting, cap choice or connection repair.
+
+The final helper/benchmark source SHA-256 is
+`39ff8a92d0b59764de437625986f23bd86ad12d9343fc29566a6def89c1a7f4c`;
+the standalone owned audit driver SHA-256 is
+`1fcd11cfbfae8c961d7f2e6280f95663ca6ad320bbb3a0a6aeebdfcbbcdb6753`.
+The source raster and fitted-input hashes are saved in its report. The helper
+passes 11 new controls, and the relevant line, absence, interval, band and cap
+suite passes **153 tests**. Ruff/format/whitespace pass; Pyrefly has zero errors
+and 62 warnings. The offline replay is saved independently of temporary drivers.
+
+This demonstrates a feasible owned local replacement, not automatic candidate
+selection or Generate delivery. `SourceCaps` is currently used by the offline
+experiment; the generator does not yet schedule this fitted-handle interpretation.
+The preview also exposes pale slivers at the junctions after removing the old
+filled band. Restore the surrounding material only within the affected old/new
+ink footprint, then integrate source-profile selection, bounded joint fitting
+and cap recovery into the complete proposal cursor. Broader attached outlines,
+source-score calibration, actual operation/runtime evidence and all eight
+release/delivery gates remain open. New reference collection and ML ranking
+remain deferred; the full implementation goal remains active.
+
+### Separable guard stroke alongside the blade
+
+The explicit band cursor now retains all original blade-width alternatives,
+then offers complete siblings that also convert an isolated contour from a
+mixed fill owner. A contour's own source pixels must meet the existing
+60-percent ink-role requirement; the larger shadow need not. Exact boolean
+disjointness and union equality keep holes and interacting contours together.
+The inspected compound owner is bounded at 1,024 nodes / 64 contours; each
+inverted band retains the preceding 256-node and raster/sample bounds. At most
+five existing parents receive one extension each. Ledger entries, children,
+source gaps, source-class replay and native validation limits remain unchanged.
+
+The sword's dark guard/handle owner has only 31.5 percent drawn source pixels,
+so the preceding whole-owner filter skipped it. Its isolated guard contour has
+134 sampled source pixels, all classified as drawn. It becomes a four-node
+connected stroke at width 2.182687282562256; all 30 residual shadow/mark contours
+retain their exact geometry. The variable-width handle contour remains excluded.
+This is one further complete outline, not completion of guard/handle line art.
+
+The final algorithm/benchmark source SHA-256 is
+`a857e690ce3bd96429745c901ed6b7cbf342a21a815d704b371aceca844ff668`.
+`.bench/cel-bands-isolated-extension` contains eight unique artifacts: the four
+previous blade-only SVG/PNG/project/partition outputs are byte-exact, and four
+additional drawings have **2,915 nodes / 414 contours / 32 stroke contours**.
+All eight pass complete original-graph/component ownership, native/local raster
+agreement and project reload. Maximum score-term discrepancy remains
+6.943e-10. The extensions preserve zero new gaps, 13,145 qualified samples,
+1,634 missing samples and no line rejections. Both converted outlines replace
+their former fills; unrelated paths and residual shading geometry remain exact.
+
+The native-objective preferred blade-plus-guard candidate beats the material
+parent at all 101 complexity values. Within this captured pool, the selector
+chooses that bundle at 0/25 and the preceding blade-only result at 50/75/100.
+Post-generation human MSE is **524.897535**, compared with the matching
+blade-only result's 525.949074 and the preserved filled parent's 508.055591.
+The narrowest unselected bundle measures 500.384326; it is not chosen using the
+human target. The frozen source-mask identity matches the preceding audit.
+Representation improves, but source-objective calibration and overall visual
+quality remain unresolved. No human connection repair enters generation.
+
+The source-only replay takes 49.49 seconds with peak RSS 694,996 KiB while
+evaluating twice the previous candidate count. This is an offline diagnostic,
+not a successful 60-second Generate or a runtime release result. An initial
+benchmark artifact naming collision was corrected and the final replay rerun;
+its incomplete artifacts remain separately labeled. The relevant suite passes
+202 tests, including four new controls for mixed shadows with holes, affine
+frames, source-role exclusion and the unchanged child-allocation bound. Ruff,
+formatting and whitespace pass; Pyrefly reports zero errors / 62 warnings.
+The flag remains explicit and all eight delivery/release gates remain open.
+
+### Rejected isolated centerline fitting changes
+
+The owner's further clarification makes actual stroke representation the
+acceptance requirement. Connected filled bands still fail it even when their
+raster appearance is good. The blade competitor addresses one such band;
+remaining mixed outline/shadow owners need joint decomposition rather than
+blanket fill-to-stroke conversion. Materials and the source's real gaps remain
+protected.
+
+`.bench/cel-band-fitting-diagnostics` records two isolated fitting probes under
+algorithm source hash
+`5df1f8a70f7b4dd324ff9db4c88f200947d2803c9050a9adb80e70e5091ee64b`.
+Both use only the captured main filled blade and compare intrinsic alpha at
+twice its geometry resolution. Removing the fill fitter's additional smoothing
+at tolerance 0.15 increases nodes from 35 to 49 and alpha MSE from 0.001699 to
+0.001753. Doubling transverse raster resolution instead gives 31 nodes but MSE
+0.001794. Tighter fits yield small, inconsistent changes and more nodes. These
+probes measure neither source-line validity nor human resemblance. No fitter,
+selection weight, native constraint or production default changes as a result.
+The useful next work is complete source-supported ink/material decomposition,
+with actual centerlines, widths, junctions and removal of the old filled outline.
+
+### Complete sibling scheduling and one selected Generate blade
+
+The algorithm source SHA-256 is
+`5df1f8a70f7b4dd324ff9db4c88f200947d2803c9050a9adb80e70e5091ee64b`.
+The explicit `Operators(filled_bands=True)` High route gives a fragmented initial
+parent one existing 16-evaluation expansion of complete joint siblings before
+other edits displace its source ledger. Both nested family and outer operator
+cursors honor that prefix, reuse the same discovery and close normally. The
+ordinary High cursor's ordering remains unchanged when the flag is absent.
+Within the explicit route, the finer of the two existing material budgets is
+tried first; their complete source-only pools and native renders are preserved.
+No material budget, ownership bound, acceptance threshold or score weight changes.
+
+High now defers fitting a fallback with more than 256 paths until a smaller or
+complete owned ink/material checkpoint is available. It reclaims fitting time
+after local checkpoints as well as anchor exports. Fast/Balanced retain their
+preceding reservation behavior. The explicit large-core band route gets a
+40-percent local opportunity, bounded by the existing global checkpoint/final
+reserves; ordinary High retains 30 percent. The source bank and full painted
+width comparisons still run before each complete proposal can compete.
+
+An intermediate 180-second prototype reaches the exact offline 2,923-node /
+414-contour / 31-stroke candidate through real Generate checkpoints, whereas
+the preceding run reached only the first original-width coarse proposal on each
+parent. A subsequent 60-second, finer-first prototype gets the fitted material
+candidate into Generate but expires before scoring its blade conversion. Those
+two diagnostics live at `.bench/cel-band-operation-component-prefix` and
+`.bench/cel-band-operation-detailed-prefix`; they identify the need for the
+source-bank/width opportunity rather than establish a release result.
+
+With the final sources, one real Generate/apply prototype at complexity 75,
+High and automatic refinement selects **2,893 nodes / 412 contours / 31 stroke
+contours** in **54.262 seconds**, with peak RSS **943,708 KiB**. The selected blade
+is one 35-node `fill="none"` stroke of width 2.318235468864441 with seven separate
+mark contours. Six proposals and six full native checkpoints pass without
+local-score disagreement; discovery has one extraction and one reuse. CPU
+simplification runs, but the full refinement schedule does not complete.
+The actual applied drawing is pixel-identical to the captured planner selection.
+Project save/reload and original source-graph ownership pass. A fresh independent
+original-raster bank comparison after refinement reports zero newly completed
+gaps, 13,145 qualified samples, 1,634 missing samples and no rejections.
+
+The frozen frontier's cost is monotonic at every integer slider value. It chooses
+1,978 / 327 / 30 at 0, the 2,893 / 412 / 31 blade at 25/50/75, and the dense
+10,285 / 1,711 / zero-stroke drawing at 100. The last choice still exposes the
+source objective's mismatch with the intended editable outline representation.
+The complete output, driver, five frontier SVGs, all 101 choices and independent
+audit are at `.bench/cel-band-operation-detailed-prefix-full`.
+
+This is a representation/delivery gain, **not an overall human-match gain**.
+Post-generation human evaluation gives source-mask MSE **535.253845**. The
+preserved 2,941-node material parent measures **508.055591** on that same mask;
+its offline blade conversion measures **525.949074**. The selected finer-budget
+base also differs from the owner's inspected material candidate, which included
+an additional regional facet. Preserve that candidate while improving stroke
+geometry and selection; the human repair remains evaluation-only. These values
+do not pass the 800-node / 140-contour / MSE 497.39 milestone.
+
+A same-source 60-second repeat at complexity 75 **does not reproduce success**:
+it returns 23,212 nodes / 4,147 contours / zero strokes in 65.348 seconds, with
+peak RSS 694,016 KiB. Core discovery interrupts and local search never runs.
+CPU-heavy Gradle and integration-test processes were observed on the host at
+completion; their interference is not grounds to dismiss the failure. The
+operation exceeds its budget although the planner reports 56.713 seconds and
+zero internal overshoot, exposing preparation/apply time outside its deadline.
+The complete negative report and driver are preserved at
+`.bench/cel-band-operation-detailed-prefix-repeat`.
+
+The relevant suite passes **204 tests in 52.81 seconds**. Six new controls cover
+paired opportunities before ancestor displacement, discovery release, complete
+pool preservation and High/Balanced fitting reservations. Ruff, formatting and
+whitespace pass; Pyrefly reports zero errors and the same 62 warnings. Ordinary
+CEL is unchanged, and ordinary experimental High still does not enable the band
+flag. Initialization/deadline reliability, score calibration, remaining outlines
+and junctions, editing identity binding and all eight delivery/release gates
+remain open. New references and learned ranking remain deferred.
+
+### Native validation overhead and actual-operation search limits
+
+The preceding validation checkpoint's algorithm source SHA-256 is
+`d5c2cafc6f3de7e71410c181fc30330e7d416500e47d943977377b56dce2d4dc`.
+Document validation now indexes reference users once per validation, preserving
+private-gradient ownership and dangling/cyclic reference checks. Each band's
+geometry/width alternatives reuse complete immutable parent line observations
+bound to their exact original source bank. They retain sampled values rather
+than the full parent raster, never replace the guard's fixed baseline, and still
+protect each original gap position. Native robust-loss temporaries are chunked
+with identical elementwise values and reduction order. Native evaluation also
+uses the existing validated `svg_metrics` import instead of parsing twice.
+
+Serial isolated captured-proposal replays compare the published `c203505` tree
+against this checkpoint under the same Python runtime and four-thread BLAS
+settings. The baseline is an exact Git archive, not modified workspace code.
+Both runs finish with four proposals and six source exclusions. Every row's
+metadata, SVG, PNG, project document and source partition is byte-exact; selected
+widths, all source checks and score terms are unchanged. The audit lives at
+`.bench/cel-band-plans-optimized/preservation.json`; the two complete reports are
+in that directory and `.bench/cel-band-plans-baseline-isolated`.
+
+| Serial diagnostic | Wall time | Peak process RSS |
+| --- | ---: | ---: |
+| Published implementation | 29.17 s | 746,704 KiB |
+| Current implementation | 24.37 s | 686,052 KiB |
+
+This single pair is about 16 percent faster and uses about 8 percent less peak
+RSS. It is not a repeated production benchmark or release gate. The earlier
+122.43-second run included concurrent tests and is not the matched baseline.
+The isolated document-validation measurement improves the 327-path,
+38-private-gradient material document's median from 17.206 to 3.508 milliseconds;
+that roughly fivefold result applies only to validation, not total generation.
+
+Two real Generate/apply probes use only the original source raster, complexity
+100, High quality, automatic CPU refinement and the explicit prototype
+`Operators(filled_bands=True)` route. Their observer cannot alter acceptance.
+Reports and replay drivers are saved in `.bench/cel-band-operation-probe` and
+`.bench/cel-band-operation-long-probe`. Neither changes the ordinary default.
+
+The 60-second probe completes in 54.677 seconds with 10,285 nodes, 1,711 contours
+and zero strokes, peaking at 740,320 KiB. Structural search attempts zero edits;
+initialization and checkpoint reservations consume its opportunity. Short tests
+ran concurrently, so its timing is a diagnostic rather than isolated release
+evidence. A serial 180-second probe completes in 162.215 seconds with 9,739 nodes,
+1,568 contours and zero strokes, peaking at 981,868 KiB. It evaluates 59 local
+proposals, admits 45 and checks eight complete checkpoints with zero score
+disagreements. It generates 30-contour stroke candidates and some alternatives
+with a ninth stroke object, but selects the dense filled drawing. That extra
+stroke converts a separate small owner; it is not the co-planned blade result.
+
+The longer run calls the joint cursor on three parents and obtains only their
+first coarse `source-intervals` proposal. It records no extraction reuse or
+resumed expansion, and never evaluates the fitted Detailed sibling or its blade
+co-plan. Thus more total time does not establish the desired result. Beam
+retention, nested cursor scheduling and the source objective all still need
+work: retain useful complete original/fitted material alternatives before
+descendant edits displace their ancestors, then measure selection with the
+supported outline representation available. Do not force stroke selection by
+copying the human repair or converting dark shadow regions into lines.
+
+The relevant final suite passes **593 tests in 23.57 seconds**. New controls cover
+source-bank binding, immutable sampled parents, fixed-baseline preservation,
+cancellation and exact robust-loss values across float types, layouts, scalar
+and empty inputs. Ruff, formatting and whitespace checks pass; Pyrefly reports
+zero errors and the same 62 warnings. The offline blade's 2,923 / 414 / 31 result
+is preserved, not further improved. Complete outline/junction conversion,
+actual-operation selection and all eight delivery/release gates remain open.
+
+### Co-planned blade stroke with exact marks and ordinary selection
+
+`band_plans.py` extends the explicit `Operators(filled_bands=True)` experiment.
+The fitted main blade now becomes one connected editable stroke rather than a
+filled outline band. The seven independent marks remain exact filled contours,
+and every other material/ink path element and geometry remains exact. This
+addresses the owner's representation feedback without changing the shadows or
+using the human drawing's source repair.
+
+A direct post-parent split would need a 65th entry. Instead the alternative
+replays the ordinary material proposal's complete scoped source classification
+from the same ancestor. The immutable ancestor prefix stays intact; this is a
+sibling material interpretation, never a mutation claiming to extend the
+finished parent's ledger. Source-component classification separates only marks
+with unambiguous nearby geometric support. Ambiguous connected components
+exclude the conversion. Four original source pixels already absent from both
+old fill components inherit their existing main-band ownership. No new paint or
+geometric support is claimed there, and the complete source comparison remains
+mandatory. Exact RLE, primary ownership, hidden coverage, graph replay and sealed
+component validation use the unchanged ledger limits.
+
+The fitter tries tolerances 0.25, 0.15 and 0.1 pixels. It uses the first geometry
+that supplies valid alternatives, without pruning independent marks. Widths
+compete within min(0.25 pixels, 10 percent) of the intrinsic median, at most five
+per material proposal; explicit width settings freeze these adjustments. The
+ownership classification and ledger replay are shared across width variants;
+actual raster coverage is recomputed for each. The optional joint cursor offers
+the ordinary material first, then bounded co-planned alternatives, all within
+its existing 64-proposal allowance. Default scheduling remains unchanged.
+
+The reproducible source-only replay command is:
+
+```sh
+PYTHONPATH=src:. python scripts/bench_cel_band_plans.py --case sword \
+  --captured .bench/cel-band-capture --out .bench/cel-band-plans-verified
+```
+
+The captured ancestor and material project documents retain exact element and
+component identities. The capture is a preserved development hypothesis, not a
+new complete material-pool or operation benchmark. Replay decodes only the source
+raster from `sword.vectrify`, never the human document. The final source hash is
+`772db772203c90c1d3210a49b121dc7dc8404ac1e47c73f7b73f29708a32013a`.
+
+The completed replay excludes six body/width alternatives and publishes four
+native-valid proposals. Every proposal has a 35-node blade stroke, seven exact
+mark contours, all 64 source split entries, zero newly completed measured gaps,
+13,145 qualified source samples and 1,634 missing samples. Original gaps already
+completed by the parent are not repaired or waived. Complete ownership and
+component validation, exact local/native RGBA, project reload and unchanged
+independent paths pass. Maximum score-term discrepancy is 6.942918358288086e-10.
+The drawing changes from 2,941 nodes / 414 contours / 30 stroke contours to
+**2,923 / 414 / 31**.
+
+Width **2.318235468864441** (`candidate-3.svg`) improves the unchanged objective
+against the material parent at every integer slider value. The captured
+ancestor's validated normalizer is 20,818. The shared offline frontier chooses
+that alternative at all five advertised checkpoints. Its Detailed objective
+improvement is approximately 0.0001059; this is a representation improvement on
+one major band, not a large whole-image quality claim or sufficient slider
+tradeoff evidence. Wider 0.15-pixel fits that complete source gaps remain excluded.
+
+Portable controls cover saturated cut allocation from the actual ancestor,
+nonempty branch prefixes, native/local scoring, project reload, affine frames,
+partial opacity, exact independent marks/shadows, unsupported holes/nesting,
+ambiguous source components, inherited absent source pixels, explicit widths,
+cancellation and unchanged default scheduling. The relevant broad suite passed
+333 tests. After the final cursor lifetime change, 60 focused controls passed,
+including three new assertions that closing, cancellation or the proposal limit
+releases the alternative generator without computing one more edit. Ruff,
+formatting and whitespace checks pass; Pyrefly reports zero errors and the same
+62 existing warnings.
+
+The final captured-proposal replay completed in **122.43 seconds**, with process
+peak RSS **742,564 KiB (about 725 MiB)** under `/usr/bin/time -v`. This includes
+original evidence/graph construction, proposal replay, full/local verification,
+frontier selection, project serialization/reload and artifact rendering while
+the focused tests ran concurrently. It does not isolate generation latency or
+cache memory, establish the operation deadline, or pass the plan's process-memory
+release gate. These measurements expose a performance problem to investigate,
+rather than a reason to enable the competitor by default.
+
+Complete operation selection, bounded production latency/memory, broad outline
+and junction conversion, calibrated editing review and all eight delivery/release
+gates remain pending. New references and learned ranking remain deferred while
+the remaining outlines are developed.
+
+### Previous complete-owner inversion checkpoint
+
+### Complete filled-band inversion and the remaining blade split
+
+`filled_bands.py` adds an explicit `Operators(filled_bands=True)` competitor.
+It interprets one complete existing ink owner as a real `fill="none"` centerline
+stroke, replacing its fill in place with the same paint, opacity, frame, order,
+primary atoms and hidden coverage. It creates no new opacity carrier, material
+underpaint or connection between separate physical marks. Complete native painted
+source comparison precedes publication; ordinary scoring and sealed component
+validation remain independent acceptance checks. Default scheduling is unchanged.
+
+The fitter uses bounded intrinsic vector coverage, one unpruned physical skeleton
+run, contiguous transverse subpixel centroids, a measured median width and
+existing half-coverage terminal exits. Closed bands retain closure and holes.
+Transverse profiling uses 1,024-point chunks within the 16,384-point, 256-node and
+262,144-pixel limits. Branches, disconnected independent marks, broad paint,
+unsupported styles, locks/pins and incompatible source namespaces exclude the
+whole-path competitor; no partial longest chain is published. Complete-owner
+inversion avoids the carrier containment failure of additive exterior ink.
+
+Source-line diagnostics are now version 3. They retain immutable completion bits
+at each original measured gap. Counts alone could accept opening one pre-existing
+completed gap while filling a different one within the same profile. Fixed-baseline
+metrics and stateless complete painted comparisons reject that substitution;
+comparison never changes the observer's established baseline. These thresholds
+remain engineering controls, not calibrated release criteria.
+
+`scripts/bench_cel_band_strokes.py` reproduces the complete owned-parent comparison
+without parsing the human drawing. It decodes the original raster, validates the
+preserved parent's ledger against its original graph, checks every proposed
+component, compares native/local pixels and terms, and verifies project reload.
+The actual material parent is saved at `.bench/cel-filled-band-owned-parent` with
+327 surfaces and 64 atom split entries. This avoids rebuilding the material pool
+for each inverse-fit diagnostic; the useful shadow interpretation remains intact.
+
+The final-source `.bench/cel-band-strokes-final` audit is complete. It examines
+16 ranked owners; 15 do not support whole-path inversion. Two cap variants replace
+the same small `cel-fill-1413` path. Both are native-valid and preserve complete
+ownership, unchanged shadow objects, exact local/native RGBA and project reload.
+The drawing changes from 2,941 nodes / 30 stroke contours to 2,937 / 31. Both have
+zero newly completed measured gaps. Maximum local/full term discrepancy is
+9.558789315633476e-10. **This small conversion does not fix the main blade or
+establish a sword outline-quality gain.**
+
+The main black blade path contains eight contours: its 53-node U-shaped band plus
+seven independent marks. A diagnostic retaining those marks exactly fits an
+18-node connected centerline at width 2.20784330368042. Both butt and round cap
+variants are native-valid but newly complete one protected gap in profile 48;
+they fail the source comparison and remain outside admitted results. Uniform
+widths 1.6, 1.8, 2, 2.1 and 2.4 also fail one or more individual gaps. Earlier
+centroid/tolerance probes had three or more gap mismatches, including terminals.
+These prototypes have no complete stroke/mark ownership proof and are not
+frontier or release candidates.
+
+Algorithm and benchmark source SHA-256 for this checkpoint is
+`467a7ec01121fcf0a4b0f5a2c4092900df81c975f4ddeee25053cf1943ed089e`.
+The relevant source/stroke, search, component, local-score and benchmark suite
+passes 315 tests, including 23 inversion controls and 19 native source-fidelity
+controls. Ruff, formatting and whitespace checks pass; Pyrefly reports zero
+errors and 62 existing warnings. No actual-operation selection, process-memory,
+blind preference or calibrated editing/quality release result is claimed here.
+
+Native geometric classification identifies actual separate mark atoms, but atom
+8508 also spans the main band and marks in several other contours. Assigning that
+mixed atom to a surviving stroke would be false ownership. The preserved parent
+already exhausts its 64-entry ledger. Next constrain the local native body fit
+and compose exact stroke/mark classes before material splitting exhausts the
+shared ledger. Do not raise bounds, discard small marks, create fake secondary
+owners or relax the gap threshold to admit this blade. New references and learned
+ranking remain deferred; all eight delivery/release gates remain open.
+
+### Source cycle recovery and the remaining composition failure
+
+The editing requirement is an actual centerline stroke with `fill="none"`,
+stroke width and connected source-supported geometry. Selected filled ink must
+be removed through ownership cuts and material continuation. Shadow/material
+shapes remain fills. Adding a stroke over retained filled ink does not establish
+the requested representation, and generation still ignores the human repair.
+
+`SourceCycle` maps every identity-bound native observation from overlapping
+chunks back onto the complete original dense cyclic grid. Missing coverage
+excludes recovery; duplicate observations can add gaps, never waive them.
+Only a cycle's own native gaps authorize new physical caps. A canonical seam
+inside a measured gap makes serialization rotation independent of cap placement.
+Complete intervals are enumerated before source-length/support ranking; unknown
+profiles and neighboring gaps cannot split a fully supported host.
+
+At most eight supported intervals compete. Existing 128-interval, 256-fit and
+16,384-node bounds remain, with exact positive source endpoints and bounded cap
+setbacks. Original fits compete with quarter-pixel simplification and a one-sample
+smoothing variant whose displacement is at most min(1 pixel, width/2); smoothing
+keeps caps fixed. Every actual native body/cap and self-crossing check still applies.
+Widths compare the existing measured interpretation and a bounded narrower one;
+requested widths stay fixed. Capacity/interruption errors publish no partial
+recovery. Bounds do not rise to admit the sword.
+
+The opt-in perimeter bank records native observations even for crossed complete
+fits, then offers each recovered physical run as a separate model. This retains
+complete local footprints for the existing carrier/cut/restoration/ordering
+checks. A perimeter-only cursor with a proved empty bank returns before walking
+carriers. **Recovery is an explicit `outline_intervals=True` experiment.** Ordinary
+High keeps the earlier whole-perimeter interpretation and its early crossing
+exclusion. Enabling recovery by default has no demonstrated quality benefit.
+
+Native controls recover a broken outline as an open editable stroke, with actual
+filled-owner cuts, complete source-graph validation, unchanged alpha, gap-center,
+interior and exterior pixels, exact local/full raster agreement and project
+save/reload. A larger two-gap cycle crosses several observation chunk seams and
+retains two open strokes. Other controls cover opacity levels, seam rotation,
+unknown observers, invalid fields/styles, complete observation coverage, fit/run/
+node bounds, rejected bodies, interruption and the default scheduling guard.
+These are engineering controls, not a sword quality gain.
+
+The final source identity is
+`1fd510326a8f0c21890e0b859eca6f8ff59c2d09216ae5d5813bdaa29a61f29e`.
+The preceding unguarded feature source is
+`e18591cc206f3fbabeb7496aad0b9759f87f28741ad091a8e355c212dfb56d74`;
+its full relevant suite passes **1,455 tests in 418.62 seconds**. The final source
+guard passes **219 relevant tests in 92.02 seconds**, including all 25 new cycle
+controls plus existing stroke, scheduling, interruption, operation and benchmark
+checks. Ruff/format/whitespace pass; Pyrefly reports zero
+errors and the existing 62 warnings. No process-memory or repeatability gate is
+claimed from these checks.
+
+The opt-in source bank at `.bench/cel-cycle-bank-guarded` retains 99 independent
+raw sword profiles, inspects three perimeters and emits five source-gap-valid
+models after 83 fit attempts. Three are pommel/handle fragments; two nearly
+identical short blade runs arise from different measured seeds. There is no
+complete long blade outline. The four existing half-opacity tuning families
+still emit none: their complete perimeter ridge test fails. No held-out cases
+or generated references enter discovery.
+
+On the preserved fitted Detailed parent, `.bench/cel-cycle-material-guarded`
+attempts every model against four carriers. It emits **zero replacement proposals**:
+12 checks exclude overlap with retained stroke bodies, and eight fail complete
+ownership/carrier containment. No cut or restoration is reached, and the probe
+finishes without interruption or error. These counts are model/carrier attempts,
+not 20 independent models. The candidate bank has improved coverage, but the
+composition remains inadequate. Long blade fits can lose their small crossings
+after simplification and still fail source-gap checks; normal-displacement and
+broader smoothing prototypes do not justify waiving that contract.
+
+The unguarded actual Generate High/50 probe at `.bench/cel-cycle-operation-final`
+uses the unchanged 60-second allowance and selects **10,285 nodes / 1,711 contours /
+zero editable stroke contours / human MSE 519.541877** in **54.53 seconds**.
+Joint material discovery starts with only 0.62 seconds available and emits none.
+This is a negative scheduling result, not improved outline quality. The final
+default guard avoids scheduling this additional recovery. One run cannot attribute
+all variability to the new route or establish that the guard fixes repeatability.
+Earlier dense fallbacks remain relevant evidence.
+
+The first material-matching probe used literal SVG hashes and failed to recognize
+the preserved drawing because imported object IDs are newly generated. The
+verified probe normalizes IDs and their references for matching, then checks
+native pixels independently. No ID normalization changes the generated drawing.
+The final-source native-pool audit checks **13 native-valid sword drawings,
+13 complete source-graph validations and 16 native stroke body/cap proofs**.
+Both original and fitted pools retain exactly the preceding native RGBA,
+representation, scores, source-profile banks and geometry/paint diagnostics.
+Fresh PNG pixels and project save/reload agree; maximum local/full score-term
+difference is **1.011e-9**. One physical extraction and one reuse are retained.
+The fitted Detailed candidate remains **2,941 nodes / 414 contours / 30 editable
+stroke contours / human MSE 508.055591**. This preserves its material/shadow
+result; it is not a new outline-quality gain. The current five-case source-bank
+probe is separate from this sword-only fresh material audit. The preceding
+five-case material audit remains evidence at its original source identity.
+
+Next compose exterior source coverage with materials and compatible retained
+stroke junctions, recover long supported blade runs, and inspect actual editable
+outline coverage. The full goal and all eight delivery/release gates remain open.
+New references and learned ranking remain deferred.
+
+### Source-perimeter stroke interpretation
+
+The current checkpoint adds a source-perimeter primitive and connects it to the
+experimental High-quality reserved operator cycle through `SourceStrokes`.
+Foreground/alpha contours supply geometric candidates independently of the
+selected opaque material carrier. Painted-side ridge evidence supplies centers,
+widths and paint; the source-only native absence contract still tests the complete
+actual stroke body. A geometric perimeter never authorizes closing an ink gap.
+
+Closed profiles use cyclic normals and centering, avoiding a fake anchored seam.
+Overlapping bounded observations retain every measured perimeter center and its
+original-source normal and native gap neighborhood. Their serialization/chunk
+boundaries explicitly have no physical terminals, so they cannot authorize facing-endpoint gap probes. Ordinary
+source profiles retain their previous endpoint behavior. Raw source observations
+are collected before current owner/carrier eligibility and remain constraints even
+when those source chains cannot themselves export as strokes.
+
+Application retains complete eligible contours, proves their exact native footprint
+inside the existing carrier, excludes overlap with retained stroke bodies, then
+uses source cuts, existing-material continuation, ordering, ownership and component
+seals. Stroke widths expand in each retained path's local frame before its native
+transform; an unproved existing stroke style conservatively excludes the optional
+perimeter interpretation. Rejected/interrupted discovery publishes no partial bank.
+Complete source banks are cached within the operator instance; carrier/ownership
+proofs are repeated against each current state. This is bounded retained primitive
+state, not a process or aggregate memory-gate measurement.
+
+Bounds remain explicit: at most 16 visible components / 16 loops / 16,384 raw
+perimeter points, width seeds at most 16 analysis pixels, eight published hypotheses
+and 16 MiB of retained selection masks. Existing native sample/tile/body, local
+crop, node, atom and branch limits still apply. High reserves the new source-stroke
+cursor after the existing opacity slot, restricted to these perimeter hypotheses;
+Fast/Balanced retain their existing slots.
+A separate quarter-window bounds this optional operator against the shared deadline.
+
+Native fixture checks prove that selected filled ink can become one actual
+`fill="none"` closed editable stroke, rather than an additive outline over retained
+ink. Surrounding and interior paint, native alpha, source ownership, local/full
+rasters and project reload agree. Other controls cover opacity-independent width,
+serialization-seam invariance, hidden RGB, real source gaps, constant dark material,
+retained strokes, absent carriers, bounds, cancellation and reserved-slot scheduling.
+These successful fixtures do not establish an artwork-quality improvement.
+
+The source-only bank at `.bench/cel-silhouette-bank-final` inspects all five
+existing tuning artworks and emits **zero usable new perimeter models**. On the
+sword it retains 99 independent raw source profiles and inspects three measured
+perimeters, all excluded for crossed geometry; remaining source components and
+width trials hit explicit size/allocation bounds. The four tuning families fail the complete
+perimeter ridge test. This diagnoses whole-perimeter interpretation as insufficient,
+not a new quality result or evidence to relax the native contract.
+
+A separate bounded fitting diagnostic smooths the measured sword perimeter and
+tries 0.25/0.75/1.5-pixel fitting tolerances. Some fits remove self-intersections,
+but all still fail native source-gap checks. Smoothing alone therefore does not
+justify an outline replacement. These variants remain outside the published pool.
+Next recover complete source-supported runs around corners and real gaps, preserve
+physical junctions, and compose their exterior coverage with the useful material
+candidate. No source gap, alpha proof or human repair is waived. The full goal and
+all eight deliveries remain open; generated-reference collection remains deferred.
+
+The frozen algorithm source SHA-256 is
+`7979116e724523a4a91d41d1b15dfb1a0b7b307b3af90a5c220db1443077a035`.
+The relevant suite passes **1,431 tests in 225.04 seconds**, including 21 new
+perimeter/application controls. Ruff, formatting and whitespace checks pass;
+Pyrefly reports zero errors and the existing 62 warnings.
+
+Fresh `.bench/cel-silhouette-material-final` pools and their independent audit
+match both preceding material interpretations exactly: **113 native-valid drawings,
+113 complete source-graph validations and 68 native body/cap checks**. Raw source
+banks, geometry/paint diagnostics, native RGBA, representation and evaluation
+metrics agree. Local/full term disagreement remains below **3.604e-9**; project
+reload and fresh PNG pixels match. The fitted Detailed sword remains **2,941 nodes /
+414 contours / 30 editable stroke contours / human MSE 508.055591**. Preserving this
+candidate is not evidence that the new perimeter route improves its filled outline.
+
+The source-bank diagnostic driver SHA-256 is
+`f7ad7663d944725eb92d6fd6fe97050c79fb2e18fbdf3211fa75506b8a38d07d`;
+the independent material-pool driver is
+`6c231f1da6e94ea8cadd9308ffac3594b754eb4ef9821983f003c652822815d7`.
+The fitting trials are recorded separately at
+`.bench/cel-perimeter-fit-retries-current` at the preceding `96d55591` source; they
+supply no admitted drawing. The restricted scheduling guard does not change that
+primitive fitting code.
+
+The first native-operation scheduling probe at source `96d55591` also exposed
+an unintended legacy cursor fallback: a source-stroke edit was selected on western
+park, reaching 303 nodes / 34 contours / 14 stroke contours but worsening clean MSE
+to 198.598485. It is not an outline-quality gain. The new reserved cursor is now
+explicitly `perimeter_only`, with a regression preventing legacy discovery from
+running through it. Existing offline/source-material interpretations remain
+independently available. That negative prototype is preserved at
+`.bench/cel-silhouette-operation-current`; it is not final-source evidence.
+
+Final `.bench/cel-silhouette-operation-final` probes use actual Generate,
+High quality, complexity 50, automatic refinement and the unchanged 60-second
+allowance. Every completed operation shares the frozen source identity above.
+Human/clean scoring follows generation and source selection.
+
+| Case | Nodes | Contours | Stroke contours | Target MSE | Seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| sword | 1,976 | 327 | 30 | 525.610441 | 53.60 |
+| anime-girl | 174 | 26 | 1 | 162.263271 | 29.75 |
+| anime-face | 166 | 16 | 0 | 227.977474 | 40.83 |
+| western-park | 322 | 34 | 13 | 194.747921 | 31.10 |
+| rubberhose-band | 252 | 34 | 21 | 160.615209 | 33.67 |
+
+No new perimeter interpretation is selected. The sword retains the preceding
+original-width material interpretation, rather than the fitted Detailed drawing;
+the two-node reduction is not an outline-quality gain. The rejected legacy park
+fallback is absent from the final run. These isolated probes do not establish
+repeatability or score calibration; the earlier dense sword fallbacks and park
+clean-error regression remain evidence of those open gates.
+
+An independent operation audit checks actual native hard validity, the original
+source-graph ledger, byte-equivalent saved PNG pixels, project save/reload native
+RGBA and the allowance on all five cases. Generate deliberately assigns fresh
+object IDs through `fresh_ids` to avoid collisions. Planning metrics retain the
+original planner namespace, so the audit does **not** claim that those diagnostic
+IDs bind directly to the renamed operation document. Its first direct-binding
+attempt failed on that expected namespace change; all native/render checks pass.
+The operation driver SHA-256 is
+`f37b7c16c7ec5cc909400e5dad43344b77db39fa9959a5983b6775e9bc63d433`.
+These operation controls do not close outline, editing, aggregate/process-memory,
+held-out, blind-review or release gates. The full implementation goal stays active.
+
+### Shared physical extraction and experimental native search scheduling
+
+`JointCells` now alternates the complete original-width `source-intervals`
+interpretation with `source-widths`. Both use the existing connected, fractional,
+fitted-role material regions, anchored boundaries, regional facets and residual
+atom ledger. The pair shares one physical extraction through `InkDiscovery`;
+filtered models, recovered intervals and fitted widths are computed independently.
+Original widths therefore remain a candidate even when the fitted coarse material
+interpretation is worse. Human geometry and repaired connections supply no input.
+
+The cache retains at most one complete extraction for one scheduler invocation.
+Its identity includes the exact source mask/dtype/shape, evidence identity/frame,
+carrier coordinates and fill rule, options and extraction flags. It drops a prior
+record before extracting another component. Failed or interrupted extraction is
+never cached. Claimed/rejected/component arrays become read-only on publication;
+source profiles already have copied read-only arrays. Both cursors are closed and
+the record released after exhaustion, cancellation, an early consumer close or
+the unchanged whole-search deadline. This is bounded source-record retention,
+not a measured process-memory or aggregate 96/64 MiB cache gate.
+
+The pair has a 64-proposal invocation cap and preserves one interpretation after
+a native boolean failure in the other. It adds explicit interpretation provenance
+to the proposal parameters. Actual native absence/caps, carrier difference,
+positive observations, surviving original ports, component seals, complete source
+ownership, cell/child/entry limits and local/full policy checks are unchanged.
+A resumed joint parent only requests the High-only opacity slot when that slot
+exists; Fast/Balanced resumes retain their ordinary reserved turns.
+
+**Experimental High-quality search now tries the pair automatically.** Ordinary
+CEL remains unchanged. Fast/Balanced do not schedule the new pair or opacity
+operator. Within High's existing family slot, a seed above the existing 256-object
+small-edit bound gets its original-width joint opportunity before broad surface
+scans; smaller seeds retain the surface opportunity first. Other operator slots
+remain reserved. A complementary `OpacityFields` operator resolves against the
+current source atom graph and gets priority on a validated joint child. This
+uses the real local search and common native frontier, rather than selecting an
+offline benchmark winner. No candidate is automatically accepted.
+
+When the High frontier contains a large owned material core, structural discovery
+can use 30% rather than 20% of the same operation allowance to include native
+context creation. The global search deadline, final-validation reserve and any
+already reserved fitting time still bound that opportunity. The actual allocated
+seconds are reported. Neither this fraction nor the scheduler closes a timing,
+repeatability, quality or memory gate.
+
+#### Matched shared-pool verification
+
+The frozen shared union reproduces the preceding source-width checkpoint's
+complete native pools on sword and the four tuning families. Diagnostic opacity
+composition keeps the original **two-parent quota per interpretation**; that
+explicit offline union has four possible opacity parents. This is separate from
+the operation's bounded beam scheduling, not a claim that the product evaluates
+all these candidates within 60 seconds.
+
+| Case | Native-valid proposals / source-graph checks | Physical extractions / reuses | Full native model-body checks |
+| --- | --- | --- | --- |
+| Sword | 13 / 13 | 1 / 1 | 16 |
+| Anime girl | 36 / 36 | 1 / 1 | 12 |
+| Anime face | 18 / 18 | 1 / 1 | 12 |
+| Western park | 32 / 32 | 1 / 1 | 12 |
+| Rubberhose band | 14 / 14 | 1 / 1 | 16 |
+
+All 113 drawings retain exactly the original standalone native RGBA, structure,
+representation cost, native score terms, post-generation target metrics and
+inspected source-line metrics. Both modes retain the exact complete raw bank;
+all 68 model geometries, paint and diagnostic details are unchanged. Complete
+source-graph replay, component seals, ownership, fresh/saved renders, project
+reload and full native bodies/caps at the fixed raw gap centres pass. Maximum
+local/full term difference remains **3.6032509129202417e-9**. This preserves useful
+alternatives; it does not improve their already inadequate fidelity.
+
+#### Operation probes and negative results
+
+Five 60-second High/complexity-50 Generate operations were also run at source
+`505c3e2bfa377e2179e1336be9ea11979eddc58991adddbc2211d33b0b4c731a`.
+The final absent-slot guard changes Fast/Balanced joint-parent resumption, rather
+than these High slots. These probes precede that guard and are explicitly
+contextual, rather than exact-current-source release evidence.
+
+| Operation | Nodes / contours / strokes | Post-generation human or clean MSE | Elapsed seconds |
+| --- | --- | --- | --- |
+| Sword | 54,320 / 8,217 / 0 | 446.790663 | 58.3066 |
+| Anime girl | 174 / 26 / 1 | 166.810033 | 43.2521 |
+| Anime face | 166 / 16 / 0 | 227.977474 | 46.2107 |
+| Western park | 322 / 34 / 13 | 194.747921 | 48.3156 |
+| Rubberhose band | 252 / 34 / 21 | 160.615209 | 35.6564 |
+
+Every selected drawing has zero native validation rejections and reported zero
+operation deadline overshoot. The sword exhausted optional work before producing
+its detailed initialization, so it selected a very dense conservative fallback.
+Its lower MSE does not pass the combined structural gate or supply editable handle
+lines. Park and rubberhose exercise shared extraction in real beam search;
+girl/face do not reach joint reconstruction. Park's clean error is worse than
+the earlier late-slot probe's 165.615057 despite its lower representation cost.
+Source-only admission/selection is not a calibrated clean-quality gate.
+
+A separate 60-second sword repeat after this task's suite/matrix finished returns
+**10,285 / 1,711 / 0 / MSE 512.807919 in 53.6693 seconds**. It retains the owned
+core but still does not reach reconstruction. Earlier scheduling prototypes
+produced **1,978 / 327 / 30 / MSE 525.633748**, but did not reproduce reliably and
+are not claimed as the final operation result. Their frozen reports are retained
+as negative scheduling context. Native export/context and optional initialization
+can consume the available prefix before fitting. Other work on the host means
+these elapsed times do not establish a hardware latency guarantee. Redundant
+native rendering and earlier bounded candidate delivery remain required.
+
+The **800 / 140 / 497.39** gate, source-connected handle quality, inspected material
+absence, calibrated scoring, selected-operation repeatability, memory/runtime,
+held-out/review gates and all eight deliveries remain open. Generated-reference
+collection stays deferred. The useful fitted Detailed alternative still exists
+offline at **2,941 / 414 / 30 / MSE 508.055591**, but automatic availability and
+selection have not been demonstrated for it. No ML ranker, target-based width
+rule, human repair or held-out tuning is introduced.
+
+Verification on the latest source: **1,410 relevant regressions pass in 312.42
+seconds**, including 38
+new physical-cache, native-pool, cancellation, boolean-failure and resumption
+controls; Ruff/format checks and Pyrefly (zero errors, 62 existing warnings).
+The frozen production source SHA-256 is
+`3ae55a1aa1260c2fa78394dcbedf8207cbad6c9cc396169ed63d0e33cb6a3340`.
+The matched matrix and independent audit at `.bench/cel-joint-pool-current` share
+that exact identity; the matrix driver SHA-256 is
+`a4d8e418189c32b19a071f3f81a3d97c59acf9593a6dc475bf9bfb95f8ef057a`.
+The independent audit confirms 113 native drawings, 113 source-graph checks and
+68 full native bodies. Large `.bench` artifacts remain ignored.
+
+### Bounded source width interpretations and native common-frontier replay
+
+At the preceding checkpoint, the explicit offline `--ink-fit source-widths`
+competitor turns the preceding
+width prototype into a bounded source-only interpretation. It complements
+residual atom layout and regional material facets. At that checkpoint, defaults still use the
+existing source interpretation. Original-width alternatives remain independently
+available through `source-intervals`; the automatic High-quality opportunity
+is added only by the newer shared-extraction scheduler above.
+
+`SourceWidths` runs after long-chain and short-link discovery. That discovery,
+style grouping, source paints, original caps/ports and complete raw observation
+bank do not depend on trial widths. The fitter tries the original width and
+0.9/0.8/0.7/0.6 factors, with an intrinsic analysis floor and duplicate trials
+removed. It selects the widest width with the most original complete bodies
+passing native absence, retaining the original when there is no gain. The
+choice depends only on those source body tests; no source-chain ordinal,
+human outline, repaired junction or artwork detector supplies a rule.
+This is an inspected engineering hypothesis, not
+a calibrated release width estimator.
+
+Work is bounded independently to eight styles, 128 runs, 16,384 nodes and
+**256 native body trials**. A capacity failure after fitting an earlier style
+returns all original widths, never a mixed partial interpretation. Cancellation
+publishes neither models nor a partial source bank. Explicit width overrides
+bypass fitting. A no-gap source keeps its widths without raster trials.
+Complete-chain geometry and paint remain fixed. Own-gap intervals can be refit
+under their existing positive/negative observations; no neighbouring gap
+authorizes shortening a supported chain. The existing compound-body, actual
+cap, exact carrier footprint, ownership and surviving-port/link checks still
+decide which models are exported. The limits on cells, atoms and opacity
+composition are unchanged.
+
+The sword uses 175 width trials and changes one style from 2.068718 to
+1.448103 native pixels, increasing its absence-valid complete bodies from
+16 to 17. The recovered complete handle chain has its original endpoints and
+is exported as an editable stroke. The four tuning cases use 55/85/79/112
+trials respectively and change no style. Their native drawings, clean metrics,
+source banks, source-line metrics and facet alternatives remain exact.
+The sword's bank remains the same 43 physical profiles; narrowing does not
+change the diagnostic target to make the line score look better.
+
+| Sword candidate | Nodes / contours / editable strokes | Human MSE | Handle MSE | Missing own-bank samples |
+| --- | --- | --- | --- | --- |
+| Original-width opacity baseline | 1,638 / 235 / 30 | 525.500704 | 930.317894 | 809 |
+| Original-width first residual facet with opacity | 1,665 / 237 / 30 | 516.270421 | 930.317894 | 809 |
+| Fitted coarse interpretation with opacity | 1,684 / 243 / 30 | 611.380879 | 960.777646 | 775 |
+| Fitted finer interpretation | 2,913 / 412 / 30 | 517.360362 | 855.954641 | 222 |
+| Fitted finer interpretation with one facet | 2,941 / 414 / 30 | 508.055591 | 855.954641 | 222 |
+
+The coarse fit regresses substantially; recovery alone is not a faithful
+material interpretation. Fitted finer candidates become available because
+the complete width/material/ownership plan differs. The existing two-parent
+opacity cap is not raised to compose them. Their 222 missing of the same
+5,471 qualified samples are an uncalibrated inspected diagnostic. Material
+paint still fills one of 15 inspected gaps; actual exported strokes fill none.
+Other handle chains remain missing. The combined 800 / 140 / 497.39 gate
+and the connected editable-line requirement are still unmet.
+
+#### Native common-frontier choices
+
+`/tmp/vectrify-source-width-frontier-replay.py` uses the actual bounded
+`Frontier` and unchanged `Policy` on the saved validated source-generated
+pools. It compares original-width proposals with a union including fitted
+ones. Source fallback and detailed initializer are retained. The normalizer
+is frozen through the public API from that validated initializer, before
+adding alternatives. Each pool has its own policy baseline constructed from
+identical immutable evidence; a planning run's baseline is never reset.
+Clean/human metrics are consulted only after all frozen selections complete.
+No score reweighting, synthetic cost scale or clean oracle supplies selection.
+
+The sword's actual detailed cost scale is **20,818**, not the component
+diagnosis's 54,564 override. This changes the reported choices:
+
+| Complexity | Original pool | Union with fitted widths |
+| --- | --- | --- |
+| 0 / 25 / 50 | 1,638 / 235 / MSE 525.500704 | Same original drawing |
+| 75 | 1,638 / 235 / MSE 525.500704 | 2,941 / 414 / MSE 508.055591 |
+| 100 | 1,665 / 237 / MSE 516.270421 | 2,941 / 414 / MSE 508.055591 |
+
+The finer fitted drawing is therefore useful at higher complexity without
+forcing its worse coarse interpretation on Simple/Balanced choices. All
+101 values have monotonic representation cost, and the union's source
+objective does not regress at any value. All four tuning selections remain
+unchanged. Across cases, the frozen frontiers have two to four distinct slider
+choices, at most ten retained entries against twelve, and at most 2,776,624
+bytes in the frontier's SVG byte accounting against 64 MiB. These are cache
+accounting checks, not total process-memory measurements. Replay native terms
+match the benchmark exactly. This is **offline native-frontier selection**,
+not a selected Generate operation, automatic scheduling/refinement result,
+deadline comparison, complete memory audit or release gate.
+
+Under the earlier 54,564 diagnostic override, the full exported width pool at
+complexity 50 instead favors the finer faceted drawing (source objective
+0.0433241061). That result cannot be substituted for the actual detailed-scale
+frontier's Balanced selection. The earlier residual and regional checkpoint
+tables retain their explicitly stated benchmark-override scope.
+
+Frozen production source SHA-256:
+`47a0d9e7d7b067ad602749a3bb5f5e98ee8cfada60e894c9320ff21baf87047b`.
+Artifacts: `.bench/cel-source-width-final`; matched driver
+`/tmp/vectrify-source-width-final-matrix.py`; independent audit
+`/tmp/vectrify-source-width-audit.py`; frontier replay records under
+`frontier/` in that artifact root. **10 complete matched reports / 113
+native-valid proposals / 113 source-graph validations / 68 full-native
+model-body checks / 94 regional facet parents and composed drawings**.
+Original-width controls match the preceding residual checkpoint in canonical
+drawing, native RGBA and metrics. Raw banks remain identical across modes.
+The audit verifies complete ownership/seals, source fitting gains, unchanged
+stroke layers across material cuts, native gap absence, source-line metrics,
+saved/fresh native RGBA and project reload. Maximum local/full score-term
+difference: **3.6032509129202417e-09**.
+
+**1,372 relevant tests pass in 214.09 seconds**, including 29 width-fitting
+controls and extended CLI delivery/rejection coverage. Tests include actual
+native neighbouring absence and caps, unchanged source terminals, inability
+to repair a real own gap, widest-fit/no-gain behavior, intrinsic floors,
+capacity rollback, interruption, override/junction/raw-bank preservation and
+the original-width fallback. Ruff/format/whitespace pass; Pyrefly reports zero
+errors and 62 existing warnings. Test and diagnostic runtimes overlap and do
+not establish operation performance or memory. Diagnostic allowances remain
+180 seconds for sword and 60 for tuning. No held-out case is tuned.
+
+All eight deliveries remain open. New references stay deferred. Next retain
+these interpretations in bounded operation scheduling, correct missing source
+carrier/junction coverage and material gaps, then improve compact opacity and
+coherent material fitting. The human's repaired source defect remains solely
+evaluation context; no endpoint extension or connection copies it.
+
+Reproduce the fitted competitor (use `source-intervals` for original widths):
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py --seconds 180 --normalizer 54564 --grouping ward --boundary-fit anchored --ink-support connected --ink-roles fitted --ink-coverage fractional --ink-fit source-widths --facet-fit regional --atom-layout residual --opacity-model components --source-line-diagnostics --out .bench/cel-source-width-final/source-widths/sword
+```
+
+### Residual source labels and missing handle-chain diagnosis
+
+The explicit offline `--atom-layout residual` competitor compacts the source
+ledger rather than increasing its allowance. `ResidualCut` stores each
+explicit child as sorted, disjoint RLE support and keeps the largest residual
+under the existing parent label. Labels belong to an immutable ledger revision;
+the parent is not assumed to keep its old support across revisions. Replay
+proves the complete pre-cut area, every claimed pixel, the remaining area and
+the original protected root. Successive residual, binary and multiway splits
+retain exact lineage and complete primary/secondary ownership. Reusing a
+pixel already split off, stealing another owner's pixel, incomplete areas,
+foreign revisions and malformed metadata are rejected.
+
+Version 3 atom metadata marks residual cuts explicitly; versions 1 and 2
+retain their existing schemas, identities and replay. The default
+`atom_layout="retired"` remains unchanged. Residual layout requires compact
+joint source cells and remains an offline option. No production scheduling,
+score weights, cell limit or two-parent opacity composition cap changes.
+The 64-entry, 128-allocated-label and 16,384-run limits still apply. A synthetic
+54-parent classification needs 66 new labels instead of 120, with exactly the
+same source classes and RLE count. The residual label already exists in the
+namespace; no additional namespace slot is charged for it. Native geometry,
+coverage and ownership checks are unchanged.
+
+The sword baseline is identical in both layouts. Retired layout cannot admit
+the highest-ranked regional cut because it needs another child allocation
+beyond 128. Residual layout admits that cut, followed by three more feasible
+prefixes. Four subsequent attempts need a 65th entry against the unchanged
+64-entry limit; the finer material budget still exceeds the 64-cell limit.
+The retained-mode pools consequently contain different facet prefixes.
+Complete baseline drawings and all physical source models/banks remain exact.
+
+| Sword alternative | Nodes / contours / editable strokes | Human MSE | Handle MSE |
+| --- | --- | --- | --- |
+| Original source-interval opacity baseline | 1,638 / 235 / 30 | 525.500704 | 930.317894 |
+| Retired-layout first facet with opacity | 1,645 / 236 / 30 | 521.504909 | 913.842658 |
+| Residual-layout first facet with opacity | 1,665 / 237 / 30 | 516.270421 | 930.317894 |
+| Residual-layout two-facet parent | 2,014 / 330 / 30 | 512.269709 | 913.842658 |
+| Residual-layout three-facet parent | 2,021 / 331 / 30 | 511.061774 | 913.842658 |
+| Residual-layout four-facet parent | 2,064 / 332 / 30 | 512.100485 | 873.951786 |
+
+The first residual facet improves material elsewhere, not handle lines. The
+fourth improves handle paint, with unchanged strokes and a slight increase
+in missing source-line samples. The source objective at complexity 50 in the
+residual-only exported pool chooses its first-facet opacity drawing
+(0.0445444400); the earlier retired-layout first-facet opacity drawing has the
+better source objective (0.0444787054). The union of the diagnostic pools thus
+still chooses that earlier drawing. This is **candidate availability**, not
+an actual selected-operation/common-frontier improvement or score calibration.
+Human MSE is an evaluation metric and never supplies generation or ranking.
+
+Girl, park and rubberhose exported metrics remain exact. Face gains one
+additional native-valid compact facet alternative: its best clean MSE changes
+from 98.680278 at 606 / 62 / 17 to 98.538322 at 624 / 64 / 17. Source-objective
+choices on all four tuning families remain unchanged. No held-out case is
+tuned. All original mode controls remain available through retired layout.
+
+Frozen production source SHA-256:
+`6428f2f0a5a8727220835be01fe6e06bcb5ee174634fefe6d636427824a1e2fd`.
+Artifacts: `.bench/cel-residual-atom-final`; matched driver
+`/tmp/vectrify-residual-atom-final-matrix.py`; independent audit
+`/tmp/vectrify-residual-atom-audit.py`. **10 complete matched reports / 112
+native-valid proposals / 112 source-graph validations / 68 full-native
+model-body checks / 94 regional facet parents and composed drawings**.
+Retired controls match the preceding regional-facet checkpoint in canonical
+drawing, native RGBA and metrics. Baseline RGBA, source banks and physical
+models are identical across encodings. The audit verifies additive source
+fit gains, exact strokes above paint, ownership/seals, saved/fresh native RGBA,
+source-line metrics and project reload. Actual exported strokes remain absent
+at all own inspected gaps. Maximum local/full score-term difference remains
+**3.6032509129202417e-09**. Diagnostic times overlap tests; no production
+runtime/memory or release performance pass is claimed.
+
+**1,338 relevant regressions pass** across the planner/benchmark/operation suite
+(1,231 in 268.09 seconds), existing CEL/pair/generation controls (95 in 10.90
+seconds), and admission audit controls (12 in 0.61 seconds). New controls cover
+residual allocation, repeated and mixed lineage, exact source classes,
+secondary ownership, revision isolation, protected roots, malformed metadata,
+capacity/cancellation, native paint/holes/reload and explicit CLI delivery.
+Ruff/format/whitespace pass; Pyrefly reports zero errors and 62 existing warnings.
+
+#### Source-only width hypotheses, not adopted
+
+The missing-line atlas `.bench/cel-missing-source-ink-atlas` attributes the
+current 809 missing of 5,471 qualified raw-source samples to discovery/carrier
+loss, withheld complete bodies, interval recovery and geometry/paint mismatch.
+Several exterior/guard chains never become carried models. Two complete wrap
+chains are withheld despite having no own measured gap: their actual bodies
+overlap a neighbouring raw absence position. These are source observations;
+the human's repaired junctions are not used. The source atlas and native body/
+cap probes (`.bench/cel-source-host-gap-body-probe` and
+`.bench/cel-source-host-gap-cap-probe`) are diagnostics, not calibrated recall.
+
+Narrowing all styles only after long-chain/short-link discovery preserves the
+complete raw bank, but every narrower full candidate fails the retired
+128-label allocation bound. A generic 16/24/32/64 material-budget ladder still
+cannot admit these widths. At original widths its coarser candidates are
+available, but their best human errors are substantially worse. An initial
+ladder driver accidentally retained an old discovery function in a copied
+namespace, so its factor-labelled outputs were identical and are superseded.
+Only `.bench/cel-source-width-budget-ladder-fixed-probe` is evidence for the
+joint comparison; its captured models and nonempty source banks verify that
+the width hypotheses actually reached generation.
+
+The separate `.bench/cel-source-adaptive-residual-width-probe` uses a source-only
+width hypothesis after freezing the raw bank. It tries factors 1/.9/.8/.7/.6,
+retaining the widest factor with the most complete bodies passing native
+absence, and keeps the original width when there is no gain. Complete-chain
+geometry, paint, caps, original endpoints and explicit width overrides are
+held; own-gap intervals are refit under their existing source rules.
+Only one style changes, from 2.068718 to
+1.448103 native pixels. A previously withheld complete wrap chain is exported
+with its exact original endpoints. No neighbouring gap authorizes shortening
+or disconnecting it. Existing own-gap interval/carrier proofs still apply.
+
+The coarse prototype has 1,684 / 243 / 30, MSE 611.380879 and 775 missing raw
+samples: a fidelity regression. A newly available finer candidate has
+2,913 / 412 / 30, MSE 517.360362, handle MSE 855.954641 and **222 missing of
+the same 5,471 samples**. One material facet gives 2,941 / 414 / 30 and
+MSE 508.055591 with the same line coverage. Both still fill one inspected
+gap through material paint; actual strokes fill none. The two-parent opacity
+cap was not raised to compose these later drawings. The prototype's eight
+complete native model bodies and seven native/reload/line-metric rows are
+independently checked by `/tmp/vectrify-source-adaptive-residual-width-audit.py`.
+This does not prove sufficient handle continuity, general fitting quality,
+source-score selection or runtime. No width rule or lower material budget is
+adopted in production.
+
+The width lead requires bounded source fitting and matched four-family checks,
+with original interpretations retained in a common frontier. Material-gap
+coverage, carrier losses, compact opacity representation and selection remain
+required. The 800 / 140 / 497.39 gate and all eight deliveries stay open;
+generated references remain deferred. No source-chain ordinal, human repair,
+score reweighting or relaxed coverage limit supplies any of these results.
+
+Reproduce the residual competitor (use `--atom-layout retired` for control):
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py --seconds 180 --normalizer 54564 --grouping ward --boundary-fit anchored --ink-support connected --ink-roles fitted --ink-coverage fractional --ink-fit source-intervals --facet-fit regional --atom-layout residual --opacity-model components --source-line-diagnostics --out .bench/cel-residual-atom-final/residual/sword
+```
+
+### Source regional facets with unchanged editable ink
+
+The explicit offline `--facet-fit regional` mode adds source-supported straight
+material cuts inside the existing connected material regions. It complements
+`--ink-fit source-intervals`; it does not replace, reconnect or re-style the
+physical source chains. Baseline proposals remain first and exact. Defaults
+still use `facet_fit="none"`.
+
+`FacetLines` observes multiscale normalized visible RGB with raw source ink and
+empty pixels excluded. Votes must span the actual parent sample scope. Each
+original non-ink region supplies its best positive complete-source RGB fitting
+gain. At most eight independent original-region cuts are attempted per region
+budget, ranked by that source gain. No human shape, feature box, clean target,
+source-chain ordinal or sword-specific geometry supplies a vote or priority.
+The existing 64-cell, 128-child and other source-ledger limits are unchanged.
+The finer face remains unavailable at 65 cells; one finer rubberhose cut
+reaches the 64-cell cap rather than increasing it.
+
+A right material child is inserted directly beside its parent, before later
+ink. The left child keeps its original underpaint and explicitly covers the
+right child's primary support; both preserve existing hidden ink support.
+Every unrelated material/ink support and covered-class reference is remapped.
+Only owned source primary samples move to the new class. Source stroke geometry,
+paint, caps, widths, footprints and model metadata remain exact. The complete
+source ownership ledger and component edit are constructed locally before
+yield. A failed attempt cannot enter a later prefix; a consumer invoking another
+operator cannot change that decision. Native admission still follows the
+complete exported drawing. Structural feasibility alone is not native validity.
+Cancellation never publishes a partially checked cut, while earlier complete
+baseline/prefix proposals remain available.
+
+The independent source-error audit caught an initial child-key collision:
+concatenating `r1` with `0` could alias unsplit `r10`. One late park candidate
+then replaced the wrong region. That run is superseded. Final children use
+unambiguous `/0` and `/1` suffixes; a regression with `r1`, `r10`, `r11` verifies
+unique identity, exact source class replay and additive fitting gains. The final
+matched matrix and full suite were rerun after this fix.
+
+The sword has three structurally feasible facet prefixes after five additional
+attempts fail the child bound (next allocation 129/130 against 128). All original
+material boundaries and source-ended strokes supply the starting structure.
+The existing opacity composition cap stays **two parents**: baseline and the
+first valid facet prefix seed fields; later prefixes are not composed just to
+obtain a lower artifact count.
+
+| Sword alternative | Nodes / contours / editable strokes | Human MSE | Handle MSE |
+| --- | --- | --- | --- |
+| Source-interval opacity control | 1,638 / 235 / 30 | 525.500704 | 930.317894 |
+| One facet, complete parent | 1,987 / 328 / 30 | 521.499993 | 913.842658 |
+| One facet with opacity fields | 1,645 / 236 / 30 | 521.504909 | 913.842658 |
+| Two facets, complete parent | 1,994 / 329 / 30 | 520.292057 | 913.842658 |
+| Three facets, complete parent | 2,016 / 330 / 30 | 518.495676 | 913.842658 |
+
+The source objective at complexity 50 over the **exported diagnostic pool**
+favors the one-facet opacity drawing (objective 0.0444787054 versus control
+0.0445444521). The three-facet parent is only the human-error oracle among the
+new compact proposals, with a worse source objective 0.0453320130. Neither is
+an actual selected-operation/frontier result. The modest material improvement
+adds contours and leaves supported junction/line coverage weak; it does not
+meet **800 nodes / 140 contours / MSE 497.39**, or justify new references.
+
+Tuning results below are **best clean MSE among native-valid exported component
+candidates**, not production selections. Initializers and original compact
+alternatives remain available. Human/clean scoring occurs after generation.
+
+| Tuning family | Previous best compact nodes / contours / strokes / MSE | New diagnostic best nodes / contours / strokes / MSE |
+| --- | --- | --- |
+| anime-girl | 579 / 72 / 8 / 85.915353 | 694 / 80 / 8 / 81.763455 |
+| anime-face | 533 / 53 / 17 / 105.270499 | 606 / 62 / 17 / 98.680278 |
+| western-park | 741 / 72 / 13 / 117.059518 | 849 / 81 / 13 / 111.249014 |
+| rubberhose-band | 868 / 95 / 21 / 88.745934 | 906 / 97 / 21 / 87.548766 |
+
+The current source objective over each full exported pool at complexity 50
+chooses the first coarse girl facet (386 / 33 / MSE 100.4213 instead of
+382 / 32 / 102.7566), keeps the face control (533 / 53 / 105.2705), keeps the
+park initializer (3,344 / 628 / 78.9131), and chooses the finer rubberhose cut
+(906 / 97 / 87.5488 instead of 868 / 95 / 88.7459). This remains an offline
+pool comparison, including initializers, and exposes both candidate coverage
+and selection limits. No score weight is changed to favor the clean oracle.
+
+The sword's fixed inspected bank remains **1,048 missing of 6,320 qualified
+samples** and **zero completed of seven gaps** for control, one-facet opacity
+and three-facet parent. The broader own bank remains **809 missing of 5,471**,
+with one of 15 inspected positions filled through material paint. Actual stroke
+layers are absent at all own gaps. Both banks are uncalibrated; preserved
+strokes do not prove sufficient connected handle quality.
+
+These alternatives improve material fidelity at increased representation cost.
+Editable stroke geometry is unchanged; line scores retain their respective
+parent values. No held-out case is tuned. They do not establish broad quality,
+score calibration, runtime/memory or selected-operation fidelity.
+
+Frozen production source SHA-256:
+`c522d764e1133f9cd5580d181f29706770a58293d63e9f2f66e862cd1f96fa3f`.
+Final artifacts: `.bench/cel-regional-facet-final`; matched driver
+`/tmp/vectrify-regional-facet-final-matrix.py`; independent audit
+`/tmp/vectrify-regional-facet-audit.py`. **10 complete matched reports / 64 native-valid proposals / 64 independent source-graph validations / 68 full-native model-body checks / 45 regional facet parents and one composed opacity drawing**. Raw source banks and
+complete physical stroke models remain identical across modes. None controls
+match the preceding source-interval checkpoint in canonical drawing/native
+RGBA/metrics. Source class replay, additive complete-source fitting gains,
+exact stroke geometry/metadata, unchanged two-parent composition, ownership,
+seals, saved/fresh RGBA and project reload are independently checked. Actual
+exported strokes remain absent at every own source-negative position; material
+paint still needs separate gap treatment. Maximum local/full score-term
+difference: **3.6032509129202417e-09**.
+
+**1,311 relevant tests pass in 196.39 seconds**, including the new native facet, ownership/stroke preservation,
+key collision, failure/consumer isolation, cell bounds and cancellation controls.
+Ruff/format/whitespace pass; Pyrefly reports zero errors and 62 existing warnings.
+Benchmark/test times overlap and do not establish production runtime or memory.
+The matched diagnostic allowances remain 180 seconds for sword / 60 for tuning.
+
+Preceding negative source-only diagnostics were not adopted:
+
+- `.bench/cel-material-edge-refinement-probe`: 6,134 raster material-class moves
+  lower conditional fitted-paint energy, but no complete proposal fits the
+  unchanged 128-child bound (next allocation at least 130). Full source role
+  reassignment is not a quality success.
+- `.bench/cel-material-shared-fit-probe`: primary-source paint fitting with
+  geometry-only grid refinement retains the source ledger but yields
+  2,137 nodes / 347 contours / MSE 548.0349 and new self-crossings.
+- `.bench/cel-material-shared-fit-frontier-probe`: increasing the source edge
+  price from 384 to 1,536/6,144 gives valid opacity drawings at MSE 548.2775 and
+  539.1533 for 384/6,144; the 1,536 parent has MSE 552.6476 and crossings. All
+  worsen fidelity against 525.5007. No price or geometry adjustment is adopted.
+- Single regional cuts establish useful candidate coverage; the earlier prefix
+  wrapper communicated feasibility through mutable generator/consumer feedback
+  and cannot establish which prefix was structurally admitted. Final production
+  feasibility is local to the proposal call, with explicit consumer-isolation
+  tests. Probe identities and outputs remain diagnostic only.
+
+All eight deliveries remain open. References remain deferred. Next reconstruct
+missing source-supported junctions and material-gap coverage, then combine
+compact ink/material/opacity alternatives in bounded common-frontier selection.
+The present cuts improve candidate coverage modestly; they do not make a learned
+ranker sufficient or settle the deterministic structural and rollout gates.
+
+Reproduce the sword competitor (use `--facet-fit none` for the matched control):
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py --seconds 180 --normalizer 54564 --grouping ward --boundary-fit anchored --ink-support connected --ink-roles fitted --ink-coverage fractional --ink-fit source-intervals --facet-fit regional --opacity-model components --source-line-diagnostics --out .bench/cel-regional-facet-final/regional/sword
+```
+
+For the four tuning families, replace the normalizer with `--pair anime-girl`,
+`anime-face`, `western-park` or `rubberhose-band`, and use `--seconds 60` plus a
+separate output folder. Frozen evidence/artifact identity is in
+`identity.json` and `independent-audit.json` under the artifact root.
+
+### Source-supported intervals instead of whole-chain gap rejection
+
+The `--ink-fit source-intervals` offline competitor builds on native absence
+constraints. Inspection of the seven withheld sword chains finds five with an
+own measured source gap near one end. Two have no negative interval along
+their own profile; their bodies spill into neighbouring absence. They remain
+withheld. No human repair, source-chain ordinal or owner clip authorizes a cut.
+
+`SourceLineGuard.source_breaks` binds copied/read-only native positives and
+negatives to the original physical profile object. Facing endpoint probes and
+copied/unknown profiles cannot split a host. `SourceIntervals` fits only open
+intervals separated by that same profile's raw negatives. Closed and ambiguous
+interpretations, short pieces and unsuccessful fits retain filled ownership.
+Surviving original terminals/junctions remain exact. New internal caps start
+at qualified raw-source samples; bounded native setbacks of half the style
+width plus 1/2/3 pixels accommodate cap radius and antialiasing. They cannot
+move past half-width plus 3.5 pixels from the bounding measured gap. These are
+**engineering proposal bounds, not calibrated endpoint tolerances**.
+
+Each candidate retains original style paint, cap and measured/overridden width;
+geometry tolerance is at most 0.25 source pixels. An interval needs at least
+four samples, length at least max(8, four widths), and 45% qualified support.
+Crossings, actual native stroke body/cap absence and exact carrier footprint are
+checked. Bounds are eight intervals per chain, 256 total fits, 128 recovered
+contours and 16,384 recovered nodes; native/profile/tile bounds remain those of
+`SourceAbsence`. A limit or stop publishes no partial reconstruction. A finished
+source bank survives an independent bound failure; an interrupted bank does not.
+
+Discovery retains a tuple of replacement contours per original host. Compound
+style absence is proved before links can use its ports. A short link now needs
+a compatible host at each **exact original incident endpoint**, rather than
+only a nonempty recovered host. Final compound footprints, rendered selection,
+sealed ownership, native coverage and save/reload remain checked. Model lineage
+records original profile ends/component and recovered ends for independent
+verification. Ordinary carrier and gap-only controls retain exact drawing,
+paint and metrics; defaults do not schedule this competitor.
+
+| Sword with connected opacity fields | Carrier control | Whole-chain gap rejection | Source intervals |
+| --- | ---: | ---: | ---: |
+| Nodes / contours / editable stroke contours | 1,631 / 237 / 32 | 1,611 / 230 / 25 | **1,638 / 235 / 30** |
+| Human MSE | 526.356708 | 524.782286 | 525.500704 |
+| Handle MSE | 938.812864 | 926.490234 | 930.317894 |
+| Fixed missing samples / 6,320 | 835 | 1,602 | **1,048** |
+| Fixed gaps filled / 7 | 5 | 0 | **0** |
+| Actual exported stroke alpha at own 15 gap centres | 0.992157 | 0 | **0** |
+
+Five long wrap intervals return as editable strokes. Missing fixed samples fall
+34.6% relative to whole-chain rejection (25.35% to 16.58%), but remain above the
+carrier control's 13.21%. The recovered geometry pays roughly 0.72 more human
+MSE than gap-only rejection; the carrier parent is 1,980 / 327 / 30 / MSE
+525.495787. The actual exported stroke layer preserves all own inspected gaps,
+while the full sword still fills one position in the broader own bank through
+material paint. These diagnostic banks are **uncalibrated**, not global recall
+or a release gate. The handle is still too poor for new references, and the
+800 / 140 / 497.39 gate remains unmet.
+
+| Tuning family | Recovered intervals | Gap-only fixed misses, coarse/finer | Interval fixed misses, coarse/finer | Gap-only clean MSE, coarse/finer | Interval clean MSE, coarse/finer | Interval fixed gaps filled, coarse/finer |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 1 | 81 / 44 | 36 / 39 | 101.277228 / 81.341838 | 102.756601 / 85.915353 | 0 / 0 |
+| Anime face | 3 | 154 / 131 | 44 / unavailable | 105.674061 / 88.033338 | 105.270499 / unavailable | 0 / unavailable |
+| Western park | 7 | 585 / 268 | 562 / 157 | 155.726472 / 109.345789 | 191.656259 / 117.059518 | 3 / 19 |
+| Rubberhose band | 3 | 754 / 409 | 377 / 367 | 126.396724 / 91.470054 | 124.096706 / 88.745934 | 11 / 8 |
+
+The finer face interpretation reaches **65 complete final source cells against
+64**, so no partial proposal is returned and no limit is raised. Coarse face
+line F improves from 0.376 to 0.449; girl stays at 0.097/0.062, park changes
+0.171/0.225 to 0.158/0.184, and rubberhose changes 0.269/0.661 to 0.370/0.718.
+Actual exported strokes have zero coverage at all own inspected gaps across
+all five drawings, but complete material interpretations still fill fixed gaps
+in park and rubberhose. Better source sampling does not imply better color,
+feature, structural or selected-operation quality. Common-frontier alternatives
+must retain these conflicting interpretations within the unchanged bounds.
+
+The initial fixed-setback prototype recovers two sword intervals. Extending
+bounded cap setbacks recovers five; an exact-original-curve diagnostic fallback
+is tried, but all five accepted fits use precise source centres, so that extra
+fallback is **not added to production**. The first prototype completes native
+exports but fails diagnostic JSON serialization of a NumPy integer; the driver
+is repaired and rerun. Final qualified-cap checks account for a small measurement
+difference from the prototype. Diagnostic roots are
+`.bench/cel-source-interval-probe` and `.bench/cel-source-interval-cap-probe`;
+they do not replace the frozen final run or supply release evidence.
+
+Frozen final source SHA-256:
+`796dd094c41adb43570819c603d587f54f788bf706c7051983564e490e0bb67e`.
+`.bench/cel-source-interval-final` contains **15 complete matched reports / 29
+native-valid proposals / 29 independent source-graph validations**. Sword and
+four tuning families use unchanged 180/60-second allowances. Carrier and gap-only
+controls reproduce their retained geometry/paint/native RGBA and metrics exactly.
+Physical source banks are identical across all three modes in each case.
+
+The independent audit verifies **67 complete constrained model bodies** through
+full-native SVG rasterization/scipy sampling, independently of tiled absence.
+It verifies **19 recovered contour lineages** against native source profiles:
+correct physical component, own observed break, exact surviving original ends,
+qualified new cap centres, bounded setback, sufficient length/support and no
+negative interval crossed. Actual exported stroke layers remain absent at all
+own negative positions. Hashes, inputs/masks/targets/settings/normalizer,
+saved/fresh native RGBA, project reload, complete ownership and seals match;
+maximum local/full term difference is 3.3775796812185455e-9. These measurements
+do not establish runtime/memory or fidelity calibration; no held-out fixture
+or human repair geometry is used in generation.
+
+**1,164 relevant tests pass in 245.96 seconds**, including 28 new source-interval
+controls, existing CEL/component tests and operation/planned-benchmark controls.
+Tests cover physical-profile binding, copied observations, actual full-native
+caps, exact surviving terminals, width overrides, full/half/quarter opacity,
+analysis-frame invariance, unknown profiles, closed fallback, independent bounds,
+carrier rejection, limits after one recovery, missing original ports and
+mid-fit cancellation. Ruff/format/whitespace pass; Pyrefly has zero errors and
+62 existing warnings. Drivers are `/tmp/vectrify-source-interval-final-matrix.py`
+and `/tmp/vectrify-source-interval-audit.py`; identities and full audit are saved
+in the artifact root. Missing source junctions, material-gap coverage, coherent
+regional facets, compact coverage, common-frontier selection and all eight
+complete deliveries remain open. Generated references remain deferred.
+
+### Raw-source absence along actual editable stroke bodies
+
+The explicit offline `--ink-fit source-gaps` competitor adds source absence to
+carrier fitting. `SourceAbsence` derives native negative positions from the
+complete raw-source profile bank, including failed stroke discoveries. It
+rasterizes the actual SVG stroke body, round joins and supported round/butt
+caps on bounded native-phase tiles, then uses full-frame-equivalent bilinear
+sampling, including tile seams. A permitted body has alpha at most 1/255 plus
+1e-7 at every inspected negative position. This is an **uncalibrated inspected
+engineering constraint**, not global gap recall or a release guarantee. Human
+geometry is absent from discovery and is scored only after generation.
+
+Models retain original source geometry, endpoints, paint, caps and measured or
+explicitly overridden width. Rejected complete chains retain their original
+owned fill; no source chain is cut into invented endpoints. Individually
+permitted contours also receive a compound-style proof before another style's
+short link can use their incident ports. A link requires an original compatible
+pair of retained long chains. Final compound geometry, carrier footprint,
+source ownership, sealed edits and native admission remain checked. Discovery
+failure or cancellation cannot publish partial models or an interrupted bank.
+A completed bank remains available if the independent absence bounds fail.
+
+Bounds are 1536² native pixels, 4,096 dense samples per profile, 4,096 negative
+positions, 32 tiles of side 64, and 16 MiB of mask storage. Native source frame
+and source size must agree. Query arrays are copied/read-only; no full native
+stroke or patched source RGB image is allocated by this stage. Existing ledger,
+coverage and component limits are unchanged. The option requires connected
+support and regional layout and remains an explicit benchmark competitor.
+
+| Sword, with connected opacity fields | Carrier control | Source-gap constraint |
+| --- | ---: | ---: |
+| Nodes / contours / editable stroke contours | 1,631 / 237 / 32 | **1,611 / 230 / 25** |
+| Human MSE | 526.356708 | 524.782286 |
+| Handle MSE | 938.812864 | 926.490234 |
+| Fixed missing samples / 6,320 | 835 (13.21%) | **1,602 (25.35%)** |
+| Fixed gaps filled / 7 | 5 | **0** |
+| Maximum exported stroke alpha at own 15 gap centres | 0.992157 | **0** |
+
+The carrier parents are 1,973 / 329 / 32 / MSE 526.351791 and
+1,953 / 322 / 25 / MSE 524.777369 respectively. The new check preserves the
+inspected gaps but withholds seven editable contours and nearly doubles missing
+line samples. The 1.57-MSE improvement does not solve handle continuity or pass
+800 nodes / 140 contours / 497.39 MSE. These drawings are not new references.
+Next retain supported portions of rejected chains and their genuine junctions,
+without using human repair or relaxing ownership limits to admit bad drawings.
+
+All four tuning drawings change under the new competitor; only the ordinary
+carrier **controls** remain exact. In the following table each pair is coarse /
+finer. Fixed-bank counts refer to complete drawings, including material paint.
+
+| Tuning family | Control clean MSE | Source-gap clean MSE | Control missing samples | Source-gap missing samples | Control filled gaps | Source-gap filled gaps |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 113.273949 / 84.204501 | 101.277228 / 81.341838 | 14 / 20 | 81 / 44 | 7 / 3 | 0 / 1 |
+| Anime face | 105.861350 / 87.663099 | 105.674061 / 88.033338 | 17 / 23 | 154 / 131 | 12 / 12 | 0 / 1 |
+| Western park | 195.218407 / 123.913194 | 155.726472 / 109.345789 | 345 / 134 | 585 / 268 | 54 / 30 | 7 / 19 |
+| Rubberhose band | 136.951610 / 97.728911 | 126.396724 / 91.470054 | 438 / 343 | 754 / 409 | 30 / 29 | 11 / 11 |
+
+Actual exported stroke alpha is zero at the own raw bank's 10 / 16 / 80 / 34
+negative positions respectively. Remaining fixed gaps filled by complete
+drawings expose material reconstruction failures. Line F changes from
+0.129/0.096 to 0.097/0.062 (girl), 0.447/0.485 to 0.376/0.418 (face),
+0.162/0.201 to 0.171/0.225 (park), and 0.413/0.714 to 0.269/0.661
+(rubberhose). Clean pixel improvements therefore do not establish line quality.
+Fixed and own source banks remain uncalibrated diagnostic measurements.
+
+Earlier diagnostic probes did not supply a repair: rejecting whole styles
+leaves only 12 sword stroke contours and worsens MSE to 537.53; per-chain precise
+geometry and 90%/80% widths recover no additional chain; forcing butt caps also
+recovers no additional chain. No width or cap heuristic is adopted. The probe
+artifacts are `.bench/cel-source-gap-width-probe`,
+`.bench/cel-source-gap-chain-probe` and `.bench/cel-source-gap-butt-probe`.
+Their full-native temporary buffers are diagnostic, unlike the bounded stage.
+
+Frozen final source SHA-256:
+`5aefece4ec327f906d628cf2b76092ff50bec096b3f3f9636c9ebf8b5d6aa8aa`.
+`.bench/cel-source-absence-final` contains **10 complete reports / 20 native-valid
+proposals / 20 independent source-graph validations**, using unchanged
+180-second sword and 60-second tuning allowances. Physical raw-source profile
+banks are identical between both modes in all five cases. Ordinary controls
+retain exact geometry, paint, native RGBA and metrics against
+`.bench/cel-source-budget-control-final/control`.
+
+The independent audit checks **33 complete returned models** using full native
+SVG rasterization and scipy bilinear sampling, independently of tiled absence
+implementation. Every constrained body satisfies the observed absence bound.
+It also removes fills from actual exported SVGs while retaining transforms,
+styles and opacity: all constrained stroke layers have zero alpha at their own
+negative positions. Saved/fresh native RGBA and project-save/reload RGBA match;
+source ownership, seals, reported metrics, artifact hashes, inputs, masks,
+targets and normalizer are checked. Maximum local/full term difference is
+3.3775796812185455e-9. This is native/engineering verification, not calibrated
+fidelity, runtime or release evidence. No held-out case is used.
+
+The final CEL suite passes **1,117 tests in 160.38 seconds**, including 45 new
+absence controls; operation and planned-benchmark controls pass **15 in 10.46
+seconds**, for **1,132 relevant tests**. New cases cover copied banks,
+full-native/tile equality, bilinear seams, analysis-frame invariance, independent
+bounds, mid-render cancellation, real source gaps, retained junctions and width
+overrides at full/half/quarter opacity, missing incident hosts and failed compound
+styles authorizing links. Ruff/format/whitespace pass; Pyrefly has zero errors
+and 62 existing warnings. Drivers are
+`/tmp/vectrify-source-absence-final-matrix.py` and
+`/tmp/vectrify-source-absence-audit.py`; identities and full audit are saved in
+the artifact root. All eight deliveries remain open. Source-supported ink and
+material reconstruction, coherent facets and common-frontier selection remain
+required before reference collection, score calibration or learned ranking.
+
+### Source width alternatives and exact ownership-limit diagnosis
+
+The handle requirement remains clear, connected editable strokes wherever the
+actual raster supports them. The human trace repairs a raster defect; its
+repair must not supply generation endpoints, links or source-gap evidence.
+Generation in the following diagnostics uses source pixels only, and human
+scoring occurs afterward. No new output is adopted as a reference.
+
+A joint carrier/body diagnostic at source `6d02b3e...` recovers two complete
+source-ended sword chains at their measured widths. Other bodies fail native
+source-alpha gain checks. Its coarse result worsens human MSE to 527.3908, and
+its finer result still fills a further inspected gap. That prototype enlarges
+its discovery carrier for attempted bodies, including bodies not ultimately
+exported, so it is **not a production implementation or release evidence**.
+Restricting growth to exported bodies and allowing 10%/20% narrower trial widths
+produces no sword proposal because the complete source partition is bounded.
+The joint wrapper also changes the face control despite no recorded recovery;
+that drift remains unresolved and is another reason not to adopt it.
+
+A simpler diagnostic fits widths inside the **unchanged** carrier. It retains
+source paint and endpoints, excludes explicit width overrides, and requires the
+normal exact body/carrier proof and full native/sealed/ownership checks. Trial
+widths are 90% and 80% of measured width, with the existing 0.8-analysis-pixel floor;
+these are bounded engineering hypotheses, not calibrated width tolerances.
+Four complete sword chains become individually feasible. Taking all four, or
+only the first pommel chain, still cannot publish a complete drawing.
+`AtomLimitError` now identifies the first unavailable resource: **at least 130
+children against the 128-child limit**. Entry and RLE failures also report their
+own limit and next attempted allocation. These are **lower bounds**, not total
+proposal cost. All limits, atomic failure behavior and binary metadata remain
+unchanged. Core diagnostics retain at most eight failure details.
+
+| Source-only width hypothesis, with opacity fields | Nodes / contours / editable stroke contours | Human MSE | Fixed missing samples / 6,320 | Fixed gaps filled / 7 |
+| --- | ---: | ---: | ---: | ---: |
+| Retained control | 1,631 / 237 / 32 | 526.356708 | 835 | 5 |
+| Second eligible chain, right handle | 1,605 / 238 / 34 | 538.005364 | 639 | 5 |
+| Third eligible chain, inner guard, coarse | 1,643 / 239 / 33 | 533.427790 | 778 | 5 |
+| Third eligible chain, inner guard, finer | 2,276 / 302 / 33 | 529.374566 | 385 | 6 |
+| Fourth eligible chain, middle left handle | 1,636 / 239 / 34 | 526.217099 | 705 | 3 |
+
+These hypotheses follow discovery order for diagnosis; **no artwork-specific
+ordinal is added to production**. The fourth is a lead: missing samples fall
+from 13.21% to 11.16%, and two inspected source gaps are no longer filled, but
+human MSE improves by only 0.14 and the representation remains far above the
+800/140 gate. It is not a quality breakthrough or a selected-operation result.
+The finer guard alternative lowers missing samples but fills another gap and
+increases representation cost. Native validity alone cannot decide these
+tradeoffs. All source-bank thresholds remain uncalibrated diagnostics, rather
+than global line recall or release gates.
+
+Independent stroke-removal attribution corrects the initial material-gap
+hypothesis. Removing the stroke layer from the coarse control and all three
+coarse alternatives leaves **zero** inspected gaps filled: their gap failures
+come from strokes. The finer guard drawing still fills three gaps without
+strokes, so its material reconstruction also needs correction. This is a
+source-only diagnostic edit, not generated or proposed repair geometry. Next
+retain generic, bounded per-chain width alternatives, prove raw source absence
+along actual exported bodies, and compare them under one fixed source bank
+before common-frontier selection. Do not choose a production chain by the
+human result, raise ownership caps to admit these drawings, or force a link
+across the raster defect.
+
+Frozen experiment source SHA-256:
+`744cb656bfc87a1e536414bfb0d0e6793867873cce639ec8e7756869830c15e4`.
+Artifacts `.bench/cel-source-width-fit-final` and
+`.bench/cel-source-width-single-chain-final` contain **14 complete reports / 26
+native-valid proposals / 26 independent source-graph validations**. Their
+independent audits check hashes, fixed input/target/mask/settings, native
+saved/fresh and project-reload RGBA, complete ownership, sealed edits and
+local/full agreement (maximum difference 3.38e-9). The four tuning families
+are exactly unchanged in the width experiment. No held-out fixture is used.
+
+Final diagnostic source SHA-256:
+`534b556919a47f37823f6ec923e8611d2c41084b72e2b870dc8e898e73e35758`.
+The last source change is a typing cast for the heterogeneous diagnostics map.
+`.bench/cel-source-budget-control-final` reruns all five controls, with **10
+native-valid proposals / 10 independent source-graph validations** and exact
+retained geometry/paint/render/metrics. **226 focused regressions pass**,
+including entire-change failure and cancellation controls. Ruff/format,
+whitespace and types pass (zero type errors, 62 existing warnings).
+Driver and audit identities are saved in each artifact directory; diagnostic
+scripts are `/tmp/vectrify-source-width-fit-final.py`,
+`/tmp/vectrify-source-width-single-chain-final.py`,
+`/tmp/vectrify-source-width-final-audit.py`,
+`/tmp/vectrify-source-width-single-audit.py`,
+`/tmp/vectrify-source-budget-control-final.py` and
+`/tmp/vectrify-source-budget-control-audit.py`.
+All eight deliveries and source/quality/runtime/release gates remain open.
+
+### Connected source-opacity fields with unchanged editable ink
+
+The retained-owner audit found 254 faint paint paths outside the core's paint
+scope. A source-only main-silhouette underpaint probe finds **none** of them
+connected to the main sword. They belong to 135 independent physical components,
+so that hypothesis cannot replace them. This prevents treating a disconnected
+faint mark as a main-silhouette fringe or drawing across an empty source gap.
+
+`OpacityFields`, available explicitly through the offline component benchmark's
+`--opacity-model components`, instead coalesces the paint/alpha fragments of
+each complete connected source component. It uses the exact source-grid contour
+and an alpha-weighted flat source color at the component's maximum alpha.
+That paint has no weaker analysis samples. A field that would exceed the
+existing independent component-mass ceiling remains unavailable; all its old
+paths stay intact. The 5% alpha eligibility bound is a proposal scope, **not a
+discard threshold or native admission exemption**. Whole-component ownership,
+current split-atom namespace, original protections, private gradients, parent
+opacity and supported coordinate frames are checked. Mixed-component atoms or
+incomplete/protected source membership cannot supply a field.
+
+One sealed edit per parent replaces only the declared sibling paths. Untouched
+nested groups now remain permitted as sealed dependencies: their full element
+trees, separately stored geometry, paint resources and mutual order stay exact.
+They cannot be declared, inserted, removed or modified. All other component
+scope, bounds, locks/pins, stale-source and checkpoint checks remain. Limits
+are 1536² analysis pixels / 4,096 input paths and physical components / 128
+fields / 6,000 output nodes / four parent edits. Cancellation or a discovery
+limit publishes no partial field edit. At most two valid core proposals seed
+the offline composition pool; production scheduling and settings stay fixed.
+
+The conservative sword replaces **122 faint paths with 29 source fields**;
+six other components retain their original paths because maximum-alpha flat
+paint would be excessive. Every independent source component remains in the
+evidence ledger. **171 undeclared paths**, including every main material and
+all **32 editable stroke contours**, retain exact geometry, paint and ownership.
+The source atom ledger is unchanged at **54 entries / 120 children / 984 runs**.
+
+| Sword metric | Carrier parent | Connected opacity fields |
+| --- | ---: | ---: |
+| Nodes / contours / stroke contours | 1,973 / 329 / 32 | **1,631 / 237 / 32** |
+| Human MSE | 526.351791 | 526.356708 |
+| Handle MSE | 938.812864 | 938.812864 |
+| Tip / facet MSE | 731.541764 / 254.562171 | 731.546657 / 254.568358 |
+| Guard / jewel MSE | 1,111.202180 / 1,204.357647 | 1,111.202897 / 1,204.365684 |
+
+This saves **17.3% of nodes and 28.0% of contours** at effectively unchanged
+visual error. It is a representation gain, **not a handle or overall fidelity
+improvement**. Native alpha changes at 300 pixels, by at most 2/255; the minimum
+retained mass across the native policy's protected components is 98.51%.
+Native validity is not exact source-alpha equality. Fixed source diagnostics
+stay at 835 missing of 6,320 samples (13.21%) and five of seven inspected source
+gaps covered; the known source-line/gap failures remain. All four tuning families
+offer no additional opacity field and retain exact geometry/paint, saved/fresh
+RGBA and metrics. The residual weak representation still has **776 nodes / 162
+contours**, leaving a structural floor above the contour gate before the main
+materials and ink. Do not discard tiny marks or relax the coverage rules merely
+to pass counts. More expressive source-supported coverage models, faithful
+wrap junctions/missing chains and coherent regional facets remain necessary.
+
+Frozen source SHA-256:
+`6d02b3e28638d8b5b5d97a1de025cbd88069da44bb1222710b224d40ed151001`.
+Artifacts `.bench/cel-connected-opacity-fields` contain **20 complete matched
+reports / 38 native-valid proposals / 38 independent source-graph validations**,
+including one sealed field composition. Driver `9bcb9a4e...`, expanded matrix
+`0f04ac7f...`, and independent audit `7075e225...` reproduce artifact/source/
+mask/target/settings/normalizer identities, exact controls, source atom and
+ownership roundtrips, unchanged undeclared paint, native/component seals,
+local/full agreement, saved-project reload and own/fixed-bank diagnostics.
+Maximum local/full term difference remains 3.37757969e-9. The broad relevant
+suite passes **1,208 cases in 197.94 seconds**; the focused field/component/CLI
+suite passes 70 in 1.82 seconds. Ruff/import/format/whitespace checks pass;
+production Pyrefly reports zero errors and 62 existing warnings. Thirty-one
+additional cases cover gaps, holes, tiny marks, protected/incomplete ownership,
+split lineage, mixed-component atoms, namespace mismatch, excessive alpha,
+intentional faint opacity-step rejection, unchanged nested dependencies and
+rejection of their mutations, bounds/cancellation and explicit CLI delivery.
+Timings overlap regression work; no selected-operation runtime/memory gain is
+claimed. The 800 / 140 / 497.39 gate and all eight deliveries remain open.
+Generated references remain deferred; human repair is evaluation only.
+
+Prototype artifacts `.bench/cel-opacity-fringe-probe` and
+`.bench/cel-opacity-fringe-probe-v2` confirm the main-underpaint exclusion.
+`.bench/cel-connected-opacity-fields-probe` (driver `af85db9c...`, base
+`6c2b1222...`) explores exact and source-clipped contour fits without an edit
+seal. Exact contours give 1,631 / 237; 0.25/0.5 fits save only nine further nodes.
+A one-pixel fit fails native faint-component retention. These unsealed probes
+are diagnostic only; the final implementation uses exact source contours and
+normal sealed/native validation. An early synthetic large faint-opacity step
+also correctly fails native opacity-excess checks and remains a regression.
+
+### Source ridge eligibility and the retained-opacity floor
+
+Carrier-conditioned profiling now identifies the contiguous raw source ridge
+before multiplying by the replaceable carrier coverage. Previously, a darkest
+sample outside the carrier could make the entire ridge disappear, including
+its valid inner body. Source alpha normalization, raw support/gap evidence,
+paint and original ends remain; separate marks cannot lend width across a
+source gap. Nine controls at full/half/quarter opacity demonstrate the rejected
+valid body, its exact native footprint recovery, and rejection of a separate
+eligible mark. This corrects a real fitting defect, **without improving the
+current tuning artwork**.
+
+The frozen source at the ridge-only checkpoint is
+`6c2b1222381c5f9b8de5cbb81153c49b77e0db8a759ba435a154b0b405822824`.
+All **15 matched reports complete**, with **28 native-valid proposals and 28
+independent source-graph validations**, in `.bench/cel-source-ridge-eligibility-v2`.
+Driver `1306e84c...` and independent audit `9100ff76...` reproduce artifact,
+source/mask/settings/target/normalizer identities, fixed/own-bank diagnostics,
+ownership, seals, normal resource limits, native RGBA and project reloads.
+All rendered pixels and native/quality/line metrics equal the preceding carrier
+checkpoint. Default/source geometry and all four tuning-family geometries are
+exact. Two carrier-fitted sword paths have floating coordinate differences of
+at most **9.493e-9 native pixels**; their commands, paints, widths and endpoints
+remain the same. The first audit's exact canonical-geometry assertion therefore
+fails for that sword, before the final audit measures this difference explicitly.
+It supplies no exact-geometry claim. Maximum local/full term difference remains
+3.37757969e-9. The relevant suite passes **1,177 cases in 194.38 seconds**;
+Ruff/import/format/whitespace checks pass and production Pyrefly reports zero
+errors and 62 existing warnings. No defaults or native admission limits change.
+
+Retained-owner attribution changes the next quality priority. The core consumes
+1,403 paint paths, but **254 paths / 1,118 nodes / 254 contours** belong to a
+different paint parent and survive every current core proposal. Their intrinsic
+fill alpha is 1–7/255 (170 at one byte, 60 at two, 14 at three, and ten at four
+through seven). These retained paths alone exceed both the 800-node and
+140-contour targets. Another constrained base contributes 30 nodes. Further
+core stroke/material tuning cannot overcome that fixed floor. Source opacity
+contains 136 physical connected components, including 110 smaller than four
+pixels (166 pixels total); this is **not permission to discard them**. The 25
+independent faint supports from the native admission audit must still retain
+their own coverage. Next offer compact source-supported fringe/opacity models
+across the current paint scopes, preserving independent marks and source gaps,
+and region-guided material boundaries instead of unconstrained global planes.
+
+Source-only feasibility diagnostics also narrow the search. At the preceding
+source `1fe293e5...`, separately fitted connected pieces can recover three of
+eight failed complete chains; shared-anchor pieces recover two. Neither recovers
+the missing handle exterior chains. Joining the pieces as one genuinely
+continuous stroke recovers only one extra outer-guard body, but its changed
+grouping exceeds the unchanged atom budget and emits **no sword proposal**.
+The joined driver's initial alias collision is a failed, separately retained
+run; only the corrected terminal run supplies these counts. These experiments
+are not production operators and do not waive caps, paint/width compatibility,
+original endpoints, exact footprint proof or real gaps.
+
+Combining fitted/carrier ink with existing global material planes emits a valid
+coarse sword at normal limits (**1,419 nodes / 298 contours / MSE 3,208.11**).
+Its later prefixes exceed atom limits. A separately labelled capacity diagnosis
+at `7ff0ba93...` temporarily uses 256 entries / 512 children, solely to inspect
+later prefixes: even 24 material planes yield **1,676 / 327 / MSE 1,133.84**,
+and 32 planes exceed 512 children. All other limits and full native policy stay
+fixed; the temporary caps are restored before final verification. All five
+tuning reports complete with 87 proposal/graph validations **under those
+temporary caps**, explicitly `production=false, release_evidence=false`.
+More global planes or larger caps do not supply the coherent material grammar
+the quality goal needs. Human scoring happens only after generation. No held-out
+families, human repair geometry or new references tune these diagnostics.
+
+Artifacts: `.bench/cel-source-piece-fit-probe` (driver `6264fe4a...`),
+`.bench/cel-source-piece-fit-probe-v2` (`67e9010d...`),
+`.bench/cel-source-joined-fit-probe` (`c4c77671...`),
+`.bench/cel-fitted-carrier-planes-probe` (`af27db3f...`) and
+`.bench/cel-fitted-carrier-planes-capacity-diagnosis` (`fa32c0d7...`). The fixed
+profile loss audit locates most missing positive samples on exterior handle,
+pommel and guard chains; wrap junction errors remain independently visible.
+The 800 / 140 / 497.39 gate, source/feature/coverage fidelity, common-frontier
+selection and runtime/memory requirements remain open. All eight deliveries
+remain open and generated references stay deferred.
+
+### Complete source-ended carrier fitting and direct atom partitions
+
+The latest experiment separates a physical fit failure from ledger exhaustion.
+`CoreCells(..., ink_fit="carrier")`, exposed only by the offline benchmark's
+`--ink-fit carrier`, first tries the existing measured source profile at a
+0.25-pixel fit tolerance, then its original source skeleton at the same width
+and paint. If neither fits, it measures the actual source ridge inside the
+existing vector carrier's raster coverage. Positive contrast and gap support
+still come from the full raw source; carrier coverage cannot invent evidence.
+Source alpha stays relative to the local opacity plateau. Original endpoints
+and measured paint are retained. The conditional centroid has a width-based
+movement limit capped at two native pixels; a carrier containing less than the
+existing minimum measurable ridge width cannot supply an artificial body.
+Every complete round/butt alternative requires the existing exact vector
+footprint proof. Explicit requested widths and strict short-link caps are never
+changed. Failed alternatives retain the previous result.
+
+One lazily cached float32 carrier mask uses the cropped analysis frame and
+native pixel phase, including anisotropic scale, fractional offsets and the
+actual nonzero/evenodd fill rule. Limits remain 1536² analysis pixels, 16 MiB
+mask storage, the existing bounded tile size/count, and cancellation before and
+after each render. A cancelled mask or discovery is never published. The sword
+mask is 4,414,640 bytes in five tiles. This is a bounded mask charge, **not** a
+process-memory release measurement.
+
+Recovered strokes still could not be exported through the binary source atom
+ledger. Its 32-cell hypothesis needs 66 binary cuts, exceeding the 64-entry
+limit, including 12 intermediate children with no final owner. Direct multiway
+RLE partitions retire each mixed parent once and omit those intermediate
+children. The final sword uses **54 entries / 120 allocated children / 984 RLE
+runs / 33 exported cells**, within the unchanged **64 / 128 / 16,384 / 64**
+limits. One largest child per parent is implicit; all other children have
+sorted, disjoint exact source runs. Replay verifies full parent area, actual
+pixel ownership, original protected roots and immutable lineage. Subsequent
+binary or multiway edits and secondary coverage follow the same namespace.
+Legacy binary metadata/key identities remain version 1; mixed multiway ledgers
+use version 2. Default fitting and partition construction remain unchanged.
+
+Six original-ended chains are recovered: two by precise fitting, two by
+original source centres and two by carrier-conditioned source width. Four are
+handle exterior chains and two are guard chains. The two conditional widths
+change from 1.989953 to 1.701810 and 2.534634 to 2.160394; all six source paints
+and original ends remain. Exported grouped styles and ownership change:
+**27 becomes 32 stroke contours**, with seven newly emitted anchor pairs and
+two former short junction-link pairs gone. The lower-handle contour lost at the
+previous checkpoint returns. This does not claim exact retention of all old
+styles or wrap junctions. Human repair geometry never enters generation.
+
+| Sword metric | Previous fitted/fractional | Carrier competitor |
+| --- | ---: | ---: |
+| Nodes / contours / stroke contours | 1,927 / 323 / 27 | 1,973 / 329 / 32 |
+| Human MSE | 544.625973 | 526.351791 |
+| Tip / facet MSE | 855.996613 / 269.319828 | 731.541764 / 254.562171 |
+| Guard / handle / jewel MSE | 1,090.901502 / 939.946427 / 1,208.915491 | 1,111.202180 / 938.812864 / 1,204.357647 |
+| Missing fixed-bank samples, of 6,320 | 1,170 (18.51%) | 835 (13.21%) |
+
+The fixed bank remains `863b40e586fb666fd291b1d98dbec8e5090e68b05dd847598463a20c6f4dc2c4`.
+The detailed connected control still misses only 116 samples (1.84%). Both
+fitted competitors cover five of seven proved inspected source gap positions,
+versus the initializer's three. The new competitor has 16 fixed-bank diagnostic
+reasons, down from 19; these are uncalibrated inspected profiles, not global
+line recall or a release pass. All 43 original measured chain descriptors stay
+exact; two old short-link descriptors disappear when complete incident chains
+are recovered. Their disappearance does not change the frozen evaluation bank.
+The handle crop still has incorrect wrap junction shapes and missing lower
+segments. Guard error worsens. Counts and MSE remain above 800 / 140 / 497.39,
+and error is still worse than the initializer's 512.807919. Reference collection,
+automatic scheduling/default migration and all eight deliveries remain open.
+Next recover source-faithful wrap junctions and missing measured chains, retain
+real gaps through material reconstruction, and build coherent compact facets
+and supported opacity. Ranking cannot repair the missing alternatives.
+
+Source SHA-256 at this carrier checkpoint is
+`1fe293e547c261631dde9c01cc64a3394233c777f0a4c6dc74712128f17e94dc`.
+Artifacts are `.bench/cel-source-carrier-fit`; the matrix driver is
+`7e23dd3d0ae9382d8045b204bcdeea1bfd71c516cc378392d7316ea55875ffea`
+and expanded matrix `1a3510ee...`. All **15 matched reports complete**, with
+**28 native-valid proposals and 28 independent source-graph validations** under
+the same 180-second sword / 60-second paired allowances. Independent audit
+`0ffa7bdaa384ccdcc88d500854a962f9ae541964964d9a95f4878b8568b796f5`
+reproduces finite JSON, artifact hashes, source/mask/target/settings/normalizer
+identities, reported own-bank diagnostics, fixed-bank metrics, native reload,
+complete ownership, seals and local/full agreement (maximum 3.37757969e-9).
+Default/source controls and all four paired families retain exact geometry,
+paint, saved/fresh RGBA and metrics. Multiway IDs and their actual gradient
+paint-owner references are normalized together for comparison. The new sword
+exactly reproduces the separately labelled capacity diagnosis's geometry and
+fresh RGBA, now validated at the original production limits.
+
+Native validity does not imply exact alpha retention against the initializer.
+The existing connected coarse sword already differs at 2,506 alpha pixels. The
+new sword differs from its preceding fitted control at 2,948 alpha pixels,
+maximum 0.517647, and from the initializer at 3,894 pixels. The unchanged native
+hard policy passes, but calibrated source/feature/coverage requirements remain
+open. An initial audit incorrectly assumed exact initializer-alpha equality;
+another omitted plain gradient paint-owner identity normalization. Both fail
+before the final complete audit. They supply no completed audit claim and do
+not change algorithm or admission limits.
+
+The relevant regression suite passes **1,168 cases in 189.23 seconds**. Sixty-four
+added cases cover direct capacity at unchanged limits, legacy and mixed metadata,
+complete source replay, successive binary/multiway lineage, secondary coverage,
+sibling isolation, source stealing/overlap/area rejection, bounds/cancellation,
+native-phase carrier masks/holes, source paint/end retention, explicit width/cap
+protection, minimum measured coverage, true gaps/shading, invalid mask values,
+mixed-owner native edits/reload across both fitting/coverage/role/grouping modes,
+and CLI/layout delivery/rejection. The focused files pass 130 cases in 12.61
+seconds. Ruff/import/format and whitespace checks pass; production Pyrefly has
+zero errors and 62 existing warnings. Timings overlap regression work; no speedup,
+selected-operation gain or process-runtime/memory release pass is claimed.
+
+Source-only precursor diagnostics at base `1cc7ccbb...` are distinct from the
+final implementation: `.bench/cel-source-carrier-width-diagnosis` identifies
+four same-width feasible complete chains (driver `807e9152...`);
+`.bench/cel-carrier-profile-ink-probe` recovers six but cannot emit the sword at
+normal binary limits (driver `f36edf8b...`, expanded profile `1080f10f...`);
+`.bench/cel-carrier-profile-ink-budget-probe` tries material prefixes
+8/16/24/32/48/64 and emits no sword (driver `6250f8ca...`);
+`.bench/cel-carrier-profile-ink-capacity-diagnosis` temporarily allows 96 binary
+entries solely to diagnose the 66-cut/54-parent/120-child representation (driver
+`95dc0e91...`, explicitly `release_evidence=false`). That temporary cap is restored
+before any production edits. Only the final direct ledger provides evidence at
+normal limits. No held-out families or human geometry tune these hypotheses.
+
+The complete checkpoint can be reproduced with the following commands; `.bench`
+and `/tmp` drivers are local diagnostic artifacts rather than committed inputs:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python /tmp/vectrify-carrier-fit-matrix.py
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python /tmp/vectrify-carrier-fit-audit-v2.py
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest tests/refine/test_cel*.py tests/operations/test_cel_planned.py tests/test_bench_cel_planned.py tests/test_bench_cel_component.py tests/test_cel_pairs.py tests/test_bench_cel_pairs.py tests/test_audit_cel_admission.py tests/document/test_lines.py -q
+```
+
+### Fractional source stroke coverage and source-line diagnostics (previous checkpoint)
+
+The width/centroid profile previously integrated binary visible support. A
+source fringe with only 20% opacity could count as a full dark pixel, pushing
+an exterior stroke outward and overestimating its width. A competing profile
+integrates actual alpha relative to the highest painted opacity in that local
+profile. Uniform full/half/quarter opacity keeps intrinsic width and centroid;
+transparent RGB cannot contribute contrast. Alpha uses the **cropped analysis
+frame**, while exported anchors and source-line observations use native
+coordinates. This is `CoreCells(..., ink_coverage="fractional")`, exposed only
+as the offline benchmark's `--ink-coverage fractional`. The default is
+`"visible"`; production scheduling, UI settings and legacy CEL are unchanged.
+
+Complete source anchors, measured source paint, explicit width overrides,
+strict raw-source short-link checks and the existing carrier/ownership/resource
+proofs remain in force. Fractional coverage changes a physical hypothesis,
+not its admission allowances. It applies to original chains and remeasured
+contact pieces. An uncertain dark remainder still competes under the chosen
+connected/fitted role interpretation. No human repair supplies a line or a gap.
+
+The nominal 32-cell fitted-role sword changes from 2,355 nodes / 325 contours /
+25 strokes / human MSE 570.394090 to **1,927 / 323 / 27 / 544.625973**. Three
+source-ended contours appear: left handle `(331.5, 1732.5)` to
+`(331.5, 1754.5)`, right handle `(392.5, 1879.5)` to `(392.5, 1908.5)`, and guard
+`(286.5, 1585.5)` to `(306.5, 1585.5)`. The former lower-handle contour
+`(334.5, 1909.5)` to `(374.5, 1909.5)` is no longer emitted. Compatible grouping
+changes widths/paints, so this is **not** an exact retention of the preceding
+25 stroke styles. All four paired tuning families reproduce their earlier
+fitted-role geometry, renders and metrics exactly.
+
+Overall sword error improves, but handle error worsens from 922.763836 to
+939.946427; guard error worsens from 1,071.804846 to 1,090.901502 and jewel from
+1,176.831393 to 1,208.915491. Tip error improves from 1,027.196206 to 855.996613
+and blade facets from 302.321565 to 269.319828. The handle comparison still
+shows missing exterior segments and broken wraps. Structure/error now fall
+below the legacy numerical counts/error, but the feature and source-fidelity
+requirements do not pass. The balanced 800-node / 140-contour / 497.39-MSE gate
+and selected-operation/runtime requirements remain open. This is an available
+experimental interpretation, not a release-quality or automatically selected
+result; it remains worse in human error than the initializer's 512.807919.
+
+Native alpha/topology/ownership validity was insufficient to detect missing
+ink or a dark material model covering a source gap. `line_fidelity.py` now
+provides a bounded, immutable, source-only diagnostic bank from all measured
+source troughs, including supported chains which cannot pass stroke export.
+Discovery publishes the bank only when that discovery completes. Descriptors
+copy native centres, original directions, matching windows and component
+identity; observing them cannot mutate source proofs or generated models.
+The offline flag is `--source-line-diagnostics` and requires direct connected
+dynamic material regions. Diagnostics run **after generation** and never filter
+or rank the current candidate pool.
+
+Native profiles are densified to at most half-pixel spacing. Raw painted RGB
+and alpha establish positive trough support; unpainted RGB cannot establish
+contrast. Matching allows bounded normal displacement. Negative bright or
+transparent intervals need source ink on both ends and absence throughout
+that same normal matching window. This latter check prevents an antialiased
+line just beside a bright measured centre from becoming a false gap. A
+regression first reproduces that erroneous gap-completion rejection, then
+accepts the legitimate one-pixel displacement. Distinct facing source
+components can supply bounded endpoint-gap observations; these observations
+**never generate a connection**. A same-component branch is not presumed to
+be an inter-component gap.
+
+The version-2 diagnostic establishes one immutable initializer allowance per
+profile, detects additional missing samples/long missing spans and new gap
+completion, and reports each reason separately from native validity. The
+engineering margins are uncalibrated: `calibrated_release_gate` is always
+false. It inspects measured source troughs, not global line recall. Incomplete
+source discovery, already deficient baseline lines/gaps, unsupported isolated
+marks and missing feature calibration remain explicit limitations. Work is
+bounded to 512 original profiles, 131,072 sampled positions and 128 endpoint
+gap profiles; exhausted resources/cancellation never publish a partial score.
+
+One **fixed pre-fractional source bank** checks all three interpretations,
+without allowing changed width/centroid profiles to redefine success:
+
+| Sword row | Missing inspected source samples (of 6,320) | Missing share |
+| --- | --- | --- |
+| Initializer | 118 | 1.87% |
+| Connected higher-detail control | 116 | 1.84% |
+| Fitted roles, visible coverage | 1,319 | 20.87% |
+| Fitted roles, fractional coverage | 1,170 | 18.51% |
+
+These include failed-export source lines and are **diagnostic profile samples,
+not global line recall or a passed fidelity gate**. Fractional coverage helps
+some source ink but loses much more than the detailed control. Remaining source
+line loss, real gap completion and local feature regressions must be corrected
+before automatic scheduling; a learned ranker cannot repair missing faithful
+alternatives. Coherent compact facets/opacity and a shared cost frontier are
+still required. All eight deliveries stay open, and reference collection stays
+deferred. Human repair geometry remains solely evaluation context.
+
+An earlier source-anchor fallback at base `4e17cef...` tried original-ended
+source centre paths at the same measured width/paint with complete round/butt
+carrier proof. It recovers **zero** chains across five complete reports and
+nine native/source-graph-valid proposals. Independent auditing proves exact
+unchanged geometry, saved/fresh native RGBA and metrics. Driver identity is
+`a0231b388dd1de48d935551af6421cd8c2166670a61c58ecd534f27ccaedbeae`;
+artifacts are `.bench/cel-source-anchor-carrier-probe`. This does not justify
+an anchor or containment relaxation. A prior instrumentation attempt fails
+before emitting a candidate and is preserved separately.
+
+The first source profile diagnosis reproduced 43 historical measured source
+centres against the same native source and found 449 missing samples among
+2,284 source-qualified sparse positions for compact fitted roles (19.66%),
+versus 37 (1.62%) for the detailed control. The new complete diagnostic bank
+supersedes that sparse comparison; historical source geometry never supplied
+new generated candidates. Artifacts are
+`.bench/cel-source-profile-fidelity-diagnosis` with their own driver identity.
+
+The fractional prototype is separately identified at
+`.bench/cel-fractional-ink-width-probe`, base source `1cf2f704...`, driver
+`211a7cf8b9a2d321e574eb95089bb6eac5b7f47d560b8c31ee40eb7219347c10`,
+expanded profile `21d2573b...` and expanded matrix `364cceae...`. An initial
+incorrect native/analysis-alpha instrumentation attempt was cancelled before
+any completed report and moved to a discarded-instrumentation directory;
+no measurements or timings from it are used. The corrected prototype completes
+all five cases and nine independent source-graph checks. A subsequent final
+implementation reproduces it rather than attributing a monkeypatch to a base
+production revision.
+
+That checkpoint source SHA-256 is
+`1cc7ccbb62955fe8a06ef66b3124c24e6a59f45409b9b7617cfa6f243e7c24ab`.
+Artifacts are `.bench/cel-source-line-coverage-v2`. All **15 matched reports
+complete**, with **28 native-valid proposals and 28 independent source-graph
+validations**, under unchanged 180-second sword and 60-second paired
+allowances. Strict finite JSON, SVG hashes, source RGBA/masks/settings/
+normalizers/targets and reported source-line metrics independently reproduce.
+Connected and fitted visible-coverage drawings exactly match the preceding
+checkpoint; the fractional implementation exactly matches the separately
+identified prototype. Canonical geometry/paint, saved RGBA, fresh unquantized
+native RGBA and all quality/native metrics agree. Maximum local/full score-term
+difference is 3.37757969e-9. The fixed source bank SHA-256 is
+`863b40e586fb666fd291b1d98dbec8e5090e68b05dd847598463a20c6f4dc2c4`. Version-2 gap sampling leaves seven proved inspected sword
+gap positions: the initializer covers three, the detailed control four, and
+both fitted-role competitors five. Additional missing-line/span/gap diagnostics
+still reject each competitor; these diagnostics do not change native admission.
+
+The relevant suite passes **1,104 cases in 425.93 seconds**. Fifty-one added
+cases cover fractional exterior coverage at full/half/quarter opacity,
+unchanged source ends/paint, true gaps and invisible RGB; finite frame/opacity
+bounds; native mixed-owner edits under both coverage/role/grouping choices;
+explicit layout/CLI delivery/rejection; immutable anisotropic native profiles;
+failed-export source evidence; whole-bank cancellation; long line loss, dark
+floods, genuine bright/transparent gaps and corrected nearby-ink gap semantics.
+The final diagnostic/coverage/CLI focused files pass **44 cases in 1.65 seconds**.
+Ruff/import/format and whitespace checks pass; production Pyrefly reports zero
+errors and 62 warnings. Earlier version-1 diagnostics and the 1,103-test
+pre-correction run remain evidence only for source `63970ad3...`, not current
+version-2 gap metrics. Existing composed/plane matrices remain evidence for
+their earlier revisions and were not rerun for this direct coverage experiment.
+Timings overlap other CPU-heavy builds and regression work, so no speedup or
+runtime/memory release pass is claimed. All eight deliveries remain open.
+
+
+### Ink versus material interpretation competitor
+
+A source-only ablation separates physical stroke discovery from interpretation
+of the remaining dark source. Connected ink currently assigns 18,193 sword
+pixels to ink roles; the complete discovered stroke bodies cover 3,218 of those
+pixels. This does **not** prove the remainder is noise: it includes unfitted
+lines, shading and texture. Keeping all of it in ink roles nevertheless consumes
+material budget and leaves fragmented filled outlines. A competing interpretation
+assigns only proved stroke-body pixels to ink and lets the uncertain remainder
+compete as material/shading with the existing flat/linear paint model.
+
+This is implemented as `CoreCells(..., ink_roles="fitted")` and the offline
+component benchmark's `--ink-roles fitted`. It requires connected dynamic joint
+material regions. The existing connected interpretation remains the default;
+production scheduling and user settings do not select the competitor. Physical
+chains are discovered **once on the same complete original source mask and
+carrier**, with unchanged spur, contact, width/paint and resource checks. The
+smaller role mask never supplies physical endpoints or a second extraction.
+Final ownership still retains or excludes whole physical chains; retained owner
+remainders preserve their original geometry and paint. Role/cancellation
+metadata is explicit. No human repair geometry participates in generation.
+
+The candidate compacts much more than the short-link correction. Matched direct
+comparisons at `.bench/cel-fitted-ink-role-competitor` give:
+
+| Case | Connected higher-detail nodes / contours / MSE / line F1 | Fitted-role highest emitted nodes / contours / MSE / line F1 |
+| --- | --- | --- |
+| Sword | 6,440 / 765 / 537.313158 / unavailable | **2,355 / 325 / 570.394090 / unavailable** |
+| Girl | 1,047 / 135 / 96.364404 / 0.097 | 596 / 72 / 84.204501 / 0.096 |
+| Face | 1,935 / 220 / 104.787607 / 0.447 | 871 / 92 / 87.663099 / 0.485 |
+| Park | 1,297 / 131 / 123.332849 / 0.161 | 778 / 78 / 123.913194 / 0.201 |
+| Band | 1,442 / 165 / 357.774914 / 0.712 | 856 / 94 / 97.728911 / 0.714 |
+
+These are emitted interpretations, not selected-operation results or a
+same-complexity claim. Paired rows use nominal 64-cell material budgets. The
+sword emits only its nominal 32-cell competitor: 35 final native cells and 41
+source cuts. Its 64-cell attempt reaches 66 final cells and is correctly
+excluded under the unchanged limit. At the same nominal 32-cell budget, the
+connected control has 4,387 nodes / 457 contours / MSE 1,438.921508. Each actual
+representation still needs comparison on the shared cost frontier.
+
+All **25 sword editable source contours have exactly unchanged geometry, paint,
+width, cap and join** between role interpretations. The jagged filled remnants
+are substantially reduced, but the handle remains incomplete. Human handle
+error rises from 840.085571 to 922.763836; blade-facet error rises from 260.028324
+to 302.321565. Guard error improves from 1,158.873929 to 1,071.804846, and jewel
+error improves from 1,323.955057 to 1,176.831393. Girl bow and several park
+features also regress. Native validity does not establish line/feature fidelity.
+All paired results remain worse than their initializer in clean paint and line
+quality. This adds a useful compact competitor with mixed fidelity, **not a
+passed sword or broader release gate**. Existing source gaps and the human
+repair remain separate; missing/unsupported-line guards must precede automatic
+scheduling. Coherent facets, source width/paint construction, compact supported
+opacity models and the common complexity frontier remain necessary.
+
+Two additional source-only interpretations were tried before implementation.
+Retaining every local painted-side ridge creates too many mixed owner cuts:
+four cases emit no candidate under existing ownership limits; girl emits two.
+Protecting the complete existing owner touched by an unmodeled ridge emits
+nothing for sword and two candidates for each paired case. These cannot solve
+the sword's faithful compact representation. Neither interpretation nor a
+raised ownership limit is adopted. Their base source hash is
+`87c70d698fe207de21d3eb4e18475161dfe96e30f45db4e9b194781283815e03`;
+artifacts record separate driver identities so temporary monkeypatches cannot
+be mistaken for that production revision. The body-only prototype is at
+`.bench/cel-supported-ink-role-ablation` (driver
+`e5bcebd5bf711f0dc78ab12b286e7422435e70adc343ae41052c2b2296e83e1f`),
+local-ridge prototype at `.bench/cel-ridge-supported-ink-role-ablation` (driver
+`f8bde750e5b72b25285467f8d6d60742d1b4125d11ed7eedf5a6b06dba840ae4`),
+and owner-ridge prototype at `.bench/cel-owner-ridge-ink-role-ablation` (driver
+`c787d92715cf450d5d327781929d0eedc691260fd471ae455e3e20922d59bd8d`).
+All fifteen prototype reports complete. Their 9/2/8 emitted proposals pass
+native admission, source-graph validation, ownership, component seals and
+local/full agreement; inputs and initializers match exactly. Ridge wrappers
+also record the hash of their expanded program separately.
+
+The preceding fitted-role checkpoint source SHA-256 is
+`4e17cef70003d78784bb040eeca7396940327c1d53831dd93f34b9f8a35a7eac`.
+All ten current connected/fitted reports complete under the unchanged sword
+180-second and paired 60-second allowances, with **19 native-valid proposals
+and 19 independent source-graph validations**. Strict finite JSON, SVG hashes,
+source RGBA/masks/settings/normalizers and evaluation targets pass. Connected
+results exactly match the preceding checkpoint; fitted results exactly match
+the body-only prototype in canonical geometry/paint, saved RGBA, fresh
+unquantized native RGBA and all quality metrics. Maximum local/full score-term
+difference is 3.37757969e-9. The prior composed/plane matrix remains evidence for
+its earlier source hash; it was not repeated for this explicit direct-region
+competitor. Timings overlap regression work and other CPU-heavy builds, so no
+speedup or runtime gate is claimed.
+
+That fitted-role checkpoint suite passes **1,053 cases in 338.13 seconds**. Seventeen
+added cases extend native mixed-owner controls to the fitted role interpretation
+across true gaps, half/quarter opacity and Ward/paint-fit grouping; establish
+identical complete chain discovery exactly once; discard cancellation before
+classification; reject inapplicable layouts; and verify offline CLI delivery
+and early rejection. The final focused files pass 32 cases in 5.38 seconds.
+Ruff/import/format and whitespace checks pass; production Pyrefly reports zero
+errors and 62 warnings. All eight deliveries remain open, reference collection
+stays deferred, and calibration/ML cannot substitute for faithful alternatives.
+
+### Supported short source junction links (previous checkpoint)
+
+Short physical runs can now become editable links when their exact existing
+ends meet two distinct retained source chains with compatible width and paint.
+This uses the original source skeleton and component identity; nearby endpoints
+are never joined. Every original interval is sampled at no more than half-pixel
+spacing. Raw painted source must agree with the established ink paint at every
+sample. Outside the actual incident stroke bodies, both raw and ordinary
+profile contrast must prove ink. Smoothing, transparent RGB and the human
+redraw cannot authorize a missing interval. Original ends, cap, paint and width
+remain fixed; the complete stroke body must pass the existing carrier proof.
+Accepted links do not change incident chains or authorize further links.
+Unsupported runs keep their filled interpretation. Link profiles share the
+unchanged 128-run / 16,384-point budget. Held ownership excludes a whole link,
+without trimming it or discarding independent incident chains.
+
+Fourteen added controls cover connected junctions at full/half/quarter opacity,
+real source gaps, incompatible paints, sparse endpoints, raw bright/transparent
+gaps despite smoothed or incident-body support, short trough versus shade,
+exhausted resources, unchanged original styles/chains, cancellation, held links
+and native joint editing with exact alpha, ownership, local/full agreement and
+reload. The relevant suite passes **1,036 cases in 380.22 seconds**; the final
+new file passes 14 cases in 29.71 seconds. Ruff/import/format and whitespace
+checks pass; production Pyrefly reports zero errors and 62 warnings.
+
+Source SHA-256 is
+`87c70d698fe207de21d3eb4e18475161dfe96e30f45db4e9b194781283815e03`.
+Artifacts are at `.bench/cel-source-junction-links`. All five direct controls
+complete, with ten native-valid proposals and ten independent source-graph
+validation reruns. Current/rerun drawings match canonical geometry/paint, saved
+RGBA and fresh unquantized native RGBA. The four paired drawings and all five
+initializers also match the preceding checkpoint exactly, including metrics.
+Maximum direct score-term difference is 3.0278022e-9. Generation remains
+source-only; human/clean geometry is used after discovery for evaluation.
+
+The direct sword adds one existing six-pixel handle junction:
+`M344.5 1861.5 L350.5 1861.5`, paint `#1d120e`, width 1.7660659551620483.
+All previous editable stroke contours and five style widths are unchanged.
+Its finer result moves from 6,430 nodes / 762 contours / 24 strokes / human MSE
+537.496619 to **6,440 / 765 / 25 / 537.313158**. Human handle error moves from
+841.100038 to 840.085571. The coarser handle error worsens slightly. This is a
+specific continuity fix with a tiny overall gain and more structure, **not a
+practical quality improvement**. Missing exterior segments, filled remnants,
+coherent surfaces and compact opacity remain unresolved.
+
+The fifteen composed region/plane reports were repeated under unchanged
+180/60-second allowances. Three initial band modes reached the deadline;
+one same-allowance retry completes curve/anchored, while ink-planes remains
+interrupted. Keeping complete retries and the original partial plane report
+provides **14 complete and one interrupted matrix report**, with 127 emitted
+proposals. Together with the direct controls, 137 proposals pass native
+admission, complete ownership, component seals and independent local/full
+agreement; maximum score-term difference is 3.36530694e-9. Strict finite JSON,
+saved SVG hashes and matched source RGBA/masks/settings/normalizers/targets
+pass. Across modes, corresponding source parents match canonical geometry/paint
+and exact saved RGBA. The composed finer anchored sword stays at 3,907 nodes /
+460 contours / 22 strokes / human MSE 551.316411: this factory offers no new
+short link on its existing discovery mask. Interrupted band pools cannot
+establish complete pool quality or runtime. Timings overlap other CPU-heavy
+builds and some regression work; no speedup or isolated runtime regression is
+claimed. All eight deliveries and release gates remain open. Reference
+collection remains deferred. Further isolated link improvements cannot close
+the main representation gap; the next diagnosis must address ink/material
+interpretation and coherent compact surfaces while preserving source lines.
+
+### Final combined source/material cell budgeting (previous checkpoint)
+
+Connected joint decoding now checks the exported-cell budget after assigning
+all compatible complete source styles. Hundreds of virtual ink roots can
+compact into a few native strokes; they no longer cause rejection before that
+classification. One style can also temporarily add a class before a later
+style retires shared roots. The complete result is checked before contours,
+paint, source cuts or export. Final results exceeding the unchanged 64-cell
+limit publish nothing. Working virtual indices use uint16, preventing roots
+above 255 from aliasing material IDs; final exported classes still use uint8.
+The existing 4,096-observation and 64-source-cut limits remain unchanged.
+
+Five added controls cover more than 256 roots compacting into nine final cells,
+both with and without a real source gap, two distinct styles fitting only after
+complete classification, over-budget atomic rejection and cancellation without
+publishing a prefix. Native ownership/component, alpha, local/full and reload
+checks apply. The two-style fixture deliberately uses the explicit width
+override to isolate classification from source width fitting. Source-edge/cap
+antialias differences remain a separate fidelity problem. The final five-case
+file passes in 2.47 seconds; the full relevant suite passes **1,022 cases in
+202.65 seconds**. Ruff/import/format and whitespace checks pass. Production
+Pyrefly reports zero errors (62 warnings).
+
+Source hash is
+`88c15326f08c52708f54d77b20919de8587e1cef87c1b35b3baa19dc496d000e`.
+The five direct joint reports and five separate source-graph validation reruns
+at `.bench/cel-final-class-budget` complete under the same 180/60-second
+allowances. All ten proposals pass native admission, complete ownership,
+component seals and independent local/full raster agreement; maximum score-term
+difference is 3.027803e-9. Strict finite JSON and saved SVG hashes pass. Source
+RGBA/masks/settings/normalizers and evaluation targets match the previous
+checkpoint. All fifteen saved drawings, including initializers, match the
+previous direct controls and the graph reruns in canonical geometry/paint,
+saved RGBA and fresh unquantized native RGBA. Quality metrics are identical.
+These cases did not exercise the corrected class-count failure. This is a
+correctness checkpoint, **not a quality gain**. Generation times were measured
+alongside regression work and are not used for a speed comparison. The
+composed/plane matrix was not repeated: this change concerns the connected
+region branch, while composed regions use paired ink and plane layouts use
+their separate decoder. The previous matrix evidence remains tied to its
+previous source hash.
+
+The sword still fails every development quality gate, and the handle still has
+fragmented lines and filled remnants. No source endpoint or gap is changed to
+copy the human repair. Source width/paint, faithful junction connectivity,
+coherent materials and opacity, scheduling, corpus/UI and release work remain;
+all eight deliveries remain open and generated-reference collection stays
+deferred.
+
+A separate source-only construction audit records all 104 measured runs from
+the actual direct sword carrier mask, plus discovered/owned paths, at
+`joint-chain-diagnosis/chains.json`. Instrumentation produces the same direct
+drawings. Both material budgets retain every contour in all five discovered
+styles; complete-chain owner exclusion is not responsible for those missing
+handle connections. Several existing short junction links, including five-
+and six-pixel segments, fail the ordinary minimum-length profile check. Longer
+outer segments can pass the profile check yet remain absent from the discovered
+models. This narrows the next construction work; it does not establish a
+quality gain. Evaluate short existing junction links using both incident
+supported source chains and direct local contrast, without joining distinct
+endpoints or borrowing support across a real gap. Diagnose carrier/width
+failures separately and retain native coverage checks. The full-source probe at
+`.bench/cel-source-chain-diagnosis` has a different discovery mask and resource
+pool; its extra strokes are not evidence that they are safe native replacements.
+
+### Joint source roles and complete chain discovery
+
+Connected joint decoding now distinguishes ink/material observations within an
+existing SVG owner, rather than promoting its entire paint by a 60% ink vote.
+The immutable virtual indices preserve the original owner/atom namespace and
+use the existing 4,096-observation bound. Paint-fit statistics stream original
+source pixels with their actual atom feature weights and the unchanged
+coverage carrier's intrinsic RGB contract. No intermediate role cuts or
+replacement SVG are created. Final classes reach the existing multiway atom
+partition once; the 64 source-cut and 64 exported-cell limits remain unchanged.
+If any role piece has no final class, its whole current owner is retained with
+its original geometry and paint. Fixed, held and unsupported owners retain
+their existing exclusion rules.
+
+Physical source chains are discovered once on complete carrier ink before the
+material budgets, using the source factory's supported spur pruning and
+proved round/butt contact alternatives. Junctions, endpoints, real gaps and
+closure come from that source discovery. Per-contour ownership queries can
+retain independent complete chains of a common paint while excluding a chain
+that touches a held or retained owner. They use the actual stroke raster in
+the source frame; they never crop a chain into new budget-dependent endpoints.
+The subset retains native coordinates, paint, width and cap; the full carrier
+proof and native component/ownership/raster checks still apply.
+
+A valid source-fitted body can provide specific support for a tiny ink root at
+its endpoint. This permits the complete chain to survive the old 16-pixel
+material cutoff, while unsupported tiny roots and disconnected components
+retain their ordinary eligibility rules. Unmodeled small source marks stay
+filled rather than becoming invented editable connections. This is a bounded
+proposal eligibility change supported by the source primitive, not a waiver
+of alpha, geometry, mass, source-cut or native acceptance gates. Width/paint
+faithfulness and source-only missing/unsupported chain guards still need
+stronger evidence. The human sword's repaired connection supplies no discovery
+mask, endpoint, ownership class or acceptance threshold.
+
+Seventeen added controls cover mixed owners, immutable virtual classifications,
+real gaps, resource limits, mid-discovery/statistics cancellation, weighted
+statistics recomposing multiple original atoms, tiled/full sampling, Ward and
+paint-fit native edits at half/quarter opacity, exact alpha/holes, complete
+source ownership/components, local/full agreement and reload. A held pixel
+cannot split a physical chain; another independent chain remains editable.
+A separate small mark remains filled. Final-cut exhaustion leaves the original
+owner namespace intact. The relevant regression suite passes **1,017 cases in
+161.32 seconds**. The 176-case focused run and the 15-case final source-role
+file pass; the former precedes addition of the separate small-mark control.
+Changed-file Ruff/import/format and whitespace checks pass. Production Pyrefly
+reports zero errors (62 warnings). A subsequent function-docstring correction
+changes no executable behavior.
+
+The initial role-only control at `.bench/cel-source-role-probe`, source hash
+`e444b4fd89b1eb581576d9fc7908fac887bec89f94e4ae997834a8ebbbb1d92e`,
+changes no drawing in the five current cases. Their initializers have zero
+mixed owners. The mixed-owner controls demonstrate required behavior for
+later merged states; they do not explain those artwork regressions. The
+following final results also include complete-chain discovery/ownership and
+specific source-backed endpoint support.
+
+Final source hash is `a0ba4bf6fcd3ddb75a3a4269be259f3a402306d89ccad748651ef19ede94af4d`.
+At `.bench/cel-joint-source-roles-final`, all **20 isolated reports** complete:
+five direct joint controls and the 15 source-factory/material-layout runs.
+All **144 emitted proposals** have zero native rejections, complete ownership,
+component seals and independent local/full raster agreement. Maximum score-term
+difference is 3.365307e-9. Strict finite JSON and saved SVG hashes pass; source
+RGBA/masks/settings/normalizers and evaluation targets match. Eligible source
+parents match canonical geometry/paint and saved RGBA across the three modes.
+Direct checks use the same source data/settings/normalizers as the composed
+reports. The separate five `direct-graph-check` reruns additionally validate
+all ten direct proposals through `Operators.validate_partition`; their
+canonical geometry/paint and saved RGBA match the timed direct reports exactly.
+Those additional validation times are not substituted for the timed controls.
+The cross-revision parent audit also compares fresh, unquantized native RGBA.
+
+| Finer direct joint case | Nodes | Contours | Stroke contours | Target MSE | Clean line F1 | Generation/validation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| sword | 6430 | 762 | 24 | 537.496619 | — | 30.65 |
+| anime-girl | 1047 | 135 | 11 | 96.364404 | 0.097 | 4.26 |
+| anime-face | 1935 | 220 | 17 | 104.787607 | 0.447 | 7.89 |
+| western-park | 1297 | 131 | 16 | 123.332849 | 0.161 | 4.88 |
+| rubberhose-band | 1442 | 165 | 23 | 357.774914 | 0.712 | 5.48 |
+
+Relative to the preceding direct control, face line F1 improves from 0.259 to
+0.447, but paint MSE worsens from 98.525540 to 104.787607. Girl MSE improves
+from 102.482216 to 96.364404 and nodes from 1,063 to 1,047, while line F1 falls
+from 0.105 to 0.097. Park and band line scores also fall slightly. Sword MSE
+improves from 538.261955 to 537.496619, with more nodes. All direct paired
+results remain worse than their initializer in paint and line fidelity. This
+is partial operator progress, not broad quality improvement or release evidence.
+
+The composed curve/anchored drawings are unchanged: the sword's finer bundle
+still has 3,907 nodes / 460 contours / 22 strokes / human MSE 551.316411.
+It still fails all development quality gates. The connected ink-plane pool
+changes, offering 134 rather than 128 proposals across the 15-layout matrix.
+Park's first parent now emits two one-plane proposals instead of none; the
+band's first emits one/two-plane proposals and its second offers two planes
+rather than only one. Their atom exclusions fall from 20 to 18 for the park's
+first parent, ten to eight for the band's first and 18 to 16 for its second.
+No atom/resource cap increases. Band's finer second-parent two-plane drawing
+has MSE 488.892905 / F1 0.718 versus the prior one-plane drawing's 537.877872 /
+0.716; these are different emitted interpretations, not identical-plane
+comparisons. Both remain much worse in paint than the region alternatives.
+Sword plane prefixes still hit atom limits after one plane; finer plane MSE
+2353.316085 is far worse than the region drawing. More availability cannot
+stand in for faithful compact materials or widths.
+
+| Case | Curve / anchored / ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 73.38 / 74.83 / 91.47 |
+| anime-girl | 11.37 / 11.36 / 15.73 |
+| anime-face | 22.68 / 22.83 / 26.57 |
+| western-park | 13.36 / 12.99 / 16.48 |
+| rubberhose-band | 17.65 / 18.31 / 23.49 |
+
+Allowances remain 180 seconds per sword mode and 60 per paired clean 192-pixel
+half-opacity mode. These pools do not prove selected-operation runtime or
+process memory. The experimental connected/source factories still do not enter
+production scheduling. The 81-configuration grid remains a declaration, with
+no chosen weights. All eight deliveries and all corpus/refinement/UI/release
+gates remain open; generated-reference collection stays deferred.
+
+Final-class budgeting is corrected in the checkpoint above.
+Strengthen source ridge/width/paint classification and variable-width
+filled alternatives, then offer coherent material/opacity surfaces. The current
+source detector and constant-width grouped primitives still do not explain
+every line or broad dark mark. A learned ranker cannot replace that coverage.
+
+### Replacement ownership follows actual stroke coverage
+
+Nearest-run ownership previously extends through an entire connected dark
+component, including source pixels beyond the replacement body. The source
+factory now intersects each style's claimed mask with its actual exported SVG
+stroke coverage on the source-atom grid. This uses the real open/closed path,
+width, cap and round join, rather than a dilated mask or the approximate Boolean
+footprint. Nonzero renderer antialias coverage admits a boundary pixel; pixels
+with no replacement coverage keep independent filled geometry, paint and source
+ownership. This is an eligibility correction, not proof that a constant width
+or paint explains every touched pixel. Missing/unsupported line support and
+source width/paint fidelity still need their own checks.
+
+Rendering uses the exact native-to-source mapping, including anisotropic scale
+and fractional crop offsets, and the existing bounded crop/tile allowances.
+Tiles preserve the full-grid pixel phase. Cancellation before or inside a body
+render discards complete discovery; it cannot emit an already processed prefix
+or change the parent/source masks. Model metadata records claimed pixels,
+retained uncovered ink and the `rendered-stroke-coverage` ownership rule. No
+endpoint, junction or physical gap is extended to reproduce the human repair.
+The same filtered models feed both source replacement and connected ink/material
+cells. Production scheduling and native alpha/mass/ownership gates are unchanged.
+
+Eleven added controls compare actual stroke coverage for round/butt caps, open
+and explicitly closed chains, true gaps, anisotropic scale/fractional offsets,
+full-grid versus bounded tiled rendering, mid-render cancellation and resource
+exhaustion. A connected thickened source mark now retains 15 previously claimed
+pixels beyond its constant-width body, at opaque/half/quarter opacity. Native
+replacement keeps their fill ownership/paint and opaque interiors, preserves
+exact alpha, passes component and local/full validation, and survives reload.
+Changed underpaint can alter mixed antialias edge RGB; that complete context is
+scored instead of asserting unchanged mixed pixels. Contact controls additionally
+retain the uncovered original x8 end. The old/new carrier negative now probes
+the replaced x9 pixel: a carrier starting at x9.25 covers the new butt body from
+x9.5, but cannot cover the old cut. That edit still fails `unproved-core-coverage`.
+No carrier proof is weakened.
+
+The expanded focused suite passes 101 cases in 60.74 seconds, and the current
+regression command documented below passes 1,000 cases in
+194.69 seconds. Changed-file Ruff/import/format, whitespace checks and production
+Pyrefly pass (zero errors, 62 warnings). Earlier 99-case/footprint-render controls
+are preliminary; the final helper uses the actual stroke renderer.
+
+Final source hash is
+`2e89a9b172c7ebb4b37f58098da1acb56517f1613d19758cb032b8c90ec3f716`.
+The isolated matrix at `.bench/cel-stroke-ownership-final` completes all 15
+reports under unchanged allowances. All 128 emitted proposals pass native
+validity, complete ownership, component seals and independent local/full raster
+checks. Maximum score-term difference is 3.365307e-9. Strict finite JSON, saved
+SVG hashes, source RGBA/masks/settings/normalizers and scoring targets are
+verified. Eligible source parents match canonical geometry/paint and exact RGBA
+across all three modes. Body filtering changes those parents and candidate
+availability across revisions; faster wall times do not establish equal-work
+speedups. The sword plane pool falls from 20 to eight proposals, primarily
+because additional source cuts leave less room under the unchanged atom limits.
+Its two material parents each record 18 atom exclusions across 20 plane prefixes.
+The park and band bundle plane parents emit no material proposal, recording 20
+and ten atom exclusions respectively. These exclusions remain failures to offer
+those interpretations, not native gate exceptions or complete release evidence.
+
+The sword bundle claims 3,261 pixels before filtering and replaces 2,862,
+retaining 399 outlying source ink pixels. All five styles / 22 runs survive.
+Its finer anchored candidate has **3,907 nodes / 460 contours / human MSE
+551.316411**, versus 3,297 / 388 / 555.830936 at the prior bundle checkpoint.
+Handle error improves from 915.740951 to 889.777921; facets improve, while
+jewel/guard worsen. Preserving missing ink exposes a denser representation, so
+all numerical/feature sword gates still fail. The current single-round control
+has 3,970 / 449 / 14 strokes / MSE 561.427676. The post-generation human handle
+stroke diagnostic finds displayed F1 0.638467/0.644494 and editable recall
+0.537356/0.449713 for bundle/single-round. These masks include the human source
+repair only for evaluation; they never guide geometry or ownership.
+
+The damaging girl group retains 90 of its 390 formerly claimed pixels, reducing
+standalone clean MSE from 128.773281 to 107.997910 and improving line F1 from
+0.255 to 0.430. The complete source bundle improves from MSE 147.755884 / F1
+0.187 to 122.846640 / 0.358, still worse than the initializer's 66.976141 / 0.550.
+After finer material fitting, bundle MSE improves from 152.340755 to 127.800403
+and F1 from 0.160 to 0.305, while nodes increase from 1,071 to 1,159. This fixes
+part of the failure; it does not establish faithful width/paint classification.
+The initial probe overlaps regression tests and is not a runtime comparison.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / bundle | 1163 → 1159 | 112 → 112 | 128.014096 → 127.800403 | 0.323 → 0.305 |
+| anime-girl / single-round | 1417 → 1382 | 111 → 111 | 74.603494 → 75.103998 | 0.374 → 0.392 |
+| anime-face / eligible standalone | 2668 → 2553 | 195 → 195 | 79.163068 → 79.785239 | 0.541 → 0.565 |
+| western-park / 1 | 1610 → 1561 | 115 → 115 | 121.151463 → 120.917037 | 0.093 → 0.093 |
+| western-park / 2 | 1582 → 1527 | 114 → 114 | 117.410621 → 117.447158 | 0.049 → 0.049 |
+| rubberhose-band / bundle | 1897 → 1777 | 183 → 183 | 230.446713 → 230.196903 | 0.729 → 0.742 |
+| rubberhose-band / second eligible style | 2537 → 2352 | 113 → 113 | 121.626679 → 121.078654 | 0.675 → 0.679 |
+
+The face loses its second standalone material parent to an order proof. The
+park's second and band's second material parents are different styles from the
+previous revision; their row changes are not identical-parent comparisons.
+Band bundle paint error worsens despite higher line F1, and source-filled
+remnants remain costly. Full candidate coverage, coherent material/variable-width
+ink alternatives and source-only per-chain guards remain needed. Avoid selecting
+the bundle as a blanket rule or changing score weights to conceal missing
+interpretations. A joint source/material decoder should assess final owned
+classes before consuming cuts on an intermediate representation; the existing
+immutable ownership and resource limits remain its contract.
+
+| Case | Curve / anchored / ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 72.83 / 73.19 / 90.85 |
+| anime-girl | 11.58 / 10.91 / 14.94 |
+| anime-face | 20.93 / 20.67 / 24.29 |
+| western-park | 13.07 / 12.19 / 15.03 |
+| rubberhose-band | 16.97 / 16.80 / 19.33 |
+
+The required initial calibration grid is now a versioned declaration at
+[`scripts/bench_data/cel_score_calibration.json`](../../scripts/bench_data/cel_score_calibration.json),
+SHA-256 `00a667620820b60ebe882404a77e4e5fe7d9d6ab96ca09ad40e34226a8b5a9c8`.
+It freezes the plan's 81 unique alpha/edge/feature/detail configurations, the
+five complexity checkpoints and the current center, which matches the actual
+`Weights` dataclass. It specifies same-pool replay, cost-limited clean oracle,
+tuning-only selection, mandatory per-artwork gates and at most three matched
+reruns. Its result is null: the replay runner, frozen broader tolerances,
+geometric-regularization grid and eventual calibrated weights remain open.
+Declaring a grid does not solve candidate coverage or complete calibration.
+All eight deliveries remain open; generated-reference collection stays deferred.
+
+### Direct joint classification control
+
+After the rendered-ownership checkpoint, the unchanged code also runs the
+existing `CoreCells` grammar directly on the source initializer, bypassing the
+intermediate `SourceStrokes` edit. The configuration is joint regions, Ward
+material grouping, anchored boundaries and connected source ink. The probe at
+`.bench/cel-direct-joint-ownership-probe` uses the same source hash as the 15-run
+matrix above, the same source/target fixtures and allowances, and no concurrent
+benchmark or test process. This is a control for the existing grammar, not the
+proposed completed joint decoder. Its ink discovery lacks the source factory's
+spur pruning and boundary-contact alternatives; its selected material support
+can restrict the available source chains. Its lower times do not compare equal
+proposal work against the two-stage pools.
+
+All five reports complete and emit two proposals each, with zero atom
+exclusions. Strict finite JSON, saved SVG hashes, native rejection lists,
+complete ownership, component seals and independent local/full raster checks
+pass for all ten proposals. Maximum score-term difference is 3.031938e-9.
+This benchmark checks partition continuation and component ownership; it does
+not run the separate expanded source-graph validator for direct core proposals.
+No resource cap, admission gate or source evidence is changed.
+
+| Case / finer direct joint proposal | Nodes | Contours | Stroke contours | Target MSE | Clean line F1 | Generation/validation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| sword | 6418 | 771 | 25 | 538.261955 | — | 28.75 |
+| anime-girl | 1063 | 141 | 13 | 102.482216 | 0.105 | 4.02 |
+| anime-face | 1967 | 219 | 16 | 98.525540 | 0.259 | 7.87 |
+| western-park | 1330 | 143 | 18 | 124.871219 | 0.174 | 4.96 |
+| rubberhose-band | 1465 | 166 | 27 | 354.593540 | 0.715 | 5.64 |
+
+The finer girl drawing is cheaper and has lower paint error than the current
+source bundle's finer drawing, but its clean line F1 falls from 0.305 to 0.105.
+Every paired direct drawing remains worse than the initializer in paint and
+line fidelity. Coarse proposals are much worse (target MSE 481–1438 across the
+five cases). The sword's finer MSE is lower than the current two-stage bundle,
+but it uses 64% more nodes and 68% more contours. The control therefore rules
+out switching wholesale to the existing direct mode. Avoiding intermediate cuts
+is useful for availability; a new joint implementation must also preserve
+complete physical source chains, expose coherent material alternatives and
+apply source-only per-chain support checks. Selection/ranking cannot create
+these missing alternatives. All eight deliveries remain open.
+
+### Atomic source stroke styles
+
+The experimental source factory now offers all mutually disjoint discovered
+stroke styles together before offering individual style alternatives. It cuts
+their union from existing owners once and restores neighboring paint once,
+using the union of actual open stroke footprints. The selected source atoms are
+then partitioned by style into separate editable overlay paths. Exact RLE
+lineage expands all unchanged owners and carrier coverage through the new style
+cuts; width, paint, cap, source endpoints and physical gaps remain distinct.
+The final edit seals the complete component and orders all glyphs as one block.
+Cancellation or an unsuccessful ownership/restoration/order proof publishes
+nothing. Existing cut, owner, neighbor, geometry, crop and proposal limits are
+unchanged. Production scheduling still does not use this experimental factory.
+
+Twelve added controls cover two paints, two widths and round/butt caps together
+at half/quarter opacity, shared source owners requiring additional style cuts,
+skewed native frames, complete ownership/component validation, exact alpha,
+source gaps, unaffected paint, native local/full agreement and save/reload.
+Three material layouts preserve every bundled stroke's exact geometry/style.
+Cancellation after style partition emits no partial bundle. The focused suite
+passes 57 cases; production Pyrefly reports zero errors (62 warnings), and
+changed-file Ruff/format and diff whitespace checks pass.
+
+The first complete anchored sword probe at
+`.bench/cel-source-bundle-probe/sword-anchored`, source hash
+`971c72e33d1d7407973a0f133cef75c2689fb66908ce4a0f680dbacd75d2dc06`,
+contains all five discovered styles / 22 runs in one candidate. Two styles that
+fail standalone order proofs become eligible in the atomic edit; no proof cap
+is raised. The union selects 3,261 source pixels across 233 original owners,
+uses 16 cuts and continues 58 neighboring paints. All eight emitted proposals
+pass native validation, complete ownership, sealed-component and local raster
+checks. Its source parent has 14,829 nodes / 2,440 contours; that intermediate
+cost is not an admission-quality result.
+
+After finer material fitting, the bundle has 3,297 nodes / 388 contours / 22
+strokes / human MSE 555.830936. The same report's single-round-style candidate
+has 3,428 / 385 / 14 / MSE 559.929205. This is a 3.8% node reduction and 0.7%
+pixel-error reduction, with slightly more contours. A post-generation human
+handle-stroke diagnostic finds editable recall 0.537356 versus 0.449713, but
+displayed line F1 is effectively unchanged (0.638194 versus 0.638567). This
+human mask includes the source repair and supplies no generation hint or
+admission threshold. The rendered handle still has filled scraps and uneven
+junctions. All sword quality gates remain unmet; this solves incomplete style
+composition, not coherent surface/ink interpretation. The probe's 91.69-second
+wall time overlaps focused tests and is not an isolated runtime comparison.
+
+The material parent limit remains two. Adding the bundle means the first two
+parents are now bundle and single-round, rather than single-round and
+single-butt. Cross-revision pool totals must not be mistaken for identical-parent
+comparisons. Within-report round geometry, strokes and pixels are the relevant
+control; all modes must still match source parents canonically and by exact
+RGBA. The next source-line guard must protect source-supported chains still
+represented as fills during material fitting, using source-only fixed probes
+and identical full/local admission rather than human-reference hints.
+
+Final isolated verification at `.bench/cel-source-bundle-final` uses the same
+source hash and completes all 15 reports under unchanged allowances (180
+seconds per sword mode; 60 per clean 192-pixel half-opacity tuning mode). All
+180 emitted proposals pass native validity, complete ownership, sealed component
+and independent local/full raster checks. Maximum score-term difference is
+3.384697e-9. The strict all-complete audit now passes: strict finite JSON,
+saved SVG hashes, source RGBA/masks/settings/normalizers and scoring targets
+match, as do both source parents' canonical geometry/paint and exact RGBA
+across modes. These remain offline pools, not a selected operation, held-out
+release evidence or process-memory validation. Plane results still have much
+worse visual error than region alternatives. No search allowance or native
+admission threshold is raised.
+
+| Case | Curve / anchored / ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 78.07 / 78.66 / 143.96 |
+| anime-girl | 24.53 / 29.29 / 29.05 |
+| anime-face | 54.33 / 53.53 / 39.84 |
+| western-park | 14.55 / 14.41 / 18.70 |
+| rubberhose-band | 18.16 / 18.09 / 32.64 |
+
+The sword's completed ink-plane pool has 20 proposals. Its highest emitted
+finer bundle plane candidate uses 5,256 nodes / 642 contours / 26 strokes /
+human MSE 1,372.844885. The second parent is now single-round, rather than the
+previous single-butt parent. Completing this changed pool is not proof of a
+speedup on identical work. The isolated anchored region candidate reproduces
+the probe's geometry and quality exactly. Its handle pixel error worsens from
+874.052824 for the single-round control to 915.740951 for the bundle. Blade-tip
+error also worsens (783.921925 to 862.500674), while guard/jewel improve. More
+editable strokes do not establish a feature-quality improvement.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / bundle | 1072 → 1071 | 110 → 110 | 152.469748 → 152.340755 | 0.160 → 0.160 |
+| anime-girl / single-round | 1413 → 1380 | 110 → 110 | 74.324609 → 74.863699 | 0.374 → 0.392 |
+| anime-face / 1 | 2619 → 2497 | 188 → 188 | 83.419321 → 83.746113 | 0.544 → 0.564 |
+| anime-face / 2 | 2621 → 2516 | 160 → 160 | 79.514930 → 80.373836 | 0.346 → 0.346 |
+| western-park / 1 | 1600 → 1559 | 113 → 113 | 118.464196 → 118.268196 | 0.093 → 0.093 |
+| western-park / 2 | 1527 → 1470 | 112 → 112 | 133.527474 → 133.606024 | 0.240 → 0.240 |
+| rubberhose-band / bundle | 1926 → 1742 | 129 → 129 | 159.082794 → 158.440717 | 0.718 → 0.726 |
+| rubberhose-band / single-round | 2309 → 2057 | 122 → 122 | 139.397496 → 139.500533 | 0.722 → 0.733 |
+
+Face and park whole-style bundles fail unchanged silhouette/hole-contact
+restoration proofs; their material parents remain the previous standalone
+styles. The girl bundle regresses substantially, and the band bundle trades
+more paint error for fewer nodes with similar line F1. No general quality gain
+is demonstrated. Individual alternatives remain available; a blanket rule to
+choose the full bundle would be wrong.
+
+The girl regression starts before material fitting: its initializer has clean
+MSE 66.976141 / line F1 0.550, the complete source bundle has 147.755884 / 0.187,
+and one standalone two-run, width-6.103713 group has 128.773281 / 0.255.
+A source-only mask/footprint diagnostic at
+`source-mask-diagnostic.json` reproduces the exact group mask hash
+`a2e06e873f23f82e0b5eef11dc5c25c22ca6dc28bcbb2ec91391b7b9912a49a5`.
+Of 390 claimed source pixel centers, 109 lie outside the actual stroke body,
+72 remain outside a one-native-pixel expansion and 46 outside a two-pixel
+expansion. Nearest-run ownership currently extends through a connected dark
+component without a replacement-body distance bound. The surrounding paint
+can therefore restore claimed ink that the new stroke cannot cover. This
+supports retaining outlying source ink independently and checking both missing
+and unsupported stroke support. It does not prove this is the only cause of the
+color regression; the measured width/paint interpretation also needs controls.
+The margins above are diagnostic probes, not new admission tolerances or hints
+from clean/human geometry. Preserve physical gaps and independent marks.
+
+The current regression command passes 989 cases in 195.10 seconds:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest \
+  tests/refine/test_cel*.py tests/operations/test_cel_planned.py \
+  tests/test_bench_cel_planned.py tests/test_cel_pairs.py \
+  tests/test_bench_cel_pairs.py tests/test_audit_cel_admission.py \
+  tests/document/test_lines.py -q
+```
+
+The production source/model controls are part of that command. The earlier
+996-case checkpoint reports its own test scope and revision above/below;
+counts across scopes are not incremental coverage claims. Changed-file Ruff,
+format and whitespace checks and production Pyrefly pass. All eight deliveries
+and release gates remain open; generated-reference collection stays deferred.
+
+### Actual open stroke footprints and complete source contact caps
+
+The contact-cap diagnosis exposes a correctness bug in the previous footprint
+proof: the filled Boolean path adapter closes every contour, including open
+stroke chains. It adds an invisible endpoint-to-endpoint chord to curved ink
+footprints, although exported SVG strokes stay open. Source containment can
+therefore reject a real stroke, and underpaint can extend into the wrong area.
+The same fill adapter appears in material composition's retained-stroke check,
+which can reject valid source parents. Both call sites now reuse the editor's
+existing `document.lines.open_path` adapter. Explicit closed chains still close;
+open and closed contours in a compound path retain their own interpretation.
+Native paint, cap and join styles remain unchanged unless a new source cap
+hypothesis is explicitly offered.
+
+The initial cap probe at `.bench/cel-source-contact-cap-probe` mistakenly uses
+the same closing adapter. Its 13/13 round/butt containment result does not rule
+out useful caps. The corrected source-only probe at
+`.bench/cel-source-contact-cap-open-probe` examines the same 99 source runs and
+contains 13 round-cap bodies versus 19 butt-cap bodies: six complete chains
+need no invented connection or endpoint movement. This probe uses intermediate
+source hash `74c88f09675c24cb89fb7ff8260bd4b8c13f59d8f5a4479ccf498c89c84f67b6`;
+it proves geometry eligibility, not native admission or quality.
+
+The optional boundary-contact route now offers a complete original-ended
+butt-cap body before trimming the source interval. Round and butt styles have
+separate width/paint groups. Individual width ceilings and final compound
+footprints use the actual exported cap. Cancellation cannot start trimming
+after an interrupted cap fit. Source junctions and physical gaps remain exact;
+no human geometry, feature rectangle or reference repair participates.
+
+A butt-cap contact can continue neighboring paint only when one existing
+opaque carrier geometrically covers both the complete old mark and the new
+body. Only neighboring graph labels with zero painted source area may be
+excluded as unpainted contact; hidden labels containing any paint still block
+the edit. Carrier holes, old support outside the carrier and unmatched coverage
+remain failures. The native ownership, component, alpha/mass and raster gates
+stay unchanged. This is a new eligibility proof inside the existing carrier,
+not an exception to native coverage admission.
+
+Controls compare open/closed bends and both caps with native raster coverage,
+reject phantom diagonals, retain closure separately in compound geometry,
+and prove an open bend inside a concave carrier whose hole excludes its chord.
+Contact controls retain canonical source endpoints, real gaps, exact alpha,
+editable `fill=none` strokes and save/reload at half/quarter opacity. Negative
+controls reject a carrier covering only the new body and reject a real hole.
+Material retention accepts the actual open bend and rejects its explicitly
+closed diagonal for both caps. Previously trimmed-contact assertions are
+updated to the now-eligible complete source body; precise gap/alpha/ownership
+and raster agreement checks remain.
+
+The first cap prototype at `.bench/cel-source-contact-cap-prototype` emits
+three source groups, including a five-run butt group, and all emitted proposals
+pass native validity. However, material composition rejects that butt parent's
+phantom closed footprint. Its first finer region candidate worsens to
+3,428 nodes / 385 contours / human MSE 559.929205. This is preserved at source
+hash `b5438dcab74ccaf8460d6454f0cb9ac7be97e0eb1188dbace02383c54ba3f7ac`.
+A subsequent partial matrix and regression run at source
+`84714a58436a0a581bad32bd1e645dcb7528f767a1989e1b6851bf75356074b8`
+are stopped before changing the retained-stroke check. Their artifacts remain
+at `.bench/cel-source-contact-cap-first-pass`; interrupted checks are not
+reported as passed or complete. Final verification starts from a fresh root.
+
+Final changed-file Ruff/import/format checks, `git diff --check` and
+production Pyrefly pass (zero errors, 62 warnings). The relevant suite passes
+**996 tests in 242.03 seconds**, including all fourteen new controls. The
+focused source/model suite passes 78 tests. Final source SHA-256 is
+`9e141366b6f72481428d09cf08ff7b363c1e1b37ad8d99f4d954dea009594194`.
+
+The matrix at `.bench/cel-source-contact-cap-final` has **fourteen complete
+reports and one bounded partial report**, not a passed completion gate. All
+**166 emitted proposals** have zero native rejections and zero broken
+ownership/component/local-raster proofs. Maximum score-term difference is
+3.348527e-9. Strict JSON, saved SVG hashes, source RGBA/masks/settings/normalizers
+and clean/human SVG hashes are checked. Across all three modes, both source
+parents match canonical geometry/paint and exact RGBA. The bounded-pool audit
+is `.bench/cel-source-contact-cap-bounded-audit.txt`; the strict all-complete
+audit at `.bench/cel-source-contact-cap-final-audit.txt` deliberately fails.
+Validity of emitted drafts does not establish a completed search or quality.
+
+The first sword ink/plane attempt stops at 181.58 seconds with four proposals.
+It is preserved at `.bench/cel-source-contact-cap-timeout/sword-ink-planes`.
+Only that case is retried with unchanged source, settings and 180-second
+allowance, after the competing regression/matrix work finishes. The isolated
+retry also stops, at **181.74 seconds**, after fourteen proposals. It completes
+the first material parent's coarse/fine prefixes and only the second parent's
+coarse prefixes. The second finer material pool and the last standalone source
+group remain unexamined. No allowance, atom/cut/RLE limit or native acceptance
+threshold is increased. Do not compare that partial pool with completed
+ink/plane pools as equal completed proposal effort. Generation timing includes
+native validation; scoring/rendered feature sheets are separate. These are
+still offline diagnostics, not operation runtime or process-memory gates.
+
+The highest emitted sword four-plane prefixes use 3,568 / 5,268 nodes
+and human MSE 1,245.336306 / 1,171.128142 for the first coarse/fine parent;
+the second coarse prefix uses 3,588 nodes / MSE 1,253.781164. The second
+finer result is unavailable. All observed joint-plane paint remains much worse
+than the region alternatives; no missing prefix is estimated.
+
+The first finer region curve/anchored candidates have **3,486 / 3,428 nodes**,
+385 contours and fourteen true strokes, with human MSE **560.247860 /
+559.929205**. The five-run butt group now seeds its own complete region
+composition: **4,039 / 3,942 nodes**, 396 contours and five true strokes, with
+MSE **542.959600 / 543.078961**. The first anchored handle error is
+874.052824; the second is 891.833291. Both still retain unconverted ink as fill.
+They are separate source interpretations, not all nineteen supported runs in
+one drawing. The second parent's lower whole-image error does not compensate
+for the wrapping lines lost during material composition. All sword structure,
+feature and release gates remain unmet.
+
+An independent post-generation handle diagnostic at
+`.bench/cel-source-contact-cap-final/handle-line-diagnostic.json` uses human
+stroke-only pixels, the existing neutral-paint ink classifier, alpha > 0.25
+and the existing two-pixel line tolerance. Against 1,392 human line pixels,
+first/second finer anchored displayed-line recall is **0.607759 / 0.099138**;
+F1 is **0.638567 / 0.137495**, and editable-stroke recall is **0.449713 /
+0.073276**. These are feature diagnostics, not calibrated admission thresholds.
+They include the human's source repair; that discrepancy stays evaluation
+context and never supplies a generation hint. The large second-parent recall
+loss confirms the inspected crop's missing wrapping ink despite lower MSE.
+A fixed source-only per-chain contrast/coverage check is needed alongside
+complete multi-style stroke composition; a whole-image error improvement
+cannot establish line preservation.
+
+The paired finer region and highest emitted material-plane rows remain the
+same as the preceding checkpoint for these two source parents. Additional
+standalone cap groups in the band do not change the two admitted material
+parents. Unchanged tuning results guard against claiming a broad improvement
+from the sword experiment. Their full matrix rows and times follow.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1380 | 110 → 110 | 74.324609 → 74.863699 | 0.374 → 0.392 |
+| anime-girl / 2 | 1467 → 1438 | 118 → 118 | 73.522578 → 73.675467 | 0.000 → 0.000 |
+| anime-face / 1 | 2619 → 2497 | 188 → 188 | 83.419321 → 83.746113 | 0.544 → 0.564 |
+| anime-face / 2 | 2621 → 2516 | 160 → 160 | 79.514930 → 80.373836 | 0.346 → 0.346 |
+| western-park / 1 | 1600 → 1559 | 113 → 113 | 118.464196 → 118.268196 | 0.093 → 0.093 |
+| western-park / 2 | 1527 → 1470 | 112 → 112 | 133.527474 → 133.606024 | 0.240 → 0.240 |
+| rubberhose-band / 1 | 2309 → 2057 | 122 → 122 | 139.397496 → 139.500533 | 0.722 → 0.733 |
+| rubberhose-band / 2 | 2501 → 2324 | 112 → 112 | 128.267022 → 127.665763 | 0.665 → 0.669 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 632 / 93 / 14 | 578.420153 | 0.100 |
+| anime-girl / 1 / 64 | 2 | 673 / 103 / 14 | 574.942746 | 0.099 |
+| anime-girl / 2 / 32 | 2 | 664 / 97 / 13 | 584.112738 | 0.106 |
+| anime-girl / 2 / 64 | 2 | 734 / 112 / 13 | 579.284905 | 0.105 |
+| anime-face / 1 / 32 | 3 | 1206 / 112 / 18 | 807.236475 | 0.282 |
+| anime-face / 1 / 64 | 3 | 1451 / 163 / 18 | 800.799709 | 0.284 |
+| anime-face / 2 / 32 | 3 | 1240 / 109 / 16 | 828.684822 | 0.422 |
+| anime-face / 2 / 64 | 3 | 1513 / 168 / 16 | 822.181453 | 0.422 |
+| western-park / 1 / 32 | 2 | 832 / 81 / 21 | 475.454705 | 0.231 |
+| western-park / 1 / 64 | 2 | 893 / 97 / 21 | 472.461654 | 0.231 |
+| western-park / 2 / 32 | 1 | 832 / 80 / 20 | 500.311784 | 0.195 |
+| western-park / 2 / 64 | 1 | 872 / 89 / 20 | 499.481744 | 0.168 |
+| rubberhose-band / 1 / 32 | 3 | 1093 / 128 / 31 | 446.022045 | 0.709 |
+| rubberhose-band / 1 / 64 | 3 | 1103 / 128 / 31 | 446.101528 | 0.709 |
+| rubberhose-band / 2 / 32 | 4 | 1119 / 125 / 28 | 411.221881 | 0.686 |
+| rubberhose-band / 2 / 64 | 4 | 1152 / 125 / 28 | 411.278024 | 0.688 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 73.84 / 77.73 / 181.74 (partial) |
+| anime-girl | 44.20 / 20.80 / 29.51 |
+| anime-face | 31.70 / 31.76 / 59.50 |
+| western-park | 19.47 / 13.52 / 25.57 |
+| rubberhose-band | 20.29 / 20.77 / 36.17 |
+
+
+The next structural operator must combine compatible source stroke groups,
+with their own cap/width/paint styles, in one owned component before material
+compaction. Keep all original source gaps/junctions and physical independent
+marks, prove each old/new coverage footprint, retain opaque underpaint and
+apply the same native component/opacity/line checks. A complete combined edit
+can reduce cost only after its cuts and underpaint are compacted; an expensive
+intermediate source edit is not sufficient evidence to reject the complete
+hypothesis. Preserve already validated source chains and check unconverted ink
+by fixed source support, independently of the candidate's palette grouping.
+This remains a model/role/composition problem before learned ranking. Useful
+new generated references remain deferred. The full goal and all eight
+planned deliveries stay open; the default and automatic scheduling are
+unchanged.
+
+
+### Exterior source profiles and geometric width ceilings
+
+The previous carrier check inflates every candidate width by 1.6 to allow
+later compatible-width grouping. It can reject a measured-width source stroke
+that fits the actual carrier. Source runs now retain individual geometric
+width ceilings: prove the measured footprint, test full grouping headroom, then
+use six bounded bisections when only part of that headroom fits. Every retained
+ceiling has a footprint/carrier difference proof; the unproved upper endpoint
+is discarded. A fixed width is checked directly and never clamped. Grouped
+median widths must satisfy every member's ceiling, and the final compound
+footprint is checked again. Interruption discards discovery.
+
+The width-only sword prototype at `.bench/cel-carrier-width-prototype` uses
+source hash `e932553562644fad7ce9343f51a600a1fc90833e488843aa3e8cbe9c97f295db`.
+It changes first finer nodes/contours/strokes from 3,437 / 381 / 17 to
+3,423 / 382 / 16 and human MSE from 551.842866 to 549.707374. Handle error
+falls from 897.543367 to 881.762330. This is a modest tuning result with changed
+source support, not a passed quality gate or a comparison of identical stroke
+parents. Its first source group owns 2,747 rather than 2,892 ink pixels; all
+unselected source evidence remains independently owned and rendered.
+
+Source profiles now normalize brightness over visible paint. At least one
+painted end must establish contrast; two painted ends still require a dark
+trough. Unpainted RGB, white outside the silhouette and off-canvas coordinates
+cannot prove a ridge. The source run's central profile component limits peak
+selection, width and centroid, so another mark across a zero-coverage profile
+gap cannot lend width or pull the center. Integrated coverage supplies the
+center rather than the first darkest sample on a plateau. Original source
+junction/end anchors remain exact. Peak paint uses four visibility-normalized
+bilinear samples per run point, avoiding transparent RGB and full-image RGB
+copies. The default paired-boundary classifier retains its interpretation.
+
+The optional connected ink/material route also recognizes one-sided exterior
+source contrast, using the same visible-paint brightness normalization. Its
+alpha compatibility check compares only painted neighbors. Connected growth
+stays inside actual source-drawn pixels; real gaps remain gaps and a flat dark
+material without a lighter painted neighbor is not promoted. Isolated marks
+without painted-side contrast still keep their filled interpretation. This
+constraint is not a claim that every source mark is now an editable stroke.
+
+New controls cover a measured edge width rejected by full grouping headroom,
+carrier holes and fixed widths, cancellation during width search, incompatible
+group medians, exterior coverage centroids and exact anchors, transparent-RGB
+independence, rejection of constant dark paint/unsupported isolated bands,
+two-sided shading rejection, separated profile marks, and exterior role/gap
+retention at half and quarter opacity. The relevant final suite, source hashes,
+native artwork comparisons and remaining failures follow below.
+
+The first full matrix at `.bench/cel-source-centroid-first-pass` preserves
+source hash `649a8ffc8512488936829ebc0dbf19297b77b3b81ac5e869367cbcedbf60f08a`.
+It emits 166 proposals, with six native self-crossing rejections: two unique
+source-stroke models, each repeated across the three modes. Coverage centering
+can fold a noisy source skeleton. A crossing now triggers a tighter centered
+fit, then a precise fit of the original anchored source chain. A still-unstable
+chain keeps its filled interpretation. Both recovery and rejection have direct
+controls; cancellation is checked after each fitting attempt. Native admission
+remains unchanged.
+
+The final relevant suite passes **982 tests in 166.32 seconds**. Changed-file
+Ruff/import/format checks and production Pyrefly pass; Pyrefly reports zero
+errors and 62 warnings. The final matrix at `.bench/cel-source-centroid-final`
+uses source hash
+`18bea46032a3050e4baf667109038fdb0c52ec8114c5957bc1f9610e73c75f2d`.
+All **15 reports complete**, with **162 proposals, zero native rejections,
+zero broken ownership/component/local-raster proofs**, and maximum score-term
+difference **3.348527e-9**. Strict JSON, actual saved SVG hashes, source RGBA,
+masks, settings, normalizers and scoring-target hashes are checked. All three
+modes match canonical source-parent geometry/paint and exact parent RGBA.
+The audit is `.bench/cel-source-centroid-final-audit.txt`. Timed source code
+stays unchanged throughout the matrix; diagnostic limits remain 180 seconds
+for sword and 60 for each paired case.
+
+The first finer sword curve/anchored alternatives use **3,523 / 3,462 nodes**,
+380 contours and 18 true strokes, with human MSE **549.861595 / 549.564057**.
+The anchored handle error is **874.138098**, a 2.6% reduction from the previous
+checkpoint's 897.543367; overall error falls only 0.4%. Nodes increase from
+3,437 to 3,462, and guard/jewel errors worsen to **1,123.496233 / 1,445.896573**.
+Tip/facet errors are 852.927356 / 266.505321. The second finer source parent
+has 3,921 nodes / 404 contours / one stroke / MSE 572.667918. The first source
+stroke-only parent's human error actually worsens from 517.280814 to
+522.335289. These are changed source interpretations across revisions; only
+comparisons within the final matrix have identical source parents. Neither
+stroke count nor a small handle error reduction establishes useful quality.
+
+Inspection of source/human/output feature sheets still shows filled contact
+ends and short fragments in the handle, imprecise boundaries and stray blade
+patches. The source gap remains unjoined; the human repair is excluded. All
+sword numerical and feature gates remain unmet. Generated outputs remain too
+poor to become useful additional references. Exterior profiles improve
+measurement but do not yet supply the requested complete editable lines.
+
+The paired finer region comparisons and highest emitted material-plane rows
+follow. Line scores improve for several source interpretations, but paint and
+local features remain mixed. Recovering a source stroke changes the second
+park parent; its error rises substantially despite higher line F1. The joint
+material-plane pools still lose important paint. These results do not justify
+automatic scheduling or a default change.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1380 | 110 → 110 | 74.324609 → 74.863699 | 0.374 → 0.392 |
+| anime-girl / 2 | 1467 → 1438 | 118 → 118 | 73.522578 → 73.675467 | 0.000 → 0.000 |
+| anime-face / 1 | 2619 → 2497 | 188 → 188 | 83.419321 → 83.746113 | 0.544 → 0.564 |
+| anime-face / 2 | 2621 → 2516 | 160 → 160 | 79.514930 → 80.373836 | 0.346 → 0.346 |
+| western-park / 1 | 1600 → 1559 | 113 → 113 | 118.464196 → 118.268196 | 0.093 → 0.093 |
+| western-park / 2 | 1527 → 1470 | 112 → 112 | 133.527474 → 133.606024 | 0.240 → 0.240 |
+| rubberhose-band / 1 | 2309 → 2057 | 122 → 122 | 139.397496 → 139.500533 | 0.722 → 0.733 |
+| rubberhose-band / 2 | 2501 → 2324 | 112 → 112 | 128.267022 → 127.665763 | 0.665 → 0.669 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 632 / 93 / 14 | 578.420153 | 0.100 |
+| anime-girl / 1 / 64 | 2 | 673 / 103 / 14 | 574.942746 | 0.099 |
+| anime-girl / 2 / 32 | 2 | 664 / 97 / 13 | 584.112738 | 0.106 |
+| anime-girl / 2 / 64 | 2 | 734 / 112 / 13 | 579.284905 | 0.105 |
+| anime-face / 1 / 32 | 3 | 1206 / 112 / 18 | 807.236475 | 0.282 |
+| anime-face / 1 / 64 | 3 | 1451 / 163 / 18 | 800.799709 | 0.284 |
+| anime-face / 2 / 32 | 3 | 1240 / 109 / 16 | 828.684822 | 0.422 |
+| anime-face / 2 / 64 | 3 | 1513 / 168 / 16 | 822.181453 | 0.422 |
+| western-park / 1 / 32 | 2 | 832 / 81 / 21 | 475.454705 | 0.231 |
+| western-park / 1 / 64 | 2 | 893 / 97 / 21 | 472.461654 | 0.231 |
+| western-park / 2 / 32 | 1 | 832 / 80 / 20 | 500.311784 | 0.195 |
+| western-park / 2 / 64 | 1 | 872 / 89 / 20 | 499.481744 | 0.168 |
+| rubberhose-band / 1 / 32 | 3 | 1093 / 128 / 31 | 446.022045 | 0.709 |
+| rubberhose-band / 1 / 64 | 3 | 1103 / 128 / 31 | 446.101528 | 0.709 |
+| rubberhose-band / 2 / 32 | 4 | 1119 / 125 / 28 | 411.221881 | 0.686 |
+| rubberhose-band / 2 / 64 | 4 | 1152 / 125 / 28 | 411.278024 | 0.688 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 56.39 / 59.45 / 135.57 |
+| anime-girl | 10.22 / 10.50 / 13.90 |
+| anime-face | 24.69 / 26.35 / 39.85 |
+| western-park | 12.96 / 12.41 / 20.84 |
+| rubberhose-band | 14.79 / 14.59 / 31.60 |
+
+
+Sword joint four-plane candidates use 3,566 / 5,263 / 3,580 / 5,298 nodes,
+344 / 641 / 335 / 628 contours and 26 / 26 / 25 / 25 true strokes, with human
+MSE 1,249.734940 / 1,180.779771 / 1,446.724360 / 1,379.622240 (first coarse/fine,
+then second coarse/fine). Compact plane counts do not repair coherent surfaces.
+
+The next contact hypothesis needs an explicit source-supported cap/coverage
+model. An isolated synthetic half-opacity probe at
+`.bench/cel-source-clip-compositor-probe` rules out a naive clipping shortcut:
+clipping each stroke, or clipping a group containing opaque underpaint and a
+stroke, both add alpha at an antialiased carrier edge under the actual native
+renderer. Maximum excess is 0.125490 over 79 pixels, with alpha-mass difference
+6.439216. This is compositor diagnosis, not an artwork proposal or a quality
+result. The editor's static SVG subset also lacks masks. Any subsequent model
+must prove coverage, retain original source geometry/ownership and count the
+actual representation; hiding complex silhouettes in uncharged clip assets
+is not compaction. Evaluate geometry-supported contact caps before adding a
+new compositing representation. All eight deliveries and the full goal remain
+open.
+
+
+### Source bounds on both sides of shared ink
+
+The local-width checkpoint bounds ink but can still move the boundary of a
+narrow neighboring material. The next anchored constraint reuses its 13
+quarter-pixel normal samples and additionally measures contiguous labels on
+each side. The first label change, actual hole or off-canvas sample ends that
+side's profile; a quarter of the smaller side depth limits movement alongside
+the existing ink-width bound. The 0.25–0.75-pixel bounds, 4,096-point work cap,
+precise fallbacks and exact source anchors remain unchanged.
+
+The callback retains the original source class map even when connected-ink
+rendering supplies extended underpaint or a separate ink-only label map.
+Synthesized underpaint cannot lend width to a physical source feature. Labels
+and ink masks supply the constraint; no human geometry, feature name or scoring
+rectangle enters it. Source stroke discovery, real gaps, independent marks,
+alpha ownership, cut limits and native admission are unchanged.
+
+Four new controls cover a narrow material projection next to broad ink, a real
+hole before a second patch of the same paint, a narrow unpainted hole, and label
+renumbering/closed-chain reversal. The relevant suite passes **968 tests in
+230.96 seconds** with the same command as the local-width checkpoint below.
+Changed-file Ruff/format and production Pyrefly pass; Pyrefly reports zero errors
+and 62 warnings. These are constraint and regression checks, not quality gates.
+
+The first face replay at `.bench/cel-ink-bilateral-prototype` uses source hash
+`a81322531030f12393613f3c1822a89569e0694a709995f65c7e50a915cf047a`.
+Its first finer drawing has 2,614 nodes / 190 contours, clean MSE 74.419211 and
+unchanged line F1 0.431. The previous ink-only local bound uses 2,556 nodes and
+MSE 74.846677. Inspecting the same star crop restores both missing left-tip
+pixels under the previously declared post-generation color diagnostic: gold
+pixels return from 40 to 43. Nevertheless, star error worsens from 317.276983
+to **323.579922**, versus curve's 303.850856. The remaining star shape is still
+inaccurate. Recovering two tip pixels does not establish overall feature
+preservation or a practical quality improvement.
+
+The matched finer sword curve/both-sided drawings use **3,491 / 3,437 nodes**,
+381 contours and 17 true strokes, with human MSE **552.116829 / 551.842866**.
+The second source parent uses 4,060 / 3,966 nodes, 405 contours and two strokes,
+with MSE 571.093568 / 571.376648. Node savings are only 1.5% / 2.3%; the previous
+ink-only local bound saves more nodes. First feature errors for tip / facets /
+guard / handle / jewel are 864.609084 / 286.406778 / 1,050.444215 / 897.543367 /
+1,413.662463. The same filled contacts and stray blade patches remain, and tip,
+handle and jewel still exceed legacy error. The source gap survives; the human
+repair remains excluded. No sword numerical or local-feature gate passes.
+
+The finer region rows retain the girl's recovered line score, face/park line
+scores and most of the band improvement. Girl eyes now improve slightly,
+whereas face eyes worsen 0.1% / 2.2%. Face star errors worsen 6.5% / 3.1%
+against curve fitting. Band face error improves about 3.4%, but eye error
+worsens about 1.2% / 1.1%. These mixed feature results do not justify automatic
+adoption. Both-sided bounds constrain fitting; they do not provide a coherent
+interpretation of the source drawing.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1380 | 110 → 110 | 75.829113 → 76.370510 | 0.356 → 0.374 |
+| anime-girl / 2 | 1467 → 1438 | 118 → 118 | 74.896255 → 75.019814 | 0.000 → 0.000 |
+| anime-face / 1 | 2728 → 2614 | 190 → 190 | 73.760740 → 74.419211 | 0.431 → 0.431 |
+| anime-face / 2 | 2484 → 2404 | 144 → 144 | 75.542247 → 76.114968 | 0.259 → 0.259 |
+| western-park / 1 | 1584 → 1542 | 114 → 114 | 117.869662 → 117.734436 | 0.093 → 0.093 |
+| western-park / 2 | 1583 → 1540 | 114 → 114 | 116.452290 → 116.308871 | 0.060 → 0.060 |
+| rubberhose-band / 1 | 2364 → 2173 | 123 → 123 | 150.558292 → 150.385298 | 0.753 → 0.763 |
+| rubberhose-band / 2 | 2415 → 2161 | 123 → 123 | 131.370324 → 131.021291 | 0.663 → 0.671 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 629 / 96 / 14 | 594.181329 | 0.118 |
+| anime-girl / 1 / 64 | 2 | 669 / 106 / 14 | 590.740135 | 0.118 |
+| anime-girl / 2 / 32 | 2 | 654 / 98 / 13 | 591.545719 | 0.153 |
+| anime-girl / 2 / 64 | 2 | 723 / 113 / 13 | 586.937879 | 0.150 |
+| anime-face / 1 / 32 | 3 | 1240 / 108 / 16 | 822.622712 | 0.300 |
+| anime-face / 1 / 64 | 3 | 1542 / 169 / 16 | 815.095012 | 0.300 |
+| anime-face / 2 / 32 | 2 | 1217 / 109 / 18 | 896.663758 | 0.367 |
+| anime-face / 2 / 64 | 2 | 1471 / 165 / 18 | 889.141935 | 0.367 |
+| western-park / 1 / 32 | 2 | 829 / 81 / 21 | 475.496716 | 0.237 |
+| western-park / 1 / 64 | 2 | 890 / 97 / 21 | 472.578237 | 0.237 |
+| western-park / 2 / 32 | 3 | 835 / 81 / 21 | 415.573229 | 0.252 |
+| western-park / 2 / 64 | 3 | 878 / 93 / 21 | 412.836154 | 0.252 |
+| rubberhose-band / 1 / 32 | 4 | 1159 / 131 / 27 | 410.672925 | 0.755 |
+| rubberhose-band / 2 / 32 | 3 | 1093 / 128 / 30 | 451.829038 | 0.730 |
+| rubberhose-band / 2 / 64 | 3 | 1127 / 128 / 30 | 451.889214 | 0.731 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 74.31 / 124.30 / 168.02 |
+| anime-girl | 44.72 / 40.42 / 38.91 |
+| anime-face | 50.71 / 49.42 / 52.73 |
+| western-park | 20.27 / 20.52 / 35.78 |
+| rubberhose-band | 15.35 / 15.59 / 30.54 |
+
+
+The tables use the same two native-admitted source parents, clean 192-pixel
+half-opacity tuning variants, fixed settings and normalizers. Clean geometry
+and feature boxes enter only scoring after generation. Joint ink/plane sword
+four-plane nodes are 3,582 / 5,262 / 3,875 / 5,945, with human MSE
+1,242.375873 / 1,173.240737 / 1,288.559474 / 1,213.750725 for first coarse/fine
+then second coarse/fine. Their paint remains much worse than the finer region
+pool; more boundary precision does not supply the missing coherent surfaces.
+
+Final reports at `.bench/cel-ink-bilateral-final` share source SHA-256
+`a81322531030f12393613f3c1822a89569e0694a709995f65c7e50a915cf047a`.
+All **15 reports complete** and parse as strict JSON; all **175 emitted
+proposals** have zero native validity rejections, complete ownership, component
+seals and independent local/full raster agreement. Maximum score-term difference
+is **3.348527e-9**. Actual saved SVG hashes, matched source RGBA/masks/settings/
+normalizers, clean/human SVG hashes, canonical source-parent geometry/paint and
+exact parent RGBA agree. The audit is
+`.bench/cel-ink-bilateral-final-audit.txt`.
+
+The first sword ink/plane run reaches its unchanged 180-second diagnostic
+allowance at 180.11 seconds, leaving a partial pool. It is preserved at
+`.bench/cel-ink-bilateral-first-pass/sword-ink-planes`, with the first-pass audit
+at `.bench/cel-ink-bilateral-first-pass-audit.txt`. Only that case is rerun;
+the same source/configuration/allowance completes in 168.02 seconds. No timed
+report is called complete merely because its emitted prefix is native-valid.
+The final diagnostic times above do not establish operation runtime, peak
+process memory, automatic selection or held-out quality.
+
+Replay the component commands below with the output root
+`.bench/cel-ink-bilateral-final`. The next missing interpretation remains
+source-supported exterior strokes and coherent shared paint, retaining real
+source gaps. In particular, a paired-ridge detector and a carrier check at
+1.6 times measured width can exclude valid edge lines; grouping must respect
+per-run geometric width ceilings before relaxing that safeguard. The human
+handle repair stays outside generation. Generated drawings remain insufficient
+for useful new references, and all eight deliveries and the remaining release,
+feature, corpus, refinement, UI, runtime, memory and independent-review gates
+stay open. The full implementation goal remains active.
+
+
+### Chain-local ink movement bounds
+
+The previous anchored experiment loses seven of the girl's 44 clean-target
+centerline pixels recovered by the curve comparator. Its ink raster has 315
+fully dark pixels rather than 358, and its centerline shrinks from 136 to 121
+pixels. Nine old centerline samples around the shoes have no anchored sample
+within two pixels. The unchanged line threshold on this half-opacity variant
+detects that loss; the threshold and gate are not relaxed.
+
+The affected source chains have class-wide tolerances around 0.48–0.64 pixels.
+Those area/perimeter estimates mix broad ink shapes with narrower attached
+parts and disconnected shapes sharing paint. A runtime ablation caps all ink
+chains at 0.25 pixels. At `.bench/cel-ink-local-fit/quarter-pixel-ablation`, source
+hash `19976c0c4ac8af6472f91554147bc5a245ce6d58e460a67ad532ef95a4b8db88`,
+it restores first fine line F1 to 0.356 but uses 1,419 nodes rather than curve's
+1,413. That explicitly altered configuration is a diagnosis, not a final
+configured report or release evidence.
+
+Anchored fitting now measures local movement limits from the source ink mask
+beside each canonical boundary. It samples 13 quarter-pixel offsets in each
+normal direction, using a two-step source tangent to avoid single-step pixel
+stair directions. Only contiguous ink contributes width; a real gap, hole or
+off-canvas sample ends the profile. A quarter of that local width supplies a
+0.25–0.75-pixel bound, with the existing scale conversion and configured
+tolerance. The short profile saturates at the maximum movement bound and is
+limited to 4,096 points; longer chains keep the precise fallback. It removes
+the class-wide area/perimeter estimate and its padded label map.
+
+Straight fits must satisfy each point's bound. Raw cubic intervals use the
+minimum local bound between their exact source-corner/junction anchors;
+complete ellipse competitors use a conservative minimum bound. Small source
+components, short closed marks and long unmodeled chains still retain their
+precise raw interpretation. Source ink classification, strokes, material
+hierarchies, ownership limits, native checks and automatic scheduling are
+unchanged. No clean reference geometry or feature rectangle supplies a bound.
+
+The first local-width prototype at `.bench/cel-ink-local-fit/local-width-prototype`
+uses source hash `d988b96e28f265d9f7fa737ca9877e7291fa03ab4393867a6306c511a571d8df`.
+Its first fine girl uses 1,364 nodes / 110 contours, clean MSE 76.498776 and
+line F1 0.374: 32 of 44 clean centerline pixels are recovered again. This
+retains a 3.5% node saving against the curve comparator while fixing the
+observed line loss, with about 0.9% worse pixel error. It is one tuning case,
+not evidence for broader adoption.
+
+The final relevant suite passes **963 tests in 171.02 seconds**. A subsequent
+geometry module run passes **18 controls in 0.43 seconds**, including one added
+control that permits a supported compact line through wide ink while respecting
+narrow ends. This verifies 964 distinct cases across those runs. New controls
+also cover a broad shape with an attached hairline, actual profile gaps,
+off-canvas wrap rejection, closed/reversed chain consistency, rejection of an
+unsupported narrow-bend straight fit and the per-chain point bound. Changed-file
+Ruff/format and production Pyrefly pass; the latter reports zero errors and
+62 warnings, with tests exercised by pytest.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest -q \
+  tests/refine/test_cel*.py tests/refine/test_shared.py \
+  tests/refine/test_simplify.py tests/refine/test_snap.py \
+  tests/operations/test_cel_planned.py tests/operations/test_generate.py \
+  tests/test_bench_cel_planned.py tests/test_cel_pairs.py tests/test_bench_cel_pairs.py
+```
+
+Final reports at `.bench/cel-ink-local-fit-final` share source SHA-256
+`4a5aec2020107400af41cc41869238aa646213d22c502a23c09dfd4ae6b9c22b`.
+The first finer sword curve/local-width drawings use 3,491 / 3,341 nodes,
+381 contours and 17 true strokes, with human MSE 552.116829 / 551.858027.
+The second uses 4,060 / 3,810 nodes, 405 contours and two strokes, with
+MSE 571.093568 / 570.837525. Savings are 4.3% / 6.2%, smaller than the earlier
+class-wide fit. First feature errors are 864.609084 / 286.406778 / 1,050.535336 /
+897.563512 / 1,413.713853 for tip / facets / guard / handle / jewel. The inspected
+blade and handle still contain the same unwanted material patches and filled
+contact remnants. The source gap is retained; the human repair is excluded.
+None of the sword's numerical or local-feature gates passes.
+
+The following region rows compare the finer requested budget of 64 for each
+of the same two source parents. All inputs remain clean 192-pixel, half-opacity
+tuning variants; clean targets and feature boxes enter only post-generation
+scoring. Node savings and line changes are measured on these candidate pools,
+not a selected operation or held-out run.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1364 | 110 → 110 | 75.829113 → 76.498776 | 0.356 → 0.374 |
+| anime-girl / 2 | 1467 → 1421 | 118 → 118 | 74.896255 → 74.943949 | 0.000 → 0.000 |
+| anime-face / 1 | 2728 → 2556 | 190 → 190 | 73.760740 → 74.846677 | 0.431 → 0.431 |
+| anime-face / 2 | 2484 → 2376 | 144 → 144 | 75.542247 → 75.878985 | 0.259 → 0.259 |
+| western-park / 1 | 1584 → 1529 | 114 → 114 | 117.869662 → 117.815816 | 0.093 → 0.093 |
+| western-park / 2 | 1583 → 1526 | 114 → 114 | 116.452290 → 116.332582 | 0.060 → 0.060 |
+| rubberhose-band / 1 | 2364 → 2071 | 123 → 123 | 150.558292 → 150.053506 | 0.753 → 0.763 |
+| rubberhose-band / 2 | 2415 → 2060 | 123 → 123 | 131.370324 → 130.744546 | 0.663 → 0.673 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 601 / 96 / 14 | 594.290225 | 0.118 |
+| anime-girl / 1 / 64 | 2 | 646 / 106 / 14 | 590.882394 | 0.118 |
+| anime-girl / 2 / 32 | 2 | 635 / 98 / 13 | 591.590276 | 0.153 |
+| anime-girl / 2 / 64 | 2 | 707 / 113 / 13 | 586.964346 | 0.150 |
+| anime-face / 1 / 32 | 3 | 1217 / 108 / 16 | 822.264834 | 0.300 |
+| anime-face / 1 / 64 | 3 | 1490 / 169 / 16 | 814.927483 | 0.300 |
+| anime-face / 2 / 32 | 2 | 1188 / 109 / 18 | 896.270601 | 0.367 |
+| anime-face / 2 / 64 | 2 | 1426 / 165 / 18 | 889.054385 | 0.367 |
+| western-park / 1 / 32 | 2 | 807 / 81 / 21 | 475.759309 | 0.237 |
+| western-park / 1 / 64 | 2 | 854 / 97 / 21 | 472.734512 | 0.237 |
+| western-park / 2 / 32 | 3 | 812 / 81 / 21 | 415.965269 | 0.252 |
+| western-park / 2 / 64 | 3 | 841 / 93 / 21 | 413.047283 | 0.252 |
+| rubberhose-band / 1 / 32 | 4 | 1116 / 131 / 27 | 410.645107 | 0.756 |
+| rubberhose-band / 2 / 32 | 3 | 1065 / 128 / 30 | 451.737478 | 0.730 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 80.00 / 74.15 / 134.99 |
+| anime-girl | 9.88 / 10.05 / 13.23 |
+| anime-face | 26.73 / 29.06 / 53.30 |
+| western-park | 11.23 / 11.46 / 27.54 |
+| rubberhose-band | 17.31 / 13.44 / 19.19 |
+
+The eight finer region rows above have no line F1 loss against their matched
+curve comparator.
+Girl first-parent F1 improves 1.8 percentage points, recovering 32 of 44 clean
+centerline samples instead of the old anchored fit's 25. Rubberhose gains one
+percentage point for each parent while saving 12.4% / 14.7% of nodes. Face and
+park retain F1 with node savings. This corrects the observed ink-fitter
+regression; their already poor line/feature scores do not establish release
+quality. Girl and face still have small whole-image error increases.
+
+Feature errors also remain mixed. Girl eyes worsen 0.7% / 0.9%, while hairclip
+error improves 9.1% / 7.4%. The face's star-clip crop worsens **4.4% / 1.9%**;
+first-parent error changes from 303.850856 to 317.276983. The inspected
+11-by-14-pixel crop still contains the star, but its left tip shrinks. A simple
+post-generation color diagnostic (red minus blue > 35 and green minus blue
+> 25 on the white-composited crop) changes 43 gold pixels to 40, removing two
+left-tip pixels present in the reference. That diagnostic is not a new gate.
+That checkpoint bounds only the ink side; it motivates the subsequent
+both-sided constraint above. The route remains optional and offline; neither
+a partial feature recovery nor unchanged RGBA coverage establishes fidelity.
+
+The joint-plane rows show the highest emitted prefix per source parent and
+region seed without human-error selection. Sword four-plane nodes are
+3,573 / 5,074 / 3,738 / 5,693, with human MSE 1,242.308939 / 1,171.534946 /
+1,287.424169 / 1,209.034714 for first coarse/fine then second coarse/fine.
+Ink movement bounds do not repair the missing coherent paint and exterior ink.
+All four tuning plane pools still have much worse paint error than the finer
+region alternatives. Source-cut/RLE exclusions, ownership caps and scheduling
+remain unchanged; this route is also insufficient for reference creation.
+
+All **15 reports complete** and parse as strict JSON. All **172 emitted
+proposals** have zero native validity rejections, complete ownership, component
+seals and independent local/full raster agreement. Maximum score-term difference
+is **3.348527e-9**; actual saved SVG hashes match their reports. Source RGBA,
+masks, settings, normalizers, clean SVG hashes, canonical source-parent geometry/
+paint and exact source-parent RGBA match across the three modes. The independent
+audit is `.bench/cel-ink-local-fit-final-audit.txt`. These measurements use
+separate 180-second sword and 60-second paired diagnostic allowances. They do
+not prove operation runtime, process peak memory or automatic selection.
+
+Use the same component commands below, changing the output root to
+`.bench/cel-ink-local-fit-final`. Final-source regression and native comparisons
+retain the bounds, source-gap and save/reload controls. Next constrain shared
+movement for small material features as well as ink, then extend source-supported
+exterior ink and coherent shared paint boundaries. All eight deliveries and
+all remaining release/corpus/refinement/UI/runtime/memory/independent-review
+gates stay open; the full implementation goal remains active.
+
+
+### Joint ink planes and anchored ink boundaries
+
+The next candidate separates source-supported ink from the material-plane
+observations. `--composition-layout ink-planes` first uses the bounded dynamic
+region grammar with connected ridge evidence. Its ink cells include true
+source strokes where supported and filled interpretations for unmodeled ink;
+the latter are not presented as completed editable centerlines. Material-plane
+paint is estimated from at most 4,096 samples and its error evaluated over
+every selected material pixel, excluding classified ink. Multiscale color-edge
+derivatives also exclude that ink and independently retained stroke owners.
+No human geometry or repaired connection supplies support.
+
+Each prefix is one combined edit, rather than admitting an incomplete ink or
+paint stage. Material shapes continue beneath ink with an explicit underpaint
+class map; primary ink atoms remain in their distinct foreground owners.
+Default material subtrees, retained marks and hidden underpaint support are
+declared separately. Both layers retain the exact atom ledger, component seal,
+paint frames, crossing checks and native/local score. Two region budgets can
+seed the ink interpretation; duplicate complete source/ink seeds are skipped
+only inside that call. The 32-plane, 64-total-cell, source-pixel, source-cut,
+RLE and output-node limits remain unchanged. This route remains offline.
+
+The initial joint prototype at `.bench/cel-ink-planes-prototype` uses source
+SHA-256 `f63fa7099d240a2fd3f33d33004c968f5f53b494af860c43b6f685deaca4bdee`.
+It completes in 163.79 seconds under a separate 180-second diagnostic allowance.
+The first coarse/fine ink seeds emit four-plane drawings at 3,586 / 5,389 nodes,
+338 / 636 contours, 24 strokes and human MSE 1,242.734 / 1,175.110. The second
+parent yields 4,007 / 6,080 nodes, 334 / 642 contours, 15 strokes and errors
+1,289.941 / 1,216.070. Higher requested prefixes exhaust the exact source-atom
+bounds. Ink is less absent than in paint-only planes, but the inspected blade
+still has broken dark edges and the handle contains jagged filled contact
+remnants. This is not a practical gain over the finer Ward region pool or
+legacy CEL, and no gate passes. Merely retaining a dense ink layer is insufficient.
+
+An independent `--composition-boundary-fit anchored` competitor addresses that
+geometry density in either region or joint plane layouts. It fits ink chains
+without Gaussian contour smoothing, keeps canonical junction endpoints and
+supported source corners, and competes as straight segments, bounded complete
+ellipses or raw-data cubics. Estimated band width limits tolerance to one
+quarter of width, clamped to 0.25–0.75 and the configured boundary tolerance
+before the existing analysis/native scale conversion. Short closed chains,
+very long unmodeled chains and independent ink components of at most 64 pixels
+retain precise raw fitting.
+The independent-component check matters: a tiny mark's perimeter can become
+several open callbacks where neighboring material boundaries meet it.
+Source ownership and whole ink support cannot depend on that serialization.
+
+The new cancellation control stops at the final component seal. On generator
+resumption the plane tree now checks cancellation before asking for another
+edge preparation, preserving the complete original namespace and checkpoint.
+The strict 70-island controls retain every disconnected dark pixel without
+bridges, including marks divided by material junctions. Both curve and anchored
+fits exercise these cases; the source atom split assertions distinguish
+legitimate material cuts from a split or lost ink island.
+
+Additional controls cover source ink crossing three material colors, actual
+gaps, holes, half/opaque coverage, underpaint exposed by disabling new ink,
+protected paint/locks/pins/fixed source marks, call-local seed deduplication,
+native/local score, complete seals and save/reload. Carried-stroke composition
+controls exercise several complete prefixes for all three layouts and both
+boundary fits at half/quarter opacity; larger trees remain covered by full
+native artwork pools. Final verified regression and matched measurements
+follow below.
+
+The relevant full regression run passes **965 tests in 237.82 seconds**. The
+subsequently expanded carrier-frame module passes **eight controls in 14.44
+seconds**, including four added joint-plane cases: half/quarter opacity with
+both original and affine-reexpressed carriers. They check real stroke paths,
+exact native coverage, ownership, local/native agreement and reload. In total,
+969 distinct regression/control cases are verified. Changed-file Ruff/format
+and production Pyrefly checks pass.
+
+Final reports at `.bench/cel-ink-material-final` use source SHA-256
+`19976c0c4ac8af6472f91554147bc5a245ce6d58e460a67ad532ef95a4b8db88`.
+The current curve/anchored sword region pools complete in 77.77/65.96 seconds
+under separate 180-second diagnostic allowances. First fine candidates are
+3,491 / 3,231 nodes, both 381 contours and 17 strokes, with human MSE
+552.116829 / 551.833318. The second candidates are 4,060 / 3,720 nodes, both
+405 contours and two strokes, with errors 571.093568 / 570.420840. Anchored
+fitting saves 7.4% / 8.4% of nodes while leaving image error nearly unchanged.
+The stronger small-mark preservation makes the first saving smaller than the
+earlier 9.2% prototype; that prototype is not the final implementation.
+The first drawing still exceeds legacy's nodes by 39.7%, and none of the
+800-node / 140-contour / 497.39-MSE sword requirements passes.
+
+The first anchored region candidate's feature errors are 864.380295 /
+286.406778 / 1,049.260585 / 897.601094 / 1,416.967109 for tip / facets / guard /
+handle / jewel. The tip, handle and jewel remain worse than legacy's respective
+527.530766 / 762.427316 / 1,385.495186. The inspected crop still contains a
+wavy material boundary, a stray filled blade patch and rough handle contact
+remnants. Seventeen true strokes do not establish complete editable ink.
+
+The final joint ink-plane sword pool finishes in 155.13 seconds. Each of four
+ink seeds fits 32 material planes internally; only prefixes through four
+planes fit the unchanged source-atom ledger. There are 24 atom exclusions and
+zero geometric exclusions. These are the highest emitted prefixes, selected
+by plane count, not human error:
+
+| Sword source parent / region seed budget | Material planes / ink cells | Nodes / contours / true strokes | Human MSE |
+| --- | --- | --- | ---: |
+| First / 32 | 4 / 15 | 3,450 / 338 / 24 | 1,241.551269 |
+| First / 64 | 4 / 31 | 5,275 / 636 / 24 | 1,172.632252 |
+| Second / 32 | 4 / 13 | 3,058 / 334 / 15 | 1,270.311660 |
+| Second / 64 | 4 / 24 | 5,862 / 642 / 15 | 1,212.082868 |
+
+First coarse joint-plane feature errors are 1,564.715112 / 764.156376 /
+2,489.428436 / 1,747.388447 / 2,746.790911. The inspected blade still loses
+parts of its dark edge and has unsupported-looking long shade divisions; the
+handle keeps clear stroke intervals mixed with jagged filled remnants. The
+actual source gap remains, rather than the human repair. Separating classified
+ink from paint improves the paint-only plane experiment but does not recover
+faithful surfaces or a complete compact ink interpretation.
+
+### Matched cross-artwork controls for ink/material fitting
+
+All four existing clean, 192-pixel, half-opacity tuning cases compare the same
+first two native-admitted source-stroke parents. These rows use the finer
+requested region budget of 64; neither clean geometry nor feature boxes enter
+generation. They are candidate-pool diagnostics, not selected operation
+outputs, held-out results or complete line/feature gates.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1,413 → 1,303 | 110 → 110 | 75.829113 → 75.832453 | 0.356 → 0.275 |
+| anime-girl / 2 | 1,467 → 1,374 | 118 → 118 | 74.896255 → 74.802880 | 0.000 → 0.000 |
+| anime-face / 1 | 2,728 → 2,631 | 190 → 190 | 73.760740 → 74.002528 | 0.431 → 0.431 |
+| anime-face / 2 | 2,484 → 2,305 | 144 → 144 | 75.542247 → 75.556171 | 0.259 → 0.259 |
+| western-park / 1 | 1,584 → 1,438 | 114 → 114 | 117.869662 → 117.778856 | 0.093 → 0.093 |
+| western-park / 2 | 1,583 → 1,449 | 114 → 114 | 116.452290 → 116.111826 | 0.060 → 0.060 |
+| rubberhose-band / 1 | 2,364 → 1,729 | 123 → 123 | 150.558292 → 149.879757 | 0.753 → 0.759 |
+| rubberhose-band / 2 | 2,415 → 1,762 | 123 → 123 | 131.370324 → 130.962602 | 0.663 → 0.671 |
+
+Anchored ink fitting saves 26.9% / 27.0% of rubberhose nodes while slightly
+improving its pixel and line scores. Face and park retain line F1 while saving
+nodes. The first girl loses **8.1 percentage points of line F1**, despite nearly
+identical pixel error. That violates the line allowance; it cannot be averaged
+away or justified by the other drawings. The fitter stays optional and offline.
+Its small native/synthetic controls do not prove preservation of every real
+artwork's ink.
+
+The joint ink-plane route uses source-connected ink rather than paired-only
+ridge evidence. These rows retain the highest emitted material prefix for
+each source parent and region seed, again without oracle selection:
+
+| Tuning ink/plane case / parent / region seed budget | Material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 629 / 96 / 14 | 594.324751 | 0.118 |
+| anime-girl / 1 / 64 | 2 | 660 / 106 / 14 | 591.048377 | 0.118 |
+| anime-girl / 2 / 32 | 2 | 661 / 98 / 13 | 591.540768 | 0.151 |
+| anime-girl / 2 / 64 | 2 | 707 / 113 / 13 | 586.796797 | 0.151 |
+| anime-face / 1 / 32 | 3 | 1,189 / 108 / 16 | 821.108335 | 0.301 |
+| anime-face / 1 / 64 | 3 | 1,513 / 169 / 16 | 814.367076 | 0.300 |
+| anime-face / 2 / 32 | 2 | 1,185 / 109 / 18 | 895.634060 | 0.367 |
+| anime-face / 2 / 64 | 2 | 1,457 / 165 / 18 | 888.359486 | 0.367 |
+| western-park / 1 / 32 | 2 | 801 / 81 / 21 | 475.080151 | 0.237 |
+| western-park / 1 / 64 | 2 | 843 / 97 / 21 | 472.167018 | 0.237 |
+| western-park / 2 / 32 | 3 | 820 / 81 / 21 | 415.089982 | 0.252 |
+| western-park / 2 / 64 | 3 | 837 / 93 / 21 | 412.069040 | 0.252 |
+| rubberhose-band / 1 / 32 | 4 | 998 / 131 / 27 | 410.419160 | 0.747 |
+| rubberhose-band / 2 / 32 | 3 | 938 / 128 / 30 | 451.313150 | 0.727 |
+
+Rubberhose has one emitted ink seed per parent: the first has no second
+eligible region seed, and the second's duplicate is skipped within that call.
+Both region hierarchies report one unmet requested budget. Broader prefixes
+exhaust exact atom support. More true strokes sometimes improve line recall
+against the region pool, but every artwork's paint error is much worse.
+The inspected girl loses most of its coherent body/clothes paint. The combined
+route is insufficient for automatic adoption or reference creation.
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 77.77 / 65.96 / 155.13 |
+| anime-girl | 11.29 / 10.89 / 13.01 |
+| anime-face | 32.20 / 33.30 / 46.47 |
+| western-park | 16.62 / 13.30 / 29.94 |
+| rubberhose-band | 14.75 / 16.50 / 54.55 |
+
+The 15 final reports all complete with the same source hash and parse as
+strict JSON. All **172 emitted proposals** have zero native validity rejections,
+complete ownership, component seals and independent local/native raster
+agreement. The maximum local/full score-term difference is
+**3.348527e-9**. Every saved SVG's actual SHA-256 matches its report. Matched
+reference RGBA, masks, settings, normalizers, clean SVG hashes and both source
+parents agree; canonical parent geometry/paint and exact rendered RGBA match
+after renaming fresh document IDs. These prove the reported comparison's
+integrity, not the separate quality gates. The full-render and scoring work
+still uses diagnostic allowances, not the frozen selected-operation budget
+or a process peak-memory measurement.
+
+Two sequential batch drivers terminated with exit 143 between reports. After
+confirming no benchmark child remained, completed final-hash reports were
+retained and the missing cases rerun individually. Every authoritative timing
+above comes from a completed report; incomplete runs do not supply evidence.
+The final independent audit is `.bench/cel-ink-material-final-audit.txt`.
+
+Reproduce each layout/boundary pair: `regions/curve`, `regions/anchored` and
+`ink-planes/anchored`. Run the four paired names above under a 60-second
+allowance; use `--normalizer 54564 --seconds 180` instead of `--pair` for sword.
+For example:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m scripts.bench_cel_component \
+  --proposal source-strokes --boundary-contacts --compose-materials \
+  --pair anime-girl --seconds 60 --composition-layout ink-planes \
+  --composition-boundary-fit anchored \
+  --out .bench/cel-ink-material-final/anime-girl-ink-planes
+```
+
+Next test a source-supported one-sided exterior ink model, with narrow
+interior contrast rather than background contrast, constant-dark material
+negatives and preserved physical gaps. The blade crop motivates that
+hypothesis; it is not yet an implemented interpretation. Also replace whole
+carrier plane cuts with supported shared curved material boundaries, diagnose
+the girl's anchored-fit line loss, and complete compact opacity/noise models.
+All eight deliveries, numerical/local-feature, corpus, UI, automatic fitting,
+runtime/memory, held-out and independent-review gates remain open. The full
+implementation goal remains active.
+
+### Source-supported facet-plane competitor
+
+An optional joint `layout="planes"` now competes with the region hierarchy in
+the offline component comparator (`--composition-layout planes`). It estimates
+flat/common-axis linear RGB paint from at most 4,096 source samples per cell,
+evaluates error over every selected source pixel, proposes bounded binary
+material cuts, and selects each next split by that complete source-paint error
+reduction. The sampled parameter estimate is not an optimal complete-pixel
+least-squares fit. Requested prefixes are 1, 2, 3, 4, 6, 8, 12, 16,
+24 and 32 cells; a completed terminal prefix also competes when its count is
+not listed. Each prefix retains the unchanged coverage carrier, independent
+marks and actual source-supported SVG strokes. It uses the existing exact
+source-atom ledger, component seal, paint frames, native/local score and
+admission rules. This is a candidate generator, not automatic scheduling or
+a learned ranker.
+
+The source edge voter normalizes Gaussian RGB derivatives by visible support
+at three scales (0.7, 1.4 and 2.8 pixels). Empty background and holes cannot
+invent paint contrast. It retains at most 4,096 edge points per scale on at
+most 1,536 squared source pixels, votes only inside the current cell, and
+refines directions from source points instead of exporting angle-bin centers.
+At most 16 distinct lines compete per cell. A line needs observations across
+at least half of the actual cut's four-pixel tangent bins; a short edge patch
+cannot justify an extrapolated cut across an entire large surface. These are
+source hypotheses, with no human geometry, feature boxes or role names used
+to construct or rank them.
+
+Boolean-clipped plane fills receive bounded geometric winding resolution when
+they contain crossings. The unchanged native crossing check still determines
+admission; a failed or interrupted repair emits no proposal. Partial owner
+trees and canceled edge caches are never published. The production source-atom
+bounds remain 64 cuts and 16,384 RLE runs. Raising those bounds is not a quality
+fix and no schema or limit expansion is included.
+
+New controls discover a tilted low-contrast soft edge missed by raw one-pixel
+votes, reject false edges at holes/exteriors and unsupported long cuts, and
+check flat input, cancellation and bounded preparation. Complete three-plane
+material drawings preserve half-opacity/opaque coverage and real holes, exact
+source atoms, component seals, local/native agreement and save/reload. Held
+marks retain their original geometry, paint and source owner. Both layouts run
+the source-stroke composition controls at half/quarter opacity, with and
+without a real source gap; every retained editable stroke stays identical.
+
+The earlier multiscale prototype used source SHA-256
+`59fd5b05a898c8ed70a6ebc26a5c3d98704b6426d747fe16cb4516f6e4ae8524`.
+An explicitly recorded runtime ablation raised only the cut cap to 512; its
+16,384-run cap stayed unchanged. The first 16-plane drawing used 1,351 nodes /
+289 contours, but human MSE was 1,350.386 and four new self-crossings caused
+native rejection. Its blade crop visibly extrapolated short edge patches into
+long false boundaries. The second parent was similarly poor, and 24/32-plane
+outputs still exhausted source RLE support. Those reports at
+`.bench/cel-facet-planes-cut-ablation` are historical, explicitly altered
+configurations; they are not final configured output or release evidence.
+Their failure motivated the current cut-support condition and geometric repair
+and does not justify raising the production ownership limits.
+
+The full relevant regression suite passes **909 tests in 146.23 seconds**;
+changed-file Ruff/format and production Pyrefly checks pass. Final matched
+reports at `.bench/cel-facet-planes-final` use source SHA-256
+`3be2013e4c451772d98029dc051d6a8c4fbb9dc91d24311c50baa3e592a10ae5`.
+The configured sword plane pool completes in 71.46 seconds under its separate
+180-second diagnostic allowance. It reaches 32 fitted cells for each parent,
+but seven requested prefixes per parent exceed exact source-atom bounds;
+only 1/2/3-cell drawings are emitted. There are no geometric repair exclusions.
+
+| Sword plane count | First parent nodes / contours / human MSE | Second parent nodes / contours / human MSE |
+| --- | --- | --- |
+| 1 | 1,195 / 272 / 3,257.798078 | 1,154 / 257 / 3,338.781717 |
+| 2 | 1,213 / 273 / 2,665.148898 | 1,172 / 258 / 2,740.189502 |
+| 3 | 1,226 / 274 / 2,208.530051 | 1,192 / 259 / 2,211.818685 |
+
+The first parent keeps 17 true strokes, the second two. The first three-plane
+feature errors are 3,058.268916 / 1,897.943817 / 3,344.647608 / 2,079.841481 /
+2,500.464449 (tip / facets / guard / handle / jewel). Its inspected blade crop
+has broad smooth shade bands but loses the dark outlines; the handle retains
+editable source lines while paint is badly simplified. More compact geometry
+does not mean a faithful drawing. The human's source-defect repair remains
+excluded, and no quality/structure or operation-runtime gate passes.
+
+The matched region comparator reproduces 3,491 nodes / 381 contours / 17
+strokes / human MSE 552.116829 for its first fine parent and 4,060 / 405 / two
+strokes / 571.093568 for its second; generation/validation takes 77.21 seconds.
+The plane pool saves nodes but has roughly four times the image error. The
+existing 800-node / 140-contour / 497.39-MSE milestone remains unmet.
+
+Eight matched clean 192-pixel / half-opacity tuning reports use separate
+60-second diagnostic allowances. These rows show the highest emitted prefix
+for each source parent; they are neither equal-cost outputs nor selected or
+oracle-chosen operation results.
+
+| Artwork | Region nodes / contours, first then second | Plane cells and nodes / contours, first then second | Region / plane clean MSE, first then second |
+| --- | --- | --- | --- |
+| anime-girl | 1,413 / 110; 1,467 / 118 | 2: 22 / 4; 2: 22 / 4 | 75.8291 / 744.4589; 74.8963 / 687.1882 |
+| anime-face | 2,728 / 190; 2,484 / 144 | 4: 36 / 7; 4: 40 / 8 | 73.7607 / 744.7980; 75.5422 / 733.3636 |
+| western-park | 1,584 / 114; 1,583 / 114 | 3: 23 / 6; 6: 29 / 7 | 117.8697 / 553.1209; 116.4523 / 464.2396 |
+| rubberhose-band | 2,364 / 123; 2,415 / 123 | 6: 70 / 12; 4: 54 / 11 | 150.5583 / 454.7098; 131.3703 / 528.4406 |
+
+First-parent region/plane line F1 is 0.356/0.032 (girl), 0.431/0.099 (face),
+0.093/undefined (western: zero recall and no positive matches), and
+0.753/0.326 (rubberhose). Second-parent values are 0/undefined, 0.259/0.259,
+0.060/0 and 0.663/0.086. Undefined metrics remain JSON null rather than a
+fabricated success. The inspected face eye crop visibly loses the ink and
+highlight detail. Plane/region generation-validation times are 12.44/15.27,
+36.49/31.38, 15.77/13.54 and 16.28/16.16 seconds. Every pool completes, but
+none of this establishes faithful cross-artwork output or a release gate.
+
+All ten final reports parse as strict JSON and match the final source hash.
+Their **109 emitted proposals** pass native admission, complete ownership,
+component seals and independent native/local raster agreement; maximum score
+term difference is below 3.35e-9. Each matched pair uses identical source RGBA,
+mask, settings and normalization. Both admitted source parents have identical
+geometry/paint after ID renaming and identical rendered RGBA. Raw SVG hashes
+differ because document root/defs/stop IDs are fresh UUIDs; the comparison does
+not assume byte-identical identity names. The audit is recorded at
+`.bench/cel-facet-planes-final-audit.txt`. Native validity is necessary but
+insufficient for the separate quality, feature and line gates.
+
+The evidence directs the next model toward coherent source ink retained above
+material underpaint and supported shared boundaries, including curved runs and
+local junctions. Whole-carrier straight planes cannot substitute for those
+outlines. More cuts or a learned selector cannot choose missing ink geometry;
+unlimited cut extrapolation is already a failed diagnostic. Compact supported
+opacity and explicit source-based incidental-texture hypotheses remain open
+as well. Neither layout is automatically scheduled, generated drafts remain
+too poor for new references, and all eight deliveries and frozen gates remain
+open.
+
+Reproduce the matched diagnostic with `PYTHONPATH=src:.` and the repository
+Python environment:
+
+```sh
+python -m scripts.bench_cel_component --proposal source-strokes \
+  --boundary-contacts --compose-materials --composition-layout planes \
+  --normalizer 54564 --seconds 180 --out .bench/cel-facet-planes-final/sword-planes
+python -m scripts.bench_cel_component --proposal source-strokes \
+  --boundary-contacts --compose-materials --composition-layout regions \
+  --normalizer 54564 --seconds 180 --out .bench/cel-facet-planes-final/sword-regions
+```
+
+For each of `anime-girl`, `anime-face`, `western-park` and `rubberhose-band`,
+replace the normalizer override with `--pair NAME`, use `--seconds 60`, and
+give each layout a separate output directory. Run sequentially with the same
+source hash; these allowances measure offline discovery/validation, not the
+normal operation's 60-second runtime or total process memory.
+
+### Complete-owner material-fit hierarchy
+
+The next competitor uses complete source-owner sufficient statistics instead
+of flat RGB averages when ranking material unions. It reuses the existing
+flat/common-axis linear RGBA fit, updates the fit after every union, and refits
+actual SVG paint before native evaluation. This is an optional `paint-fit`
+hierarchy, not a learned ranker or an automatically scheduled route. The
+component comparator exposes `--composition-grouping paint-fit`, retains both
+admitted source-stroke parents and now records each parent's material-discovery
+diagnostics even when no material candidate is emitted.
+
+These material paints live inside the unchanged coverage carrier, so their
+intrinsic alpha is one. The hierarchy fits RGB in that frame; source edge alpha
+comes from the carrier. An early whole-source-alpha prototype emitted no
+compositions because antialias variation became an inappropriate material
+barrier. The generic hierarchy still supports complete RGBA statistics and
+rejects unexplained broad alpha variation. Actual native RGBA, independent
+faint components, opacity steps, holes, paint frames and ownership always face
+the same admission policy. No source alpha or feature allowance is changed.
+
+Discovery retains the 4,096-material / 16,384-edge bounds and exact physical
+component eligibility. Source statistics are bounded to 16,384 atoms; every
+hierarchy is capped at 32,768 fit evaluations, including seeds. Budget or model
+exhaustion returns a complete recorded prefix; cancellation discards the
+partial hierarchy. Ink roles and independently owned small components remain
+separate. The fit cost is a hypothesis-discovery lower bound, not an exported
+paint or acceptance proof.
+
+Synthetic controls distinguish a true shading ramp from a facet change at
+an equal material budget, recover flat grouping when gradients are disabled,
+preserve an alpha step, admit a supported alpha ramp, retain independent ink
+and small marks, and exercise invalid statistics, cancellation and exhaustion.
+The fit mode also runs the existing joint native controls for hatching, more
+than 64 ink islands without bridges, dark surfaces, source ownership, opacity,
+holes, locks/pins/fixed paint, reload and an actual selected checkpoint.
+The full relevant regression suite passes **892 tests in 118.09 seconds**;
+the four focused hierarchy/component modules pass **104 in 10.37 seconds**.
+Changed-file Ruff/format and production Pyrefly checks pass.
+
+Final matched reports at `.bench/cel-material-fit-final` use source SHA-256
+`a6b91d62d176843f4c84aae61bb728f05d40fd20f9f0d346ea3fc9450ef3b43d`.
+The sword retained hierarchy completes in 72.86 seconds; `paint-fit` completes
+in 80.62, both under separate 180-second diagnostic allowances. The requested
+64-cell thresholds yield these first/second-parent candidates:
+
+| Sword hierarchy and parent | Nodes | Contours | Strokes | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Ward, first | 3,491 | 381 | 17 | 552.116829 |
+| Paint fit, first | 3,511 | 380 | 17 | 557.471068 |
+| Ward, second | 4,060 | 405 | 2 | 571.093568 |
+| Paint fit, second | 4,132 | 403 | 2 | 546.946917 |
+
+The first fit candidate has cost 6,117; its five feature errors are
+881.246241 / 284.154340 / 1,083.317579 / 875.730379 / 1,432.400103.
+Handle human error falls 2.4%, but overall human error rises 1.0%; nodes also
+increase. The visually inspected handle retains connected stroke interiors
+and source contact fragments, yet material boundaries remain rough. The
+second fit parent improves overall human error 4.2% at 1.8% more nodes and
+only two strokes. Neither is a practical quality/structure win. Both 32-cell
+coarse candidates reproduce the previous severe paint damage. The first fine
+fit drawing still has 2,257 nodes in 43 material paths, compared with Ward's
+2,237; the 254 retained partial-opacity paths remain unchanged. A better paint
+union cost has not supplied the missing coherent facet geometry.
+
+Eight matched clean 192-pixel / half-opacity tuning reports use 60-second
+diagnostic allowances and retain both finer parents:
+
+| Artwork | Ward nodes / contours, first then second | Fit nodes / contours, first then second | Ward / fit clean MSE, first then second |
+| --- | --- | --- | --- |
+| anime-girl | 1,413 / 110; 1,467 / 118 | 1,441 / 110; 1,466 / 118 | 75.8291 / 70.7194; 74.8963 / 69.6309 |
+| anime-face | 2,728 / 190; 2,484 / 144 | 2,463 / 160; 2,486 / 153 | 73.7607 / 67.5535; 75.5422 / 70.0447 |
+| western-park | 1,584 / 114; 1,583 / 114 | 1,564 / 113; 1,592 / 112 | 117.8697 / 113.2441; 116.4523 / 114.8377 |
+| rubberhose-band | 2,364 / 123; 2,415 / 123 | 2,366 / 122; 2,514 / 128 | 150.5583 / 144.2311; 131.3703 / 128.7546 |
+
+These are requested thresholds, not equal-cost output or oracle-selected
+parents. The face first candidate saves 9.7% of nodes and 15.8% of contours
+while improving clean MSE 8.4%; its line F1 stays 0.431. However, the girl first
+candidate's line F1 falls from 0.356 to 0.032 despite lower image error. The
+other first-parent line F1 comparisons are 0.093/0.089 (western) and
+0.753/0.752 (rubberhose); second-parent values are 0/0, 0.259/0.258,
+0.060/0.060 and 0.663/0.663. Material fitting can improve paint while harming
+line structure, so it cannot establish automatic adoption or complete the
+combined planner. Ward/fit generation-validation times are 19.77/17.80,
+46.17/41.22, 15.84/17.31 and 30.42/46.68 seconds. Timings are diagnostics,
+not demonstrated normal operation or runtime/memory gate passes.
+
+All ten pools finish with **94** emitted proposals, all native-valid,
+completely owned, component-sealed and independently raster-checked. Maximum
+local/full term difference is **3.35e-9**. The ten pool reports plus the
+source-owner audit parse as strict JSON and match the source hash. The
+verification record is `.bench/cel-material-fit-verification.json`. Normal
+operation does not schedule this route; no production quality improvement or
+release gate is claimed. All eight deliveries remain open. Keep the fit model
+as a bounded optional competitor, and next supply coherent facet geometry and
+source-based opacity/texture interpretations without sacrificing supported
+lines or faint marks. Human-only repairs remain outside generation.
+
+Replay the current pool command with `--composition-grouping paint-fit`, or
+`--composition-grouping ward` for its matched comparator. Keep
+`--proposal source-strokes --boundary-contacts --compose-materials`; use
+`--normalizer 54564 --seconds 180` for the sword, or `--pair ARTWORK --seconds 60`
+for the existing tuning artwork.
+
+A post-generation source-owner audit changes the opacity diagnosis. The 254
+exactly retained partial-opacity paths / 1,118 nodes are **135 separate source
+components**, not a continuous carrier fringe. They own 299 source atoms /
+620 pixels, with total alpha mass **3.207843 opaque-pixel equivalents**.
+Of these, 134 components / 251 paths / 1,106 nodes have peak alpha at most
+5/255; the remaining component contains only three pixels and peaks at 7/255.
+The 25 components with at least four pixels account for 127 paths / 605 nodes /
+454 pixels / alpha mass 2.349020, matching the previously diagnosed faint
+component supports. Their mass checks remain mandatory. The other 110
+components account for 127 paths / 513 nodes / 166 pixels. This is an inventory,
+not a basis for deleting faint marks or weakening admission. Compact supported
+opacity models and an explicit source-based incidental-texture interpretation
+need separate hypotheses; silhouette fitting alone cannot remove this cost.
+The audit verifies an exact initializer hash and records the current source
+hash at `.bench/cel-material-owner-audit.json`.
+
+### Boundary contacts and complete source-run groups
+
+The next source audit found valid trough evidence for 89 of 128 examined runs,
+but the carrier/width proof admitted only six. Many wrapping runs contact the
+silhouette. The optional `--boundary-contacts` hypothesis preserves the source
+contact ends as exact filled evidence and fits only existing interior intervals
+as editable strokes. It erodes the actual carrier by the reserved half-width
+and fitting tolerance to discover intervals, then checks every fitted stroke's
+full footprint again. It never extends endpoints, connects distinct endpoints,
+fills source gaps or imports the human repair. No SVG clipping shortcut is used.
+
+Contact discovery adds at most eight intervals per original run, 128 additional
+measured intervals and 16,384 additional points; original component, run,
+pixel, mask and crop limits remain. The source component can cut up to 256 paths
+and continue up to 256 neighboring paths, retaining the 6,000-node input/output
+bounds, 64 exact atom cuts, unchanged frames/locks, order proofs, branch-memory
+accounting and exact native evaluation. The observed large sword model spans
+220 source owners with only 1,229 input nodes; its neighbor inventory peaks at
+65 and 53 paints actually continue. The old 128-path/64-neighbor limits excluded
+this group despite its bounded geometry. Other operators retain their bounds.
+
+Two exact source-cut sides contain ownership samples but no visible fitted
+geometry. The contact route uses one-moveto, zero-area ledger paths for those
+sides rather than stealing visible remainder geometry or losing ownership.
+These intermediates render no paint, preserve independent source marks and
+survive save/reload. The complete replacement is evaluated atomically; source
+ownership alone never proves coverage.
+
+Persistent Float32 Boolean seam crossings are resolved geometrically. Curve
+winding is preferred; only a persistent crossing triggers bounded chord
+subdivision at 0.02 native pixels and the editor's double-precision fill-rule
+classification. The resulting geometry is checked in native and paint frames
+and by the unchanged native policy. Real holes are preserved. This introduces
+no crossing allowance or small-loop exemption, and node/deadline exhaustion
+retains the original proposal state.
+
+The component comparator now uses its full diagnostic allowance for source
+proposals, with at most two admitted material parents. This avoids confusing
+the future operator's quarter-window scheduling with the offline pool audit.
+Both retained-contact and interior-contact comparators use the same allowance;
+these are still not selected operation outputs or 60-second gate passes.
+
+Current reports use source SHA-256
+`51aaab49826b730b8356f49914230fc7cfa187445959896ad668b14b1f113139`.
+`.bench/cel-boundary-contacts-final/summary.json` finishes generation and native
+validation in **69.37 seconds** under a separate 180-second allowance. The
+matched retained-contact comparator at `.bench/cel-boundary-contacts-retained`
+takes **38.15 seconds** and reproduces the earlier finer sword exactly.
+
+| Sword candidate | Nodes | Contours | Strokes | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initializer | 10,286 | 1,711 | 0 | 512.807919 |
+| Contact-supported source replacement | 14,259 | 2,311 | 17 | 517.2808 |
+| Composed 32-cell threshold | 2,125 | 334 | 17 | 3,234.7438 |
+| Composed 64-cell threshold | 3,491 | 381 | 17 | 552.1168 |
+| Matched finer retained-contact comparator | 3,630 | 387 | 6 | 548.482334 |
+
+The large source model owns 2,892 pixels, makes nine exact cuts and retains
+17 source runs at width 2.032336. Contact remeasurement examines 16 intervals /
+754 points beyond the original 128 runs / 6,379 points. Four source proposals
+and four material compositions are emitted; all eight pass native admission,
+complete ownership, component seals and independent raster agreement. Maximum
+local/full term difference is **1.22e-9**. One order interpretation is excluded.
+
+The finer first composition has 321 paths, 30 gradients and cost 6,017. Its
+tip/facet/guard/handle/jewel MSE is 864.6013 / 286.4068 / 1,049.9377 /
+897.5313 / 1,421.7726. The handle crop was visually inspected: supported
+diagonals now read as connected stroke interiors, with exact contact fragments
+remaining at the source edge. Material shade fragments and missing supported
+details remain. Against the retained-contact comparator, nodes fall 3.8% and
+handle error 1.8%, but overall human MSE rises 0.7% and tip error rises 21.8%.
+The coarse candidate meets legacy's counts but severely damages paint. The
+fine candidate still has 51.0% more nodes and 12.4% more contours than legacy,
+and fails the practical milestone and frozen release gates.
+
+A separate post-generation source audit at
+`.bench/cel-boundary-contacts-source-comparison.json` verifies the frozen mask
+and records source/candidate hashes. The finer contact candidate has source
+MSE 232.053207 versus 270.513104 for retained contacts; source handle MSE falls
+from 298.067235 to 215.095334 (27.8%). This helps separate source fidelity from
+the human-only repair. It is still worse than saved legacy CEL's source handle
+MSE 156.200069; the source initializer is 219.011106. No human feature gate is
+waived, and a gain against the previous experiment is not a legacy quality win.
+
+Eight tuning reports at `.bench/cel-boundary-contacts-pairs` compare both
+hypotheses on clean 192-pixel, half-opacity inputs with 60-second diagnostic
+allowances. Both first/second finer parents are retained in the evidence:
+
+| Artwork | Retained nodes / contours, first then second | Contact nodes / contours, first then second | Retained / contact clean MSE, first then second |
+| --- | --- | --- | --- |
+| anime-girl | 1,413 / 110; 1,467 / 118 | 1,413 / 110; 1,467 / 118 | 75.8291 / 75.8291; 74.8963 / 74.8963 |
+| anime-face | 2,728 / 190; 2,559 / 149 | 2,728 / 190; 2,484 / 144 | 73.7607 / 73.7607; 75.7653 / 75.5422 |
+| western-park | 1,583 / 114; 1,563 / 110 | 1,584 / 114; 1,583 / 114 | 116.4523 / 117.8697; 121.9666 / 116.4523 |
+| rubberhose-band | 2,364 / 123; 2,415 / 123 | 2,364 / 123; 2,415 / 123 | 150.5583 / 150.5583; 131.3703 / 131.3703 |
+
+These are requested 64-cell thresholds, not equal output costs or oracle-chosen
+parents. The face second parent gains a fourth stroke and line F1 0.259 versus
+0.159. Western's first parent gains three strokes and F1 0.093 versus 0.060 but
+worsens clean MSE; its second contact parent is the first retained parent.
+Girl and rubberhose finer compositions remain identical. The complete pools
+have 76 emitted proposals, all admitted, owned, sealed and raster-checked;
+maximum disagreement is **3.35e-9**. Retained/contact diagnostic times are
+10.69/11.79, 26.05/30.72, 11.47/13.89 and 21.41/22.42 seconds respectively.
+
+This establishes broader source-stroke availability and useful handle structure,
+not a completed delivery. Improve coherent materials/facets and joint fitting
+next; a ranker still cannot supply those missing hypotheses. Automatic adoption,
+product controls, independent review and generated-reference collection remain
+downstream. All eight deliveries remain open.
+
+The representation inventory at `.bench/cel-boundary-contacts-inventory.json`
+locates the remaining cost: 43 new material/cut paths contain 2,237 nodes;
+276 exactly retained paths contain 1,206; the compound 17-run stroke has 47;
+one changed zero-area survivor has one. Of the retained paths, 254 with
+intrinsic partial opacity contain **1,118 nodes**, and 22 intrinsically opaque
+paths contain 88. Fitting just the 47 stroke nodes cannot produce an 800-node
+drawing. Coherent surface boundaries and compact opacity/fringe hypotheses
+must be evaluated together, preserving real faint marks, holes, alpha steps
+and exact native coverage. Counts do not justify deleting those supports.
+
+Ten additional controls cover contact ends, preserved gaps at half/quarter
+opacity, invisible selected/retained ownership sides, source-cut raster and
+reload invariance, persistent seam correction in native/skewed frames with a
+real hole, cancellation and node exhaustion. The full relevant CEL,
+shared/simplify/snap, generation and benchmark suite passes **866 tests in
+169.87 seconds**; changed-file Ruff/format and production Pyrefly checks pass.
+The 70 focused operator cases pass in 24.83 seconds. Thirteen source-matched
+reports parse as strict JSON, including the post-generation source audit.
+Across ten component pools all **87** emitted proposals pass native validity,
+ownership, component seals and independent raster agreement; maximum local/full
+term difference is **3.35e-9**. The separate representation inventory also
+records source and candidate hashes.
+
+Normal operation still does not schedule this route. The fresh 60-second sword
+replay at `.bench/planned-boundary-contacts-final/summary.json` retains exactly
+8,588 nodes / 1,315 contours / 1,285 paths / zero strokes / human MSE
+551.151174, in 54.63 seconds. It attempts 12 edits, accepts nine, checkpoints
+four and reports zero disagreements or overshoot. Its five feature errors are
+unchanged from the prior checkpoint. Normal 20-second paired controls at
+`.bench/planned-boundary-contacts-pairs/summary.json` select 174 / 26, 176 / 16,
+545 / 75 and 405 / 62 nodes/contours; clean MSE is 161.469218 / 206.738285 /
+178.742483 / 167.112197. Their line F1 remains 0.270 / 0.589 / 0.652 / 0.641.
+Slight timed selection differences are not a causal benefit of the offline
+contact hypothesis. No release gate is claimed passed.
+
+Replay the contact pool with the previous component command plus
+`--boundary-contacts`; omit that flag for the matched retained-contact pool.
+Use 180 seconds and normalizer 54,564 for sword diagnostics, or `--pair`
+with 60 seconds for tuning artwork. Full diagnostic proposal discovery does
+not establish operation scheduling, runtime or process-memory bounds.
+
+### Previous source strokes followed by material compaction
+
+The next experiment separates stroke replacement from forced paint collapse.
+`SourceStrokes` replaces supported source runs while retaining the current
+material paints and frames, continuing neighboring paint only into removed ink.
+Its output contains ordinary editable SVG strokes. Exact cuts preserve mixed
+owners and independent marks. Discovery now rejects components with no line
+runs and forbids nearest-run ownership across physical components: a tiny dark
+dot cannot disappear into a distant line. Depth-proved thinning-whisker pruning
+and joining degree-two identical source endpoints reconstruct chains without
+bridging actual gaps or removing real forks.
+
+`CoreCells` can then compact the surrounding materials while retaining those
+strokes exactly. Covered material owners are eligible only when their covered
+atoms belong to existing overlays. A retained stroke needs a supported opaque
+paint, no filter/clip, finite width and complete native footprint containment
+inside the unchanged carrier. The footprint is stroked in its original frame
+before transformation, including nonuniform transforms. A contained centerline
+alone is insufficient. Boolean-cut and continued fill geometry with new
+crossings is resolved by actual filled winding, followed by unchanged native
+validation; no crossing allowance is relaxed.
+
+The offline runner offers at most two admitted stroke parents to the material
+stage (`--proposal source-strokes --compose-materials`). Source discovery is
+bounded to four carriers, eight proposals, 4,096 raw runs per component and the
+existing pixel/run/point/mask/crop/geometry/cut limits. Larger unsupported input
+remains filled. These are candidate-pool experiments, not normal operation
+selection or runtime-gate passes. Production scheduling does not use this new
+route. Human repair geometry and feature boxes remain outside generation.
+
+All current component reports use source SHA-256
+`ad93441fbb460c3ca1eb58800ae8a5f1b07e7f65b9feb6a4d21ef0031e6ef320`.
+The sword report is `.bench/cel-source-strokes-composition-final/summary.json`.
+Generation and native validation take **32.67 seconds** under a separate
+180-second diagnostic allowance, normalizer 54,564.
+
+| Sword candidate | Nodes | Contours | Strokes | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initializer | 10,286 | 1,711 | 0 | 512.807919 |
+| Paint-preserving stroke replacement | 12,105 | 2,038 | 6 | 514.113812 |
+| Composed 32-cell threshold | 3,066 | 372 | 6 | 2,434.122409 |
+| Composed 64-cell threshold | 3,630 | 387 | 6 | 548.482334 |
+
+The finer composition has cost 6,088, 323 paths and 22 gradients. It retains
+six editable source runs with width 1.989487, three exact cuts and 22 continued
+neighbors. Discovery examines 128 runs / 6,379 points. All three proposals have
+complete ownership, native validity, component seals and independent native
+raster agreement; maximum local/full term difference is **4.30e-10**. The finer
+tip/facet/guard/handle/jewel MSE is 709.763557 / 261.687510 / 1,184.802431 /
+914.135391 / 1,342.816716. The handle crop was visually inspected: missing lines
+and filled shade fragments remain. This still exceeds legacy's nodes by 57.0%
+and contours by 14.2%, and worsens tip and handle error. It does not pass the
+practical milestone or the frozen release gates. Fewer nodes than the earlier
+connected experiment is progress in composition, not a sufficient redraw.
+
+Four tuning reports in `.bench/cel-source-strokes-composition-pairs` use clean
+192-pixel inputs at half opacity and individual 60-second diagnostic allowances.
+Both finer compositions are reported rather than choosing a parent using the
+clean reference. They share a requested 64-cell threshold, not output cost.
+
+| Artwork | Parent | Nodes / contours | Strokes | Clean MSE |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl | 1 | 1,413 / 110 | 2 | 75.829113 |
+| anime-girl | 2 | 1,467 / 118 | 2 | 74.896255 |
+| anime-face | 1 | 2,728 / 190 | 3 | 73.760740 |
+| anime-face | 2 | 2,559 / 149 | 3 | 75.765333 |
+| western-park | 1 | 1,583 / 114 | 1 | 116.452290 |
+| western-park | 2 | 1,563 / 110 | 1 | 121.966583 |
+| rubberhose-band | 1 | 2,364 / 123 | 6 | 150.558292 |
+| rubberhose-band | 2 | 2,415 / 123 | 7 | 131.370324 |
+
+These runs finish in 11.22 / 19.17 / 11.44 / 15.49 seconds. All 35 emitted
+proposals pass native admission, ownership and raster agreement; maximum
+local/full difference is **3.35e-9**. This avoids the previous connected route's
+large paint-collapse loss on rubberhose (historical finer MSE 357.19), but does
+not establish a useful cross-artwork frontier. Some stroke parents increase
+nodes or damage small features. The two finer compositions have line F1
+0.356 / 0.000 (girl), 0.431 / 0.159 (face), 0.060 / 0.093 (western) and
+0.753 / 0.663 (rubberhose); stroke recall remains only 0–0.222. These metrics
+do not establish reconstruction of the complete line system. Coarse material
+compositions still erase
+structure. Next improve source ink coverage and coherent material boundaries
+together, then fit them and prove useful selection within the operation budget.
+All eight deliveries remain open; generated-reference collection stays deferred.
+
+Eighteen additional regression cases cover degree-two chain reconstruction,
+real forks, independent source marks, exact mixed-owner cuts, post-cut
+cancellation, constrained owners, opaque/half/quarter-alpha replacement,
+paint preservation, skewed neighbor frames, retained full-width containment,
+stroke/material composition, native alpha, ownership, component seals,
+local/full agreement and save/reload. The relevant CEL, shared/simplify/snap,
+generation and benchmark suites pass **856 tests in 119.62 seconds**. Ruff lint,
+format and changed-file Pyrefly checks pass, including both new test modules.
+
+The normal 60-second operation replay at
+`.bench/planned-source-strokes-composition-final/summary.json` selects **8,588
+nodes / 1,315 contours / 1,285 paths / cost 16,766 / zero strokes / human MSE
+551.151174** in **52.27 seconds**, complexity 50, balanced, refinement disabled.
+Search attempts 12 edits, accepts nine, checkpoints four, has zero score
+disagreements and zero deadline overshoot. Its feature MSE is 743.881136 /
+263.322784 / 1,183.370388 / 948.492454 / 1,506.763413. Timed selection differs
+slightly from the previous 8,571-node checkpoint; this is not a causal quality
+gain. The source-stroke route is not scheduled and no numerical gate passes.
+
+Fresh paired-material controls under the same source hash reproduce the earlier
+finer paired candidates exactly: girl 1,531 / 118 / MSE 71.948688; face 2,881 /
+205 / 73.587198; western 1,583 / 111 / 121.111584; rubberhose 2,562 / 113 /
+131.232546. Their diagnostic times are 4.45 / 9.54 / 7.92 / 17.42 seconds.
+This comparator is available in each `*-paired/summary.json` beside the new
+composition controls. The new fine proposals trade somewhat fewer nodes for
+variable fidelity; the western first parent improves clean MSE, while the other
+families still have higher error. This is not a matched-cost comparison.
+
+Normal 20-second controls at the same 192-pixel/half-opacity settings retain
+175 / 25, 176 / 16, 545 / 75 and 405 / 62 nodes/contours respectively, with
+clean MSE 165.434759 / 206.310729 / 178.742483 / 167.735359 and line F1
+0.270 / 0.589 / 0.652 / 0.641. See
+`.bench/planned-source-strokes-composition-pairs/summary.json`; timed paint
+selection can vary slightly. Eleven final reports parse as strict JSON and
+match the current source hash. Across the nine component reports, all **46**
+emitted proposals are admitted, sealed, completely owned and raster-checked.
+None is held-out evaluation or proof of a completed delivery.
+
+Replay the separate sword candidate pool with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py \
+  --proposal source-strokes --compose-materials --normalizer 54564 \
+  --seconds 180 --out .bench/cel-source-strokes-composition-final
+```
+
+For a tuning control replace the normalizer with `--pair anime-girl` (or
+`anime-face`, `western-park`, `rubberhose-band`) and use a 60-second allowance.
+These clean SVG targets enter only post-generation evaluation. Run default
+`--proposal core-cells --grouping ward --boundary-fit curve` separately for the
+paired-material comparator.
+
+### Source-supported strokes with coupled underpaint
+
+`cel_plan/ink_models.py` discovers physical source chains before paint grouping.
+Paired trough evidence seeds an eight-connected propagation through existing
+drawn pixels; no closing or gap bridging adds source pixels. Skeleton runs keep
+their shared junction endpoints. Width and source paint compatibility group
+supported runs into ordinary SVG stroke paths with `fill="none"`, round joins
+and round caps. A filled stroke footprint supplies containment proof only; it
+is not the exported drawing. Unsupported, boundary-contact and unexamined runs
+keep their independent filled ownership.
+
+The new `CoreCells(..., joint=True, grouping="ward", boundary_fit="curve",
+ink_support="connected")` hypothesis discovers ink across palette fragments,
+extends neighboring materials underneath it, and replaces both in one atomic
+component edit. Exact pixel masks split ownership rather than assigning a whole
+source atom by majority. Material surfaces explicitly cover the ink classes.
+Native-coordinate strokes preserve width across skewed carrier frames; unchanged
+surrounding paths retain their own paint frames and opacity. The default
+`ink_support="paired"` and production scheduling are unchanged. This is an
+offline comparator, not a selected operation result.
+
+Discovery bounds are 1536² source pixels, 8,192 connected components, the 128
+largest components, 128 examined runs, 16,384 examined points, 2,048 points per
+run, eight compatible stroke models and 16 MiB of retained model masks. Source
+widths above 16 sampled pixels or excessively varying runs stay filled.
+Existing exact-cut, 64-cell, geometry and native validation bounds remain.
+Interrupted discovery discards all partially prepared models, including an
+interruption during final footprint construction. These allocation bounds do
+not complete the process-memory or operation-runtime gates.
+
+The component runner now accepts `--pair` for repository tuning artwork. It
+compares paired and connected hypotheses at 192 pixels and half opacity under
+separate 60-second diagnostic allowances. Clean SVG geometry and feature boxes
+are evaluation data after discovery, never generation hints. Undefined line
+metrics are JSON `null`, and held-out artwork cannot be selected with this flag.
+
+Twelve new regression cases cover source junctions and explicit gaps, broad
+dark-material exclusion, distinct widths/paints, retained unexamined ink,
+interruption during final geometry, and atomic ink/material edits at half and
+quarter opacity in ordinary and skewed carrier frames. The coupled cases check
+true SVG strokes, exact native alpha, complete source ownership, local/full
+score and raster agreement, and exact save/reload renders. **838 tests pass in
+103.06 seconds** across the relevant CEL, shared/simplify/snap, generation and
+benchmark suites. Changed-file Ruff/format checks pass; Pyrefly reports zero
+errors for the changed production modules and component runner.
+
+### Quality diagnosis
+
+The connected route emits genuine source strokes and fewer nodes, but it still
+fails the combined structural and fidelity milestone. The handle retains rough
+filled remnants; discovering some open runs does not reconstruct its complete
+line system. Coarse material budgets damage the blade, and finer candidates
+remain several times denser than legacy CEL. The four paired controls also show
+higher clean-render error for the finer connected candidates than for the finer
+paired-material candidates. Native validity and complete ownership demonstrate
+safe evaluation, not useful redraw quality. Keep this route out of automatic
+planning until it offers faithful alternatives on multiple artwork families.
+
+Next separate physical ink from adjacent shading and small details more
+reliably, finish connected run reconstruction with compatible local widths and
+paints, and compact coherent facets/highlights alongside it. Constrained fitting
+and a useful shared complexity frontier still follow those models. A ranker
+cannot recover missing alternatives. No score, release gate or source defect
+has been waived.
+
+### Verified candidate pool and selected output
+
+All final reports below use source SHA-256
+`6b303b73bffde4367ab40c7acf46addb1e2167e7b55a550140bc4575de1dfcf5`.
+Source hashes include production Python and CEL diagnostic scripts, excluding
+tests and documentation. `.bench/cel-source-strokes-verified/summary.json`
+finishes generation and native validation in **30.37 seconds** under its
+separate **180-second diagnostic allowance**, with normalizer 54,564.
+
+| Sword diagnostic | Nodes | Contours | Stroke runs | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Source-only initializer | 10,286 | 1,711 | 0 | 20,818 | 512.807919 |
+| Coarse connected ink/material proposal | 4,138 | 344 | 14 | 6,354 | 1,438.310066 |
+| Finer connected ink/material proposal | 6,525 | 665 | 14 | 10,217 | 533.782180 |
+
+Both proposals pass native hard validity with zero self-crossings, complete
+ownership, component seals and independent local/native raster agreement.
+Maximum local/full score-term disagreement is **9.48e-10**. Each uses 11 exact
+source cuts and five compatible width/paint models. Discovery scans 124 runs
+and 3,885 points; unsupported runs remain fills. The finer tip/facet/guard/
+handle/jewel MSE is 989.875523 / 260.639881 / 1,148.901906 / 822.715776 /
+1,287.970696. In particular, tip and handle error remain worse than legacy's
+527.530766 and 762.427316. This candidate has 2.82 times legacy's nodes and
+1.96 times its contours. It is not a useful combined win or a gate pass.
+
+Eight tuning comparisons in `.bench/cel-source-strokes-verified-pairs` finish
+under their individual 60-second diagnostic allowances. The following are the
+finer proposals at the same requested cell threshold, not matched output costs
+or selected operation results:
+
+| Tuning artwork | Paired nodes / contours | Connected nodes / contours | Connected strokes | Paired / connected clean MSE | Paired / connected line F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| anime-girl | 1,531 / 118 | 1,004 / 134 | 13 | 71.948688 / 111.017343 | 0.000 / 0.099 |
+| anime-face | 2,881 / 205 | 1,862 / 192 | 16 | 73.587198 / 93.688820 | unavailable / 0.296 |
+| western-park | 1,583 / 111 | 1,152 / 121 | 21 | 121.111584 / 131.019808 | 0.093 / 0.207 |
+| rubberhose-band | 2,562 / 113 | 1,421 / 133 | 26 | 131.232546 / 357.187073 | 0.675 / 0.444 |
+
+All 16 emitted proposals retain complete ownership, pass native admission and
+match independent native rasters; maximum local/full term difference is below
+**3.04e-9**. Connected proposals use 17/27/42/32 exact cuts respectively.
+Generation and validation take 3.98–8.56 seconds per run. Lower node counts do
+not compensate for worse fidelity across all four finer comparisons; line
+quality also regresses on rubberhose. Undefined line scores remain unavailable,
+not zero. These are tuning families, not held-out release evidence.
+
+The normal operation has not adopted connected mode. The matched 60-second
+run at `.bench/planned-source-strokes-verified/summary.json`, complexity 50,
+balanced quality and refinement disabled, selects **8,571 nodes / 1,313 contours
+/ 1,283 paths / cost 16,749 / zero strokes / human MSE 550.854631** in
+**52.72 seconds**. It evaluates 13 alternatives, admits ten and validates four
+checkpoints, with zero score disagreements and zero overall deadline overshoot.
+This is the previously observed dense result; the small difference from the
+pause checkpoint reflects timed selection, not adoption of the offline model.
+The result still misses the practical comparison and frozen numerical gates.
+
+The normal clean half-opacity, 192-pixel, 20-second controls at
+`.bench/planned-source-strokes-verified-pairs/summary.json` retain
+175/176/545/405 nodes, 25/16/75/62 contours and line F1
+0.270/0.589/0.652/0.641. Clean MSE is
+165.434759/206.738285/178.742483/167.735359, with generation times
+12.90/18.04/10.91/13.99 seconds. Three errors equal the pause checkpoint;
+rubberhose varies slightly without a count or line-score change. No selected
+cross-artwork quality gain is claimed. All eight deliveries remain unfinished.
+
+## Baseline challenge and immediate quality priority
+
+The owner challenged whether the result provides a practical improvement.
+The answer at that checkpoint was no: the selected 8,571-node/1,313-contour drawing has human MSE
+550.854631 versus legacy CEL's 2,312 nodes/339 contours and approximately
+663.31 MSE. That is 17.0% lower error at 3.71 times the nodes and 3.87 times
+the contours. The latest source-ridge work leaves the selected raster and
+all measured human feature errors unchanged. Synthetic simplification and
+745 passing tests establish implementation behavior, not artwork quality.
+
+The plan's new practical-gain section makes the next experiment a compact
+whole-component drawing plus a visible admission audit. The earlier graph
+cache limit remains real, but resolving it alone is not the next quality
+milestone. Primary paint fragmentation dominates the node count; a local
+jewel-rim improvement cannot remove the required 90.7% of current nodes.
+The audit must distinguish missing interpretations, visible damage, admission
+conflicts and selection/budget failures before expanding search or tuning
+weights. A learned structural proposer is a separate conditional experiment
+from a ranker, since ranking cannot create missing alternatives.
+
+That plan update changed experimental priority and quality reporting only. It
+contains no new generator measurement, admission-policy change or gate pass.
+The interim comparison must beat legacy structure and error with existing
+feature/coverage checks; the release target remains 800 nodes/140 contours/
+497.39 MSE. All eight deliveries and the full implementation goal remain open.
+
+## Verified pause checkpoint: shared graphs and neighbor frames
+
+The owner requested a pause after this checkpoint on 2026-10-07. Verification
+is complete; this is a stopping point for implementation, not completion of
+the redesign. All eight deliveries and every frozen release gate remain open.
+Resume with broader references and a clearly bounded quality experiment rather
+than another indefinite sequence of sword-only infrastructure changes.
+
+Uncut source namespaces now share the original read-only graph values. Actual
+cuts rebuild their graph, then reuse only exactly equal immutable region records
+and complete boundary chains, including their line-support values. Unchanged
+boundaries retain their identities; changed chains receive fresh identities.
+Caller-owned writable labels are copied rather than frozen in place. Complete
+source ownership and interrupted-work checks remain required.
+
+Graph-cache accounting version 2 charges unique retained allocations once,
+including entire NumPy backing arrays and branches still held by active
+proposal generators after cache eviction. The unchanged **32 MiB limit applies
+to additional branch-cache allocations beyond the existing original graph**.
+The audit charges the original graph separately at **29,506,944 bytes** and
+additional current/peak storage at **5,659,800 bytes (5.40 MiB)**. Their combined
+conservative charge is 35,166,744 bytes; this is neither a total-graph 32 MiB
+bound nor a measurement of process peak RSS. The two-branch cache limit remains.
+The audit registers one uncut namespace view and one actual cut rebuild with
+no graph-resolution failures.
+
+After eliminating duplicate storage, composition exposed a second blocker:
+neighbor paint paths have different local transforms. Ink continuation now
+converts geometry into each neighbor's frame while retaining that neighbor's
+transform and gradient coordinate system. The two-owner compact-underpaint
+route performs the same conversions for inner and outer paints. Existing
+parent, opacity, clipping, locking, pinning, order and native coverage checks
+still apply; singular neighbor frames are rejected. General multi-owner
+compact underpaint has not been implemented by this fix.
+
+All current audit and benchmark results use source SHA-256
+`96f3f433a0ae18cef707b11a579562cc5bebcbc9697cfeb1ac8f9d4fa8ef10b4`,
+complexity 50, balanced quality and refinement disabled. Source hashes exclude
+tests and documentation. The reusable source-only composition audit is
+`.bench/cel-shared-source-frames/summary.json`; generation and native validation
+take **46.33 seconds** under a separate **180-second diagnostic allowance**.
+Human scoring follows discovery and supplies no generation evidence.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/audit_cel_source_graphs.py \
+  --normalizer 54564 --seconds 180 --out .bench/cel-shared-source-frames
+```
+
+| Audit proposal | Nodes | Contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initial source ridge, radius 6 | 10,209 | 1,657 | 20,425 | 516.954123 |
+| Initial source ridge with mixed-owner cut, radius 2 | 10,397 | 1,695 | 20,809 | 513.486426 |
+| Source ridge after coarse material replacement | 8,662 | 1,297 | 16,724 | 551.794569 |
+
+All three have complete ownership, pass native admission with no crossings,
+and match independent native rasters. Maximum local/full term disagreement is
+2.34e-10. The coarse-material proposal previously failed graph-memory resolution,
+then neighbor-frame restoration; it now reaches exact native evaluation. Its
+13 neighboring paints still exceed compact underpaint's two-owner model, so it
+uses traced continuations. Its tip/handle/jewel errors remain worse than legacy;
+this is enabling infrastructure, not a practical quality gain or selected
+60-second result.
+
+The matched normal operation in
+`.bench/planned-shared-source-frames/summary.json` selects **8,588 nodes / 1,315
+contours / 1,285 paths / cost 16,778 / human MSE 551.160658** in **54.86 seconds**
+under the 60-second allowance. It attempts eight local alternatives, admits
+seven and validates four checkpoints, with zero score disagreements and zero
+reported overall deadline overshoot. Tip/facet/guard/handle/jewel MSE is
+744.044865 / 263.322784 / 1,183.370388 / 948.492454 / 1,506.763413. This selected
+output still misses the practical comparison and every frozen sword numerical
+release target. Time-limited selection varies between measured runs; the
+preceding 10,121-node run is not a causal quality baseline for this cache fix.
+
+Four matched clean, half-opacity tuning controls use a 192-pixel long side and
+20-second generation limit. Results are in
+`.bench/planned-shared-source-frames-pairs/summary.json`:
+
+| Control | Nodes | Contours | Clean MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| anime-girl | 175 | 25 | 165.434759 | 0.270 | 14.02 |
+| anime-face | 176 | 16 | 206.738285 | 0.589 | 18.16 |
+| western-park | 545 | 75 | 178.742483 | 0.652 | 12.09 |
+| rubberhose-band | 405 | 62 | 167.112197 | 0.641 | 17.43 |
+
+These retain the previous measured line scores. Anime-girl's selected output
+varies between runs; rubberhose has a small MSE change without a count or line
+score change. Four tuning controls do not establish generalization or held-out
+quality. No gate is waived.
+
+Verification: **826 tests passed in 157.84 seconds** in the relevant CEL,
+shared/simplify/snap, generation-operation and benchmark suites. Seventeen new
+cases cover immutable sharing, exact boundary matching, live allocation/view
+accounting, cancellation, and ink/underpaint behavior across translated, skewed
+and reflected neighbor frames with private gradients and partial opacity.
+The frame cases preserve exact alpha, RGB within one byte of equivalent native
+renders, full ownership, local/full agreement and save/reload behavior. Ruff,
+format checks and Pyrefly pass with zero type errors.
+
+### Resume with broader references
+
+Use improved outputs as **drafts for human cleanup**, with the raster source,
+generator revision/settings, original draft and final edits retained. Explicitly
+label such references as generator-assisted; an unedited output is a candidate,
+not ground truth. Compare legacy and new methods against the same reviewed
+reference at matched runtime, with local feature annotations and editing costs.
+Human cleanup can correct missing wraps, highlights, joins and lettering rather
+than inheriting the generator's errors as the desired abstraction.
+
+Broaden artwork families and failure modes: characters/faces, props, typography,
+hatching, tapered ink, gradients, tiny marks, holes and partial occlusion. Split
+families and source lineages before tuning. Keep generator-assisted development
+references separate from independently authored human redraws and a fresh
+held-out set. Do not derive a held-out target from the candidate being evaluated
+or retrain/tune on a held-out result without retiring and replacing that case.
+Keep the existing corpus and blind-review requirements; collecting and human
+reviewing these additional references remains future work, not completed
+release evidence.
+
+On resumption, freeze this checkpoint and choose one bounded cross-artwork
+quality milestone before implementation. Structural work still needs coherent
+multi-owner paint/ink, open ridges and junctions, facets and highlights, followed
+by constrained fitting and a useful shared complexity frontier. A learned
+proposer is conditional on missing candidate interpretations; a ranker cannot
+create them. Pausing does not change the 800-node / 140-contour / MSE 497.39
+balanced sword gate or the broader release criteria.
+
+## Dynamic materials and shared ink paint: still no practical gain
+
+The next experiment replaces fixed edge ordering with a bounded dynamic
+hierarchy. Every union updates area-weighted source-colour means and adjacency
+costs; stale heap entries are discarded and queue growth is bounded. Tiny
+disconnected supports retain their original geometry and ownership. Shared
+chains compare straight/ellipse fits with cubic fitting rather than emitting
+every colour boundary as a polygon. The mode is explicitly offline:
+`CoreCells(..., joint=True, grouping="ward", boundary_fit="curve")`.
+
+An earlier version without ink-role separation produced **1,750 nodes / 295
+contours / MSE 543.19** and was selected in an isolated 60-second operation in
+54.59 seconds. Its source hash is
+`39519db719e1471ea56069a3f4da91053f7c90e36153ad44a26cd314f94fd43d`;
+output is `.bench/planned-component-materials-isolated/summary.json`. This
+improves global error and counts against legacy, but tip error rises from
+527.53 to 847.69 and handle error from 762.43 to 938.70. Inspected handle crops
+show erased wrapping. Paired western lettering disappears and rubberhose line
+F1 falls from 0.641 to 0.499. This fails the combined practical comparison.
+
+Protecting every dark CEL-drawn owner initially overclassified broad blade
+shading as ink. It also left 69 disconnected ink groups, exceeding the unchanged
+64-cell bound. Source trough evidence now separates ink hypotheses from broad
+dark materials. Colour-compatible disconnected ink can share a compound paint
+model: each discovery bucket spans less than eight RGB units per channel and
+has at most one link per additional owner. Links do not add geometry or physical
+adjacency; physical support alone determines component eligibility. Complete
+source paint is fitted again and native checks still decide admission. Ink and
+material roles cannot merge. Raw paired ink boundaries avoid smoothing away
+short glyphs and hatching. Every emitted contour and node is still charged.
+
+The final coupled role experiment, before removing automatic integration, has
+source hash `61adb2d33bd66eb9368cb1c70624412bdfdd41fe6fb4026ca1b50a1d29afb9fc`.
+Its diagnostic `.bench/cel-component-ridge-compound-ink/summary.json` generated
+and validated both alternatives in **31.19 seconds**, under a separate
+180-second allowance. Human geometry was used only in scoring after discovery.
+
+| Source-only drawing | Nodes | Contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initializer | 10,286 | 1,711 | 20,818 | 512.81 |
+| Requested 32-cell alternative; 14 substantial exported cells | 3,485 | 378 | 5,709 | 2,321.17 |
+| Requested 64-cell alternative; 36 substantial exported cells | 4,056 | 404 | 6,620 | 573.05 |
+| Legacy CEL reference | 2,312 | 339 | — | 663.31 |
+
+Both proposals have complete uncut source ownership, validated component seals,
+no crossings and no native admission failure. Independent native rasters match
+their local canvases. Maximum local/full term differences are **4.32e-10** and
+**4.77e-11**. The finer candidate has lower global error than legacy but uses
+75.4% more nodes and 19.2% more contours; tip and handle errors remain worse.
+Native crops show that continuous handle wrapping is still missing. Neither
+is a practical combined gain or a frozen balanced gate pass.
+
+The temporary early-search integration attempted and retained the coarse
+candidate but timed out before validating the finer one. The 60-second operation
+selected **10,098 nodes / 1,661 contours / MSE 513.22** in **54.24 seconds**.
+`.bench/planned-ridge-compound-ink/summary.json` records this result. It is a
+denser selected drawing, not an improvement against legacy. Automatic integration
+was removed; the new mode remains an offline comparator. Do not describe the
+unprotected 1,750-node output as the current selected result.
+
+Four matched clean half-opacity controls use the same prototype hash, 192-pixel
+long side, 20-second limit, balanced quality, complexity 50 and refinement off.
+`.bench/planned-ridge-compound-ink-pairs/summary.json` records results identical
+to the previous measured control outputs:
+
+| Control | Nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl | 175 | 25 | 165.434759 | 0.270 |
+| anime-face | 176 | 16 | 206.738285 | 0.589 |
+| western-park | 545 | 75 | 178.742483 | 0.652 |
+| rubberhose-band | 405 | 62 | 167.735359 | 0.641 |
+
+Restoring these regressions is necessary, not broader quality evidence. The
+control corpus and held-out/blind-review requirements remain unchanged.
+
+Next reconstruct continuous supported ink and the adjacent paint together,
+including exact cuts of mixed source atoms, anchored corners/junctions and
+width, coherent facet boundaries and supported highlights. Complete ownership
+does not require one output contour per input fragment. Colour grouping and a
+role vote per whole owner cannot supply those missing interpretations. Do not
+change ranking weights to force the damaged proposals to win. The learned
+structural proposer remains a separate conditional experiment; a ranker cannot
+repair absent stroke geometry. Slider calibration and automatic fitting follow
+a useful compact component. All eight deliveries and release gates remain open.
+
+After removing automatic integration and adding the shared discovery-edge
+bound, all final verification runs use source SHA-256
+`656dc05c3af93b1229e205341e420699aa7dab520bbf1ce5b67ef8517ca66732`.
+The authoritative offline replay is
+`.bench/cel-component-bounded-final/summary.json`; it reproduces both node,
+contour, cost, error and local/full agreement rows above in **27.71 seconds**.
+Reproduce with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py \
+  --normalizer 54564 --grouping ward --boundary-fit curve --seconds 180 \
+  --out .bench/cel-component-bounded-final
+```
+
+The final normal 60-second operation is
+`.bench/planned-material-bounded-final/summary.json`: **10,121 nodes / 1,660
+contours / MSE 514.667351**, generated in **53.56 seconds**. It contains no new
+dynamic component stage. Another isolated normal run before the additional
+offline edge guard selected 8,588 nodes / 1,315 contours / MSE 551.16. This
+time-limited search still has variable selected quality; removal of the failed
+stage does not establish repeatability or a useful complexity frontier. Both
+normal results miss the practical legacy comparison and balanced gate.
+
+The final `.bench/planned-material-bounded-final-pairs/summary.json` retains
+western lettering and rubberhose hatching at line F1 **0.652 / 0.641**, with the
+same node/contour/error rows above. Anime-face is unchanged; anime-girl selects
+174 nodes / 26 contours / MSE 161.469218, with unchanged line F1 0.270. These are
+matched tuning measurements, not held-out evidence.
+
+The final relevant regression suite passes **809 tests in 109.97 seconds**.
+Ruff and formatting checks pass; Pyrefly reports **zero errors** for the changed
+source and benchmark. Added cases cover dynamic cost updates, bounded queues,
+atomic interruption, disconnected support, distinct ink roles, co-paint links,
+70 ink islands without bridges, broad dark materials, protected marks, shared
+thin boundaries, full native publication and the combined edge bound. No
+delivery, quality gate or full implementation goal is complete.
+
+## Compact material ablation: valid geometry, failed resemblance
+
+Added an explicitly offline `CoreCells(..., joint=True)` paint-budget ablation
+and `scripts/bench_cel_component.py`. It replaces all eligible paint owners in
+a component together, including owners that overlap inferred ink. Protected
+source atoms, constrained paint, locks, pinned nodes and unsupported effects
+remain independent. It retains the existing silhouette and intrinsic opacity,
+and submits reconstructed fringes to the unchanged native policy. It is not
+enabled in production search and is not the complete ink/material planner.
+
+The initial candidate construction failed: separate sides of narrow materials
+were fitted to the same chord, leaving zero-area fills. A shared-chain retry
+restores canonical polygons on both neighboring materials. Small isolated
+owners retain their original geometry. The final audit records 49 restored
+regions across two candidates, with no empty-cell exclusion. This solves an
+export failure; it does not recover the omitted ink or meaningful surfaces.
+
+Reproduce the final source-only diagnostic:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py \
+  --normalizer 54564 --seconds 180 --out .bench/cel-component-verified
+```
+
+The explicit normalizer matches the validated detailed trace in the retained
+60-second native operation run. The diagnostic has a separate 180-second work
+allowance; generation and native validation took **38.034123 seconds** in this
+run. This is not a selected operation result or runtime/peak-memory gate pass.
+Human geometry enters scoring after all proposals have been generated and
+checked. The report verifies the frozen mask and records input, human and source
+hashes, policy, preparation, complete ownership, validated component seals,
+native counts/loss, local/full agreement, numerical gate failures and all five
+human feature errors. SVGs, full PNGs and source/human/candidate crops are saved
+even for unhelpful proposals. Its status `complete` refers to the diagnostic.
+
+Authoritative output: `.bench/cel-component-verified/summary.json`; source SHA-256
+`8bef64e71dce4af4cc9314d8a0bae839a2a33798c2b211ab839e1d764c1c886d`.
+
+| Drawing | Nodes | Contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Existing selected 60-second experiment, unchanged reference result | 8,571 | 1,313 | 16,749 | 550.85 |
+| Source-only component initializer | 10,286 | 1,711 | 20,818 | 512.81 |
+| Offline 32-cell paint ablation | 1,361 | 321 | 3,671 | 3,283.28 |
+| Offline 64-cell paint ablation | 2,582 | 449 | 6,002 | 1,671.98 |
+| Legacy CEL reference | 2,312 | 339 | — | Approximately 663.31 |
+
+Both proposals pass native admission and have complete source ownership and
+validated dependency seals. Their local canvases match independent native
+renders; maximum local/full term differences are **8.38e-10** and **1.23e-9**.
+Every human feature error worsens against the initializer and selected result.
+Native guard/jewel crops were inspected: the coarse candidate loses ink and
+facet structure, while the finer candidate still loses deliberate boundaries.
+The 32-cell output reduces nodes by **41.1% against legacy**, but raises human
+error to **4.95 times legacy**. Neither meets the practical combined comparison
+or the frozen balanced gate. Do not count reduced nodes as a quality gain.
+
+The tested shortcut orders original color-adjacency edges once and forces
+merges to a palette budget. Almost the whole component becomes one material
+field in the coarse candidate; many other cells are narrow fringe supports.
+This is evidence against this implementation, not against every segmentation
+algorithm. Dynamic paint-fit costs remain worth comparing, but the next useful
+component must also propose continuous ink, coherent material/facet boundaries,
+supported highlights and local layer order. A ranker cannot restore absent
+alternatives. The plan now specifies this coupled structural contract and a
+separate conditional learned role/continuation proposer, followed by fitting
+and a measured complexity frontier.
+
+Sixteen new cases cover opaque/partial-alpha components, protected holes and
+marks, cancellation, complete uncut ownership, reload, fringe scoring and
+thin material between two fitted neighbors. The full relevant regression
+suite passes **773 tests in 219.73 seconds**. Ruff and formatting checks pass;
+Pyrefly reports **zero errors** for the changed source and benchmark. No release
+gate, delivery or full implementation goal is complete.
+
+## Current native admission inventory
+
+Added `scripts/audit_cel_admission.py`, a reproducible benchmark-only audit.
+It reconstructs source evidence, the graph and the independently validated
+conservative baseline before evaluating human geometry or supplied candidates.
+It never changes policy or passes human geometry to generation. The frozen
+benchmark mask is checked. Reports retain source/input/candidate hashes, actual
+policy metadata, baseline limits, full rejection inventories and bounded crops.
+
+The authoritative output is `.bench/cel-admission-verified/summary.json`, with
+source SHA-256
+`2d4599cc79a8d9496d8eef88fd1fb8b6f82237620dcb2e379420e8f75dd60eb9`.
+The saved human/legacy/current SVG hashes distinguish these diagnostic inputs
+from new generator runs. Reproduce it from the retained benchmark drawings:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/audit_cel_admission.py \
+  --candidate legacy=.bench/planned-baseline/sword/cel/drawing.svg \
+  --candidate current=.bench/planned-source-ridge-cuts-accounted/sword/cel-planned/drawing.svg \
+  --out .bench/cel-admission-verified
+```
+
+The default human-only audit requires the tracked compressed fixture rather
+than either ignored generated SVG. The complete human inventory has 27 saved
+crops; legacy has 25, and the current drawing has no failures/crops. All output
+paths, source hashes and rejections were verified after the final audit.
+
+Each crop contains unmarked source/candidate views on white and black plus a
+separate annotated source panel. All unsaved findings remain in the JSON
+inventory. Four native pixel masks assert agreement with production score
+terms. Hole ceilings and component mass/retention use actual policy supports;
+the inventory includes all failed components rather than just the validator's
+first failure. Crossing locations use the same sampled geometry as the hard
+count, with instance offsets, referenced transforms, group frames and native
+viewBox/aspect mapping. Closed crossings report both sampled loop areas so a
+large main lobe is not mistaken for the small fold.
+
+The earlier plan revision relied on obsolete admission results. The current
+score-version-4/coverage-version-1 audit has 148,322 material-interior pixels,
+26 independent component supports and **no protected sword holes**. Its source
+baseline is valid with 54,320 nodes, zero crossings and zero residual pixels;
+the allowance stays 85 pixels. The baseline is a validity fallback, not a
+structural target.
+
+| Diagnostic | Missing / excess material-opacity pixels | Failed component supports | Crossings |
+| --- | ---: | ---: | ---: |
+| Human | 14 / 0 | 25 | 2 |
+| Legacy CEL | 8 / 0 | 25 | 0 |
+| Existing selected experiment | 0 / 0 | 0 | 0 |
+
+Human and legacy failures are identical faint source supports: **454 pixels**,
+combined source alpha mass **2.349020 opaque-pixel equivalents**, peak alpha
+between **1/255 and 5/255**. The largest is a three-pixel-wide, 120-pixel-long
+fringe alongside the blade, with peak alpha 2/255 and mass 0.619608. Native
+unmarked black/white crops show these as faint remnants adjacent to the artwork
+or isolated supports. That interpretation is evidence for this fixture; it
+does not justify dropping arbitrary faint marks on other artwork.
+
+The human crossings lie at approximately **(279.828, 1588.060)** and
+**(448.372, 1588.060)**, on the lower guard contours. Each sampled crossing
+has a small loop of approximately **0.263199 native pixels²** and a main lobe
+of 1,111.480617 pixels². These are actual sampled topology failures, not a
+whole missing jewel or facet. The audit neither modifies the frozen human
+fixture nor waives the noncrossing requirement.
+
+This narrows the next action: preserve faint supports as independent details
+and emit valid compact geometry while reconstructing coherent paint and ink.
+The current rejection inventory does not explain or justify 8,571 nodes.
+No further fringe/hole policy change is indicated by this sword evidence.
+Candidate availability remains the principal quality problem. Continue the
+whole-component structural experiment with exact source ownership, multiple
+materials, long shared boundaries and retained highlights; cache sharing is
+still needed where exact-cut composition hits its known live-storage bound.
+
+Twelve new test cases cover exhaustive faint loss at full/half/one-byte alpha,
+pixel-threshold agreement, reduced-opacity hole ceilings, transformed and
+instanced crossings, native viewBox/aspect mapping and bounded unmarked crops.
+The focused audit/policy/coverage/frozen-fixture suite passes **42 tests**;
+Ruff passes and Pyrefly reports zero errors for the new script. Production
+policy and generation behavior are unchanged; this is diagnostic progress,
+not a new quality measurement, release pass or completed delivery.
+
+## Current implementation
+
+- The compressed human fixture loader, native frozen-mask benchmark, paired
+  degradation generator and artwork-family manifests are in place. The sword
+  is a development fixture, excluded from ranker training and held-out claims.
+- A paired tuning runner now records clean/input/mask hashes, local evaluation
+  features, line scores, every exactly evaluated candidate, and clean-target
+  oracles for the complete pool and the selected representation ceiling. Its
+  observer copies diagnostic values and cannot supply scores to generation.
+  Diagnostic SVG retention has independent byte and entry bounds; incomplete
+  pools are reported and do not produce an oracle claim.
+- CPU evidence collection, canonical region/boundary graph, finite merge
+  protection and SVG export are implemented as an initial prototype.
+- Individual flat-paint, shared-boundary fitting and supported ink proposals now
+  run through a bounded local beam. Working states share immutable native raster
+  history. Local acceptance uses the complete policy's fixed denominators and
+  feature aggregates; publication independently verifies the entire raster,
+  score and document checks. Connected surface families now also have individual
+  merge proposals with retained source ownership. Owned ink replacement now
+  compares filled unions with strokes over restored neighboring paint. Region
+  splits, broader ink/layer interpretations and order edits remain unfinished.
+- Surface families now test bounded paired-ridge evidence before treating
+  coarse line support as an exclusion. Supported and unresolved strong edges
+  remain barriers even when a weak alternate adjacency route connects their
+  owners. Missing ridge evidence permits a surface proposal, not acceptance.
+- RGBA export can now carry bounded interior-chain permissions alongside a
+  whole-path native hold. Geometry and CPU refinement bind them to the exact
+  current path/frame, preserve all other segments and both shared-edge copies,
+  and refresh them after accepted fitting. Structural replacement discards
+  permissions and keeps its conservative whole-path hold.
+- The experimental operation validates settings, previews without mutation,
+  applies as one undo entry and supports project save/reload.
+- Score version 3 measures robust multi-scale premultiplied color, contrasting
+  backdrops/alpha, ink distances and fixed local feature supports. It reports
+  each term. Its weights are initial engineering values, not corpus-calibrated.
+- Translucent evidence keeps original RGBA and uses connected color/opacity
+  surfaces, with flat alpha or supported gradient stop opacity. Relative alpha
+  bands and smooth surface colors limit byte-level fragmentation; native checks
+  validate the resulting approximation. Low-opacity marks and holes have
+  separate hard safeguards. The frozen human benchmark mask is unchanged.
+- Exact checkpoint validation rejects new self-crossings, opaque interior
+  gaps, distant silhouette spill and filled protected holes. The first valid
+  candidate establishes immutable coverage limits for subsequent proposals.
+- A bounded nondominated frontier selects by representation cost and visual
+  score. One frozen frontier gives ordered total-cost choices as complexity
+  rises. Explicit node budgets select feasible candidates or report infeasibility.
+  A lower-cost drawing with more nodes cannot erase a feasible lower-node
+  alternative; frontier bounds also protect the minimum-node candidate.
+  It now reports the initial soft representation target, its simplest retained
+  validated floor, achieved cost and whether the target is unmet, separately
+  from a hard node ceiling. Initial operator slots now use the fixed shared-pool
+  nominal target, independently of the unproven observed floor. Broader risk
+  ranking and spatial scheduling remain open.
+- Stop before the first validated candidate cancels the operation. Stop after
+  validation retains a preview that can be applied normally. A fully transparent
+  reference returns no edit.
+- A conservative CEL checkpoint precedes fitted proposals, using canonical
+  linear fill boundaries and separate ink runs for opaque evidence. It first tries a 0.75 native
+  pixel polygon bound (or a smaller explicit tolerance), then 0.25 and zero
+  after rejection. Exact native checks determine which fallback is retained;
+  this bound does not establish a quality or runtime pass. Optional fitting
+  checks interruption between chains and discards unfinished exports. Exhausting
+  the deadline without a checkpoint cannot trigger repeated candidate attempts.
+  RGBA evidence starts with unsimplified canonical boundaries; its paint still
+  approximates each relative-alpha partition and must pass native checks.
+  Dense drawings can still make this checkpoint expensive; runtime, compactness
+  and partial-alpha coverage remain open gates.
+- The representation normalizer now comes from the exactly validated detailed
+  candidate rather than the first pixel fallback, when that candidate finishes.
+  Coverage limits stay tied to the independent fallback. The scale freezes once
+  before fitting and selection; diagnostics identify fallback normalization
+  when the detailed candidate is unavailable.
+- Region statistics use bounding boxes instead of one full-canvas scan per
+  region. Tests compare the resulting area, paint and texture statistics with
+  full-canvas sampling, including an absent label slot.
+- Structured competitors now include bounded straight chains and ellipse paths,
+  with exact endpoints, persistent-corner checks and one canonical fit for both
+  adjacent fills. The legacy fitter is the unrestricted competitor.
+- Paired dark-ridge evidence can propose a continuous stroke along a color
+  boundary, measuring its local ink and width. Shade discontinuities and long
+  blank gaps are excluded; self-crossing ink proposals are discarded.
+- A local layer operator can continue adjacent surfaces beneath an isolated
+  compact overlay. Small same-hue shade families can compete as one surface
+  only with outline evidence. Shapes with holes or silhouette contacts remain
+  unrestricted. This is an initial layer operator, not general layer inference.
+- Owned closed overlays now also compete in structural search, including RGBA
+  material inside a geometrically verified opacity core. Neighboring fills
+  continue beneath the replacement; primary region ownership and hidden paint
+  coverage are recorded separately. Bounded geometry proofs permit crossing a
+  disjoint sibling whose bounding box overlaps, while actual overlaps remain
+  barriers. Richer local order inference and nested surface interpretations are
+  still unfinished.
+- Closed contours now have a coupled interior-material competitor. Complete
+  owner residuals retain independent highlights, ink and constrained paint;
+  explicit coverage mixtures near their boundaries explain antialias samples.
+  Flat/gradient material and ellipse/contour geometry compete under unchanged
+  native local/full checks. Shared checkpoint budgeting,
+  complementary operator opportunities and bounded enclosure scheduling hints
+  improve access to cumulative edits. They do not establish a sword quality win.
+- Automatic refinement now has a bounded CPU foundation: simplify, fit flat or
+  gradient paint, propose edge positions and measured widths, then refit paint.
+  Fixed complexity anchors feed the common frontier independently of the
+  requested slider. Each retained edit must improve or retain its anchor's full
+  native objective and pass coverage/topology checks. Initial frontier tradeoffs
+  survive pruning unless a new candidate dominates them at every complexity;
+  a replacement rejected for pool storage restores the previous entries.
+- CPU fitting holds accepted straight/ellipse paths, shared junctions, corners
+  and explicit widths. Whole-path model holds are conservative; parameterized
+  constrained joint fitting remains unfinished. A wrapped shared-edge redraw
+  preserves its canonical endpoint ID and pin state across the closing segment.
+- Search reserves up to 25% of the requested time for refinement when enabled and at
+  least 10% for final validation. Separate stage slices and per-path geometry
+  limits give fitting stages opportunities; oversized compounds are reported
+  as bounded work. A fallback above the CPU seed limit gives that fitting time
+  to structural search until a validated compact seed exists. Refinement orders
+  bounded eligible paths across spatial cells, starting with larger shapes;
+  this does not yet guarantee a fitting opportunity for every component.
+  Native rendering and some proposal helpers can still overrun
+  a deadline. Metrics distinguish search expiration, fitting status and total
+  deadline overshoot. CPU fitting works without Torch.
+
+## Sword experiment: shared frontier
+
+Run on the completed compressed fixture with an explicit 20-second budget:
+
+```sh
+PYTHONPATH=src python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 20 --out .bench/planned-frontier
+```
+
+The observed operation took 15.47 seconds. It selected 24 paths, 61 contours,
+329 nodes, seven gradients and 39 stroke contours. Its human-reference MSE was
+816.46, above both the legacy baseline (approximately 663.31) and the proposed
+497.39 gate. Reference MSE was 542.90. There were zero self-crossings in the
+selected result and no hard validation rejections. Four nondominated candidates
+were retained; the complexity-0 proposal was rejected for a new self-crossing.
+
+The experiment's algorithm source SHA-256 was
+`d61e04443ab7fca56a22c44b6f9db48b5c8662fb9b6e6d943881808fbb2740ec`.
+The frozen mask SHA-256 was
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The benchmark writes SVGs, native previews, feature crops, term diagnostics,
+source hash and settings under the chosen output directory. Generated previews
+are ignored development artifacts, not bundled release fixtures.
+
+This is a failed sword quality gate, not evidence of improved human likeness.
+It demonstrates exact rejection and selection plumbing. The current model
+still needs better boundary/primitive proposals, variable ink interpretations,
+feature evidence and tuning-corpus calibration.
+
+## Structural-model experiment
+
+The structured competitor is exact-validated alongside the existing traced
+plans. In the 20-second sword run under `.bench/planned-layer-proof`, it scored
+0.053309 with representation cost 1,003, compared with the traced complexity-50
+plan's 0.052620 and cost 893. It was subsequently dominated, so the default
+selection remained 329 nodes and human-reference MSE 816.46. The operation
+took 14.93 seconds with no reported deadline overshoot in this run.
+
+An isolated structured complexity-50 probe measured human-reference MSE
+744.49, compared with approximately 749.68 for the previous traced competitor
+at that level. This small development-case change does not pass the sword
+gate or establish a broader quality gain. No whole-shape overlay was eligible
+on this sword segmentation under the current geometric/protection bounds.
+
+The model tests cover complete noisy round contours, rejection of cornered
+shapes and short arcs, fixed endpoints, shared fill coverage, pointed corners,
+paired ink versus shade, supported versus blank gaps, opaque overlays across
+multiple base shades, hole/silhouette exclusion, stopped layer planning, and
+recovering a supported outline even when the initial detector missed it.
+The last broad relevant run passed 156 tests. These local checks do not replace
+the human-match, line-corpus, resizing or held-out gates.
+
+The latest recorded sword source hash was
+`7ad94cf5d976d3fe8f88b0f36a136f9cdc51bc5b6ef2dbce0cc06929008ec115`.
+The frozen mask is unchanged. Next required work includes local proposal
+selection rather than accepting operators as one bundle, calibration on clean
+paired tuning artwork, and automatic fitting under the same validation policy.
+
+A final 20-second run under `.bench/planned-geometry-final` retained only two
+valid candidates before the scheduler's reserve stopped further search. It
+selected the structured candidate: 449 nodes, 87 contours, human-reference MSE
+744.49, 18.10 seconds for the operation and no reported pipeline overshoot.
+Its source hash was
+`cbe5eec0567af62d61c55f7ceeff7840f5fc58ac5ba7d3b6c0fc605646447d3e`.
+The sword gate still failed. Selection differs when the time-limited search
+finishes additional anchors; this run does not establish a quality improvement
+at matched completed search effort. Scheduling/cache stability and score
+calibration therefore remain open requirements.
+
+## Paired tuning and initialization experiment
+
+The tuning runner saves native-sized clean and degraded references, generated
+SVGs, fixed masks, feature crops, candidate SVGs and exact score terms. The
+clean SVG and manually selected evaluation rectangles are scorer inputs only.
+It reuses the existing line benchmark against the clean geometry, including
+when the generator receives degraded pixels. Candidate-pool oracles exclude
+hard-invalid proposals; one oracle also limits representation cost to the
+selected drawing's cost. Raw clean MSE remains a diagnostic, not the planning
+objective or a claim of human preference.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_pairs.py --degradations clean noise --seconds 20 \
+  --method-settings '{"cel-planned":{"quality":"balanced","refine":false}}' \
+  --out .bench/cel-pairs-bounded
+```
+
+The first run found a real deadline defect: all six noisy anime-girl candidates
+failed the crossing check, and without a valid checkpoint the pipeline kept
+attempting candidates after its deadline. That failed run took 124.62 seconds.
+The conservative checkpoint, boundary-stage interruption checks and loop
+termination now prevent that retry sequence. An isolated rerun returned a
+validated result in 17.12 seconds. Region statistics also avoid full-canvas
+scans for every label. These are reliability changes, not a quality pass.
+
+The subsequent complete run covered four tuning families, clean and RGB-noisy
+inputs, at a 1,000-pixel long side. Seven of eight planned runs returned a valid
+drawing; the noisy anime-face run exhausted its limit before a checkpoint.
+Five retained drawings were only the conservative fallback. The requested
+budget was 20 seconds; native checkpoint/export work still caused measured
+overshoot, as shown below. Legacy CEL does not enforce this operation budget
+and took 11.60–41.84 seconds, so this is not a matched-runtime ablation.
+
+| Tuning case | Input | Legacy nodes | Planned nodes | Legacy clean MSE | Planned clean MSE | Line F1 legacy / planned | Planned seconds |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: |
+| Anime girl | Clean | 4,136 | 2,354 | 117.20 | 263.31 | 0.966 / 0.948 | 22.17 |
+| Anime girl | Noise | 6,735 | 2,913 | 127.65 | 322.10 | 0.950 / 0.917 | 20.30 |
+| Anime face | Clean | 6,812 | 106,614 | 149.22 | 303.69 | 0.965 / 0.970 | 30.85 |
+| Anime face | Noise | 11,817 | No checkpoint | 168.79 | — | 0.954 / — | 20.01 |
+| Western park | Clean | 4,495 | 42,872 | 188.89 | 389.68 | 0.973 / 0.976 | 26.13 |
+| Western park | Noise | 6,801 | 49,292 | 213.95 | 580.04 | 0.927 / 0.922 | 23.52 |
+| Rubberhose band | Clean | 5,311 | 66,752 | 100.41 | 243.25 | 0.953 / 0.954 | 22.02 |
+| Rubberhose band | Noise | 10,651 | 73,171 | 117.12 | 335.97 | 0.925 / 0.886 | 26.40 |
+
+The run source SHA-256 was
+`59a3191e718a3af07281ad5b2dbdd14a485800a792998cd161f01ca69e6cc9da`.
+All input, clean-render, manifest and mask hashes are recorded in its summary.
+No held-out artwork was evaluated. The benchmark exited with failure because
+one generation failed; returning every drawing would still not establish the
+release quality gates.
+
+Most candidate pools contain only the fallback, so this evidence does not
+justify learned ranking. Next work must bound initialization cost, keep time
+for compact geometry and paint proposals, and implement automatic refinement.
+The raw fallback's cost also now establishes the fixed cost normalizer, which
+is much larger than the earlier traced baseline; calibrate that structural
+estimate before interpreting slider budgets as complete. Native rendering,
+validation and dense boundary/stroke extraction still need tighter scheduling.
+Local feature and line regressions remain explicit failures rather than being
+averaged into a complexity reduction claim.
+
+The broad relevant test run passed 177 tests, covering copied observer values,
+invalid/dominated proposal logging, bounded/incomplete diagnostic pools,
+clean-target isolation, planner versus operation pixels, stale-output removal,
+fallback apply/undo, expired deadlines and interruption between shared-boundary
+fits. These checks do not replace the failed quality and runtime gates.
+
+A subsequent normal-operation sword run with a 20-second limit and refinement
+explicitly off selected the first fitted competitor after the fallback. It
+returned 1,181 nodes, 106 contours and 19 gradients in 14.25 seconds, with
+human-reference MSE 861.49 and zero self-crossings. The frozen mask is unchanged.
+Its source hash was
+`181790a6acb7fe70846cd5df95da4d4539736b0e3e29cd925375baed5f2770e7`.
+The sword gate failed. Only the fallback and complexity-100 traced candidate
+were retained before the scheduler's prediction stopped more search. This
+confirms that adding a safe checkpoint has not solved initialization cost,
+candidate availability or score calibration; it must not be described as a
+human-match improvement.
+
+## CPU refinement and compact fallback experiment
+
+Run the native sword benchmark in separate processes with refinement off and
+on, and the dense anime-face tuning subset without refinement. All runs used
+complexity 50, balanced quality, a 20-second operation limit and four OpenBLAS/OMP
+threads. The paired subset used a 1,000-pixel long side. Reproduce with:
+
+```sh
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-cpu-final-off
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":true}' \
+  --out .bench/planned-cpu-final-on
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_pairs.py --methods cel-planned --cases anime-face \
+  --degradations clean noise --long-side 1000 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-cpu-dense
+```
+
+| Run | Nodes | Contours | Seconds | Foreground MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sword, refinement off | 1,181 | 106 | 18.92 | 861.49 against human | — |
+| Sword, refinement on | 1,180 | 106 | 17.89 | 861.64 against human | — |
+| Anime face, clean | 3,555 | 600 | 19.34 | 352.62 against clean | 0.951 |
+| Anime face, noise | 4,802 | 728 | 19.39 | 416.59 against clean | 0.953 |
+
+The algorithm source hash for all four final runs was
+`de5471da24b10ee8fdc8a9abd6bd8e482dc4169db0c75a9c7213d98f052ba2c8`.
+The sword mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The paired summary records input, clean-render, manifest and native-mask hashes.
+There was no measured pipeline deadline overshoot in these four runs. Their
+different completed search effort and runtime variation do not establish a
+speedup or a full matched-runtime ablation.
+
+Both sword runs retained the conservative fallback and complexity-100 traced
+candidate before fitting. The detailed candidate fixed the cost scale at 1,967,
+while the conservative candidate cost 11,828. CPU fitting attempted two native
+checkpoints, accepted one node-removal edit and rejected a paint refit for an
+objective regression. The selected objective changed from 0.088193278 to
+0.088183281; human error increased slightly. Fitting was reported as bounded,
+not complete. The sword still fails the 800-node and 497.39 human-error gates.
+Guard and jewel crops still show fragmented shade boundaries and interrupted
+ink. This result supports improving structural proposals and calibrating their
+score, not substituting fitting or learned ranking for missing interpretations.
+
+Both dense inputs now returned validated drawings. Previously, the clean case
+retained a 106,614-node raw fallback and the noisy case had no checkpoint. Each
+new pool contains the compact conservative candidate and a traced competitor;
+the traced competitor was selected. This is initialization progress. Clean
+MSE remains worse than the recorded legacy values, and clean line F1 is more
+than one percentage point below legacy's 0.965. Neither result establishes the
+broader quality gates; no held-out artwork was used.
+
+The relevant check run passed 199 tests. It covers CPU execution with Torch
+unavailable, real paint improvement, gradient competition and ownership during
+refits, injected flat-color noise, explicit-width preservation, shared
+edges/corners, stop after fitting,
+fixed cost scale, objective rejection, storage rollback and all 101 slider
+choices under pruning. A subsequent node-budget regression check also keeps a
+feasible drawing when a cheaper competitor has more nodes. Existing CEL,
+simplify/snap, operation apply/undo/reload
+and benchmark-isolation checks are included. Ruff passed and Pyrefly reported
+zero errors. Full runtime/memory, partial-alpha and release evaluation remain
+open requirements.
+
+## Translucent evidence and native coverage experiment
+
+The opacity-aware path now retains content below 50% alpha, including marks at
+one byte of opacity. Original RGBA reference crops are passed to the planned
+method; reconstructing color from an eight-bit white preview loses information
+at low alpha. The existing preview and legacy CEL inputs retain their contracts.
+Four-connected horizontal-run graphs label the joint color/alpha partitions
+without a full-image component pass for each possible paint value. Ink receives
+its own palette so a one-color body palette cannot erase it. Region statistics
+use actual RGBA surface colors rather than a smoothed background under ink.
+
+Initial opacity bands have a ratio of 1.125, giving 49 possible levels, rather
+than one region class per alpha byte. Paint fitting uses original samples and
+compares flat RGBA against a shared-axis color/opacity gradient. Native
+validation checks premultiplied color on black and white, opacity excess and
+loss, translucent holes and connected-component retention. Thin components
+without an eroded interior need 95% retained opacity; broad components need
+75%, alongside interior pixel checks. These are engineering safeguards, not
+calibrated release tolerances. Alpha-only transitions do not count as ink.
+New opacity diagnostics include the full visible support without changing the
+frozen human-scoring mask.
+
+Long narrow translucent crops retain native samples when they fit the same
+1536-squared analysis pixel allowance. Downsampling larger content remains an
+open native-feature requirement. Positive widths generate fractional coverage
+for filled ink and protect its geometry and paint from merges/refinement.
+Floating ink with no underlying filled surface still needs a complete width
+override model. RGB-only CPU paint proposals also still need joint RGBA fitting.
+
+The transformed-group round-trip test found that insertion applied the selected
+group's transform twice. Shared generation now compensates for the container's
+coordinate frame. Translated/scaled group placement, project save/reload and one
+undo entry pass. An original RGBA crop is retained beside the white preview.
+
+The sword reference itself is mostly slightly translucent: 127,214 pixels have
+alpha 253, while only 627 have alpha 255. Treating every byte as a separate paint
+class created a very large fallback. Relative bands and smoother color evidence
+reduce that fragmentation, but do not solve structural compaction. Fitted curves
+can still lose low-opacity marks or holes, so rejected candidates retain the
+conservative checkpoint.
+
+Reproduce the final native development run with:
+
+```sh
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":true}' \
+  --out .bench/planned-opacity-final
+```
+
+The final source hash was
+`2b279d0a8428aa8573ccf192088451ae39203941eb55e800bdc4c10be183e87d`.
+The frozen sword mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The run retained 8,147 paths, 8,217 contours, 54,320 nodes and no gradients, with
+human MSE 446.79 and zero self-crossings. Pipeline time was 14.09 seconds;
+operation/apply/benchmark time was 16.59 seconds. It reported no pipeline
+overshoot. Native opacity MSE over visible support and its margin was
+0.00002838. Only the conservative candidate entered this pool. CPU refinement
+now bounds seeds above 32,000 nodes before expensive parsing/path visits; this
+run skipped one dense seed in 0.024 seconds and attempted no edits.
+
+The sword gate fails by a wide margin on nodes and contours. Human error meets
+its numerical ceiling because this is a detailed trace. This is not a cleaner
+editable drawing or a structural quality improvement. Complexity cannot offer
+meaningful alternatives on this one-candidate pool. Runtime variation and
+different completed proposal sets prevent a matched-effort ablation claim.
+The next required work is opacity-aware compact structural proposals with
+native topology preservation, followed by local acceptance and score calibration.
+No held-out artwork was used and the experimental method remains gated.
+
+The relevant suite passed 231 tests, including native flat/ramp opacity, a
+one-byte thin mark, holes, palette-one ink retention, filled-width constraints,
+relative bands, cancellation during boundary extraction, transformed placement
+and project/undo round trips. Existing CEL, shared boundaries, simplify/snap and
+benchmark isolation checks are included. Ruff passed and Pyrefly reported zero
+errors. These checks establish the tested fidelity behavior, not the release
+quality, calibration, resizing or memory gates.
+
+## Compact RGBA coverage and complexity-budget experiment
+
+The compact opacity path now distinguishes a thin alpha component from a
+narrow color partition inside a broad component. Native exterior boundaries,
+holes, isolated thin components and large relative-opacity discontinuities
+retain their canonical polygon interpretation. Ordinary internal color edges
+can compete as fitted boundaries. A self-crossing fitted region restores all
+of its canonical edges, including the neighbor's copy, before full validation.
+Merge proposals carry observed opacity ranges; a flat interpretation cannot
+merge a large relative-alpha discontinuity merely because its absolute
+difference is small.
+
+For connected near-uniform translucent components, a native core base competes
+inside an ordinary SVG opacity group. Child fills and gradient stops normalize
+their opacity by the parent value. The core excludes intentional holes and
+weak fringes; thin components stay independent. Modal source alpha avoids
+fragmenting a nearly opaque material into many holes from byte variation.
+The current 5% core tolerance and 2% maximum-alpha allowance are engineering
+proposal parameters, subject to full native scoring and hard rejection.
+Broad variable-alpha components retain the adjacent RGBA interpretation.
+The first detailed normalization seed now includes this supported coverage
+interpretation for translucent evidence, while the conservative fallback
+remains independent. No human geometry or annotated benchmark crop guides it.
+
+Paint proposals now compare estimated gradient improvement with its extra
+representation price, using the fixed cost normalizer and visible support.
+Padding does not inflate that support. This inexpensive test orders/chooses
+paint models inside a proposal; complete native validation still determines
+candidate retention. Opaque paint pricing remains unfinished. The subsequent
+local-search stage adds individual acceptance for paint/boundary/ink operators.
+
+An exploratory 60-second run in `.bench/planned-alpha-bases-final`, before the
+detailed seed included the base interpretation, selected 22,883 nodes, 4,078
+contours and 25 gradients, with human-reference MSE 500.33. Pipeline time was
+50.86 seconds and operation/apply time was 59.70 seconds. Its source hash was
+`51293269dbe829d5eb8af6891ddbd40328580e05a8fbe222544edfc7d8b59d5c`.
+The adjacent detailed candidate failed translucent-interior coverage; the
+structured base candidate passed. This is a failed sword milestone, although
+it establishes a usable coverage interpretation. Guard and jewel crops still
+show missing ink and excessive subdivision.
+
+Final-source short runs used complexity 50, balanced quality, a 20-second
+operation limit and four OpenBLAS/OMP threads, in separate processes:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-alpha-core-off
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":true}' \
+  --out .bench/planned-alpha-core-on
+```
+
+| Run | Nodes | Contours | Gradients | Human MSE | Pipeline seconds | Operation/apply seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Refinement off | 54,320 | 8,217 | 0 | 446.79 | 19.33 | 22.41 |
+| Refinement on | 23,212 | 4,147 | 544 | 439.75 | 19.89 | 23.90 |
+
+Both runs used source hash
+`2e41ce79865c4b874fee1a72b7c895a068ffa4969b28afa343635c96ebcc5081`.
+The frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+Neither reported pipeline overshoot, but operation/apply exceeded the requested
+20 seconds by 2.41 and 3.90 seconds. That outer cost remains a runtime gap.
+No held-out artwork was used.
+
+The first run finished only the conservative fallback. The second finished a
+validated detailed base candidate, fixing its cost scale at 54,564, and reclaimed
+fitting time after compaction. CPU fitting visited three paths, attempted zero
+edits and reported interruption after 2.18 seconds. The different finished
+search prefixes and runtime variation explain the different outputs; these
+runs do not establish a refinement benefit or a matched-effort speedup.
+Both still fail the node and contour gates. The initial soft-budget floor is
+the cheapest available validated candidate, so a reported feasible target
+cannot establish that useful simple alternatives exist.
+
+A final-source 60-second run completed the six fitted competitors:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-alpha-core-coverage
+```
+
+It selected the same 23,212-node detailed base drawing as the short refinement-on
+run, with 4,147 contours, 544 gradients and human MSE 439.75. Pipeline time was
+42.81 seconds; operation/apply time was 47.75 seconds, with no pipeline
+overshoot. The source and mask hashes are the same as the final short runs.
+The pool contained five retained candidates, including the fallback; two
+adjacent traced competitors failed translucent-interior coverage. The simpler
+structured candidate cost 47,517 and scored 0.043413, versus cost 54,564 and
+score 0.037217 for the selected detailed candidate. Its initial soft target and
+validated floor were 46,365; achieved cost was 54,564 and the budget was reported
+unmet. Meeting the human-error ceiling still leaves a very large structural
+failure. Guard and jewel feature MSEs were 1,015.14 and 1,233.07, respectively;
+their crops show irregular shade fragments and insufficiently coherent ink.
+This is development evidence for better surface/ink operators and selection
+calibration, not a release or held-out quality pass.
+
+The final relevant suite passed 254 tests:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python -m pytest -q tests/refine/test_cel*.py tests/refine/test_shared.py \
+  tests/refine/test_simplify.py tests/refine/test_snap.py \
+  tests/operations/test_cel_planned.py tests/operations/test_generate.py \
+  tests/test_bench_cel_planned.py tests/test_bench_cel_pairs.py
+```
+
+New coverage includes diagonal subdivision seams, normalized gradient opacity,
+holes, weak fringes, disconnected materials, thin byte-opacity marks, variable
+alpha, modal cores, native project round trips and interrupted core extraction.
+It also checks all 101 soft-budget values, hard-node-ceiling separation, padding,
+spatial path limits and fitting-time reclamation after validated compaction.
+Existing CEL and operation/benchmark isolation checks are included. Ruff passed;
+Pyrefly reported zero source errors. These checks do not complete the remaining
+runtime, memory, local-search, calibration or release gates.
+
+## Native local scoring and bounded operator search
+
+`local.py` now maintains an immutable native RGBA raster with shared root data
+and bounded patches. Changed color, blur and ink-distance contributions retain
+the complete policy's denominators. The 16-pixel output halo and additional
+input halo cover the current finite filters. Feature errors, their maximum,
+hole opacity and component retention update alongside the global terms.
+Changing the first or last observed ink pixel preserves the full policy's
+empty-edge semantics. A declared edit that changes pixels outside its bounds
+is rejected locally; publication compares the entire accumulated raster byte
+for byte against an independently rendered candidate and compares score terms
+within `2e-7`. Document validity and topology checks still run at publication.
+
+Renderer experiments found that a cropped Cairo viewport could change gradient
+and opacity-group rounding by one or two bytes. Those cases retain the original
+native viewport and crop before conversion to floating-point pixels. Named
+paths outside conservative support bounds can be omitted, while containers,
+definitions, unknown geometry and all overlapping hidden layers remain. Uses,
+imported primitives and long miters have conservative full-canvas dependencies.
+This reduces irrelevant drawing work without claiming a crop-only renderer.
+Native rendering still allocates a full native buffer within the stage limit.
+
+`search.py` implements working beams of one, four and eight states, with exact
+evaluation caps of 16, 48 and 128. The available operators run round-robin:
+gradient-to-flat paint, shared-boundary simplification and locally supported
+continuous ink. They use the same proposal settings and complexity anchors for
+every requested slider value. Advanced feature protection also scales the
+fixed policy's feature weight. Individual improvements enter working states;
+only independent full checkpoints enter the published frontier. Cancellation
+or optional-stage failure preserves the previous validated drawing.
+
+Rejection proofs include operator parameters, geometry/paint and visibility
+dependencies, the native context and relevant global score aggregates. The
+per-run LRU retains at most 256 proofs and eight document dependency indexes.
+Hidden overlapping paint remains a dependency even when it contributes no
+current visible pixel. Independent remote color edits can reuse a rejection.
+Scan limits also bound stale, cached and otherwise unevaluated proposals.
+Current seed limits are 32,000 nodes and 8,192 painted objects; changed IDs and
+explicit dependencies are capped at 256. The local raster allowance is 16 MiB,
+and score input crops are capped at 262,144 pixels. The 64 MiB state accounting
+covers retained SVG bytes and unique shared raster/patch buffers, including
+parents and additions during expansion. It does **not** account for every
+document object, metadata allocation or process RSS; the complete memory gate
+remains open.
+
+Reproduce the final native development run with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-local-context
+```
+
+| Measurement | Result | Sword target |
+| --- | ---: | ---: |
+| Nodes | 23,194 | At most 800 |
+| Contours | 4,147 | At most 140 |
+| Gradients | 544 | No fixed ceiling |
+| Human foreground MSE | 438.92 | At most 497.39 |
+| Pipeline seconds | 53.86 | Explicit 60-second limit |
+| Operation/apply seconds | 59.12 | Outer runtime gate remains separate |
+
+The source hash was
+`7d4f474c5f39c8e662fcfc93618527ef432f8ab09af5cce35e660540038788d9`.
+The frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The stage used 11.86 seconds, including 2.58 seconds of independent full
+validation. It attempted 11 exact evaluations, accepted six working edits,
+bounded one oversized crop, and published one checkpoint with zero raster or
+score disagreements. All six accepted edits were alternatives from the same
+parent, not six cumulative improvements. The selected boundary edit removed
+18 nodes and reduced the fixed visual score by approximately 0.000541. The
+requested soft representation target was 46,365; achieved cost was 54,546 and
+the target remained unmet. The hard node ceiling was automatic. Peak accounted
+SVG/raster state bytes were 12,956,991. No pipeline deadline overshoot was
+reported. These measurements do not establish the full RSS or memory gate.
+
+Before support-based rendering omission, an exploratory run in
+`.bench/planned-local-beam` used source hash
+`42e75356fc715f7753a2884f1744673a93b486c17498579a146c1b0a5904ef27`.
+It attempted seven local evaluations and published one paint edit, selecting
+23,212 nodes, 4,147 contours and human MSE 442.34. Its local stage took 12.73
+seconds against a 12-second slice. The final run completed a different search
+prefix; neither this comparison nor comparison with earlier runs proves a
+matched-effort speedup or a calibrated quality improvement.
+
+A separate final-source 20-second run in `.bench/planned-local-short` used the
+same settings, mask and source hash. It retained the detailed seed with 23,212
+nodes, 4,147 contours, 544 gradients and human MSE 439.75. The pipeline took
+21.21 seconds, reporting 1.21 seconds of deadline overshoot; operation/apply
+took 26.15 seconds. Local search was unavailable and attempted no edits because
+initialization and validation consumed the search allowance. Only two
+candidates were retained, so its soft floor/target of 54,564 is not evidence of
+useful low-complexity choices. This short-budget runtime failure remains open;
+the successful 60-second local checkpoint does not resolve it.
+
+The sword's structural gates still fail by a wide margin. Guard and jewel
+human MSEs remain approximately 1,015.70 and 1,233.07. Adding continuous ink
+alone does not remove the fragmented surface/ink fills. Family surface models,
+ink replacement with restored underlayers, and individually accepted graph
+merge/split/order edits remain necessary. A long facet edit also exceeded the
+crop allowance; bounded tiling remains unfinished. The complete plan now gives
+these structural compaction steps explicit state, operator and validation
+contracts. No held-out artwork was used; the method remains experimental.
+
+The final relevant suite passed 287 tests using the command above in the
+previous experiment section. New checks cover native local/full score and
+raster agreement, gradients/transforms/opacity, immutable overlapping edits,
+holes and one-byte marks, hidden-layer dependencies, cache epochs, evaluation
+and memory caps, stale proposals, failed full checkpoints, cancellation,
+operator acceptance and actual advanced protection. All 101 choices on a
+common frontier remain ordered by cost. A supported continuous-ink proposal
+is retained at complexity 100; cheaper drawings can correctly win at 50 under
+the initial weights. Ruff passed and Pyrefly reported zero source errors.
+These tests do not complete score calibration, structural quality, resizing,
+cross-job caching or the runtime/memory gates.
+
+## Owned region families and search depth
+
+The planner now retains immutable ownership of original source regions through
+label renumbering and SVG export. Primary fill/overlay paths partition those
+regions; opacity bases have an explicitly secondary coverage role. Canonical
+source boundary IDs remain stable: a merge removes internal edges from the
+active ownership view and changes both sides of exterior ownership together.
+Atomic regrouping supports membership-preserving merges and splits without
+mutating sibling states. A partition supplied independently that splits an
+original graph atom reports incomplete ownership; it requires new graph atoms
+before owned edits can proceed. The runtime split geometry operator is still
+unfinished. These values are temporary planning metadata, not a project-format
+or SVG geometry extension.
+
+`families.py` uses that membership to propose connected surfaces within a common
+component and coordinate/opacity group. Each proposal joins current curves,
+retains holes, refits flat RGBA or a linear color/opacity gradient, and removes
+the superseded paths. It retains the frontmost participating path identity and
+preserves unrelated geometry and accepted model holds. Gradient endpoints map
+through native reference coordinates into the retained path's user space;
+group opacity normalizes the child paint. Explicit-width ink and paint holds
+remain excluded from these surface edits.
+
+Family generation is bounded to 128 paths and 6,000 input nodes per group, 96
+provisional groups and 24 ranked paint alternatives per expansion. Relative
+premultiplied color/opacity thresholds and weaker boundary evidence propose
+families; they are engineering parameters, not acceptance exemptions. At most
+4,096 samples per fit compare approximate RGBA error with the current native
+raster. A cheap cost/error estimate ranks the alternatives before curve union
+and exact evaluation, using at most a quarter of the remaining local-stage
+time. It omits visibility/filter/feature terms and cannot accept an edit.
+Oversized native crops retain the existing bound pending tiled evaluation.
+
+Local decisions now record term deltas for rejected edits as well as accepted
+ones. Working states retain their edited ownership independently, and missing
+source ownership rejects a proposal before native evaluation. The same global
+beam/evaluation limits remain, with per-state exact evaluation limits of four,
+eight and sixteen for fast, balanced and high quality. This allows cumulative
+edits before one parent consumes the entire allowance. Stale/cached scans still
+have the independent global cap. Truncated expansions are reported explicitly.
+These bounds do not prove the complete process-RSS or candidate-metadata gate.
+
+An initial unranked 60-second sword run in `.bench/planned-families-first` used
+source hash
+`7939c974a3f99d8a90c61e95b9908b7228d7e936735953faeff72b241dc49cfa`.
+The two evaluated family proposals joined two and six paths, saving estimated
+geometry costs of 149 and 241 after export, but both failed the exact common
+objective. The selected paint edit retained 23,212 nodes, 4,147 contours and
+human MSE 442.34. The stage took 14.67 seconds against its 12-second slice,
+including 4.87 seconds of independent validation; pipeline time was 51.45
+seconds and operation/apply time was 57.87 seconds. This motivated bounded
+paint-fit ordering and better rejection diagnostics rather than relaxing the
+objective or assuming every family should merge.
+
+A subsequent ranked run in `.bench/planned-families-ranked` used source hash
+`5b5ad4941ed5441df894aeb06905be5b05299582a9bc14d8da52ca598463a705`.
+It selected one fully validated flat family edit replacing 128 paths with one
+surface. The result had 22,635 nodes, 4,026 contours, 3,991 paths, 544 gradients
+and human MSE 439.75. That edit saved 577 nodes, 121 contours and 1,315 units
+of representation cost. Its fixed visual score fell by approximately 0.000039;
+there were zero local/full raster or score disagreements. The edit also added
+47 pixels to the opacity-loss diagnostic within the existing hard allowance.
+This is not exact source-alpha equality or calibrated feature preservation.
+The run attempted ten exact evaluations and accepted six sibling alternatives;
+only one entered a full checkpoint. Stage time was 12.16 seconds, including
+2.30 seconds of full validation. Pipeline and operation/apply times were 50.14
+and 55.16 seconds, with no pipeline overshoot. The soft cost target was 46,365,
+achieved cost was 53,249, and the target remained unmet. Accounted SVG/raster
+peak bytes were 12,386,125; metadata/document/RSS remain separate open gates.
+
+The frozen sword mask is unchanged:
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The runs completed different proposal prefixes and do not prove a matched-effort
+speedup or a score-calibration improvement. The ranked run passes the numerical
+human-error ceiling but fails the node and contour targets by a wide margin.
+Guard and jewel MSEs remain approximately 1,015.14 and 1,233.07. No held-out
+artwork was used. Ink replacement, richer surface interpretations, new-region
+splits, large-area tiling, calibration and release evaluation remain necessary.
+
+The final-source native run enables the per-state expansion limits and reports
+current region counts after replacement. Reproduce it with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-families-depth
+```
+
+Its source hash was
+`c2ce7e383975006f7a1300c5cef407020ee22fa657ac64c23d3c3306fd6103bc`.
+The selected drawing has 22,097 nodes, 3,901 contours, 3,864 paths, 538 gradients
+and human MSE 439.64. Two cumulative family edits each replaced 128 paths with
+one; together they removed 1,115 nodes, 246 contours and 254 paths from the
+detailed seed. Representation cost fell from 54,564 to 51,885, still above the
+reported soft target/floor of 46,365. The second edit increased the fixed visual
+score by 0.0000951 but reduced cost by 1,364, improving the common objective at
+all five complexity anchors. This is an intended tradeoff under the initial
+weights, not evidence of corpus calibration. The edits added 47 and nine
+opacity-loss pixels within the existing hard allowance; the second also added
+15 opacity-excess pixels. Full validation accepted those measured differences.
+
+The stage evaluated ten proposals from two parents, accepted seven working
+alternatives, bounded two crops and one parent expansion, and published one
+full checkpoint. There were zero raster or score disagreements. Stage time was
+11.15 seconds, including 1.90 seconds of full validation; pipeline time was
+49.01 seconds and operation/apply time was 53.46 seconds, without pipeline
+overshoot. Accounted SVG/raster peak bytes were 12,040,628. Metadata reported
+3,863 primary regions, matching the retained ownership rather than the seed's
+4,117. These measurements do not establish a full memory gate or a matched-effort
+performance comparison.
+
+Inspection of the native crops confirms the remaining quality gap: blade facets
+still contain small shade fragments and irregular edges, guard shading remains
+subdivided, and the jewel lacks the human drawing's coherent circular ink rim.
+Guard and jewel errors remain 1,015.14 and 1,233.07. The frozen sword structural
+gates fail despite the passing numerical human-error ceiling. More coherent
+surface/outline interpretations and ink replacement remain the next work;
+learned ranking cannot supply those missing alternatives.
+
+The final relevant suite passed 302 tests using the previously recorded broad
+command. New coverage includes label renumbering, canonical ownership on both
+sides of edges, merge/split regrouping and sibling rollback, secondary opacity
+bases, incomplete atom subdivisions, exact family alpha/hole preservation,
+RGBA-gradient alternatives, scaled/translated gradient frames, retained neighbor
+geometry, rejection of missing members, fixed-width/component exclusions and
+cumulative edits within the fast evaluation cap. Native raster samples also
+agree after overlapping history patches. Ruff passed; Pyrefly reported zero
+source errors. Broader paired calibration, original-atom split geometry, joint
+ink/underlayer fitting, resizing, runtime/memory and release gates remain open.
+
+## Bounded native tiles and streamed family samples
+
+Long proposals no longer fail solely because their score crop exceeds 262,144
+pixels. The evaluator partitions output ownership into at most 32 disjoint
+tiles, with overlapping 16-pixel input halos bounded by that crop allowance.
+Every tile compares the original before-state with the same completed candidate
+render. Color/ink halo contributions and alpha/feature ownership are accumulated
+once using the complete policy's fixed denominators. Immutable raster patches
+are published together only after the entire edit finishes. Stop/deadline checks
+between rendering and tiles discard incomplete work, preserving the independent
+checkpoint. Search reports the tile count and invalid or bounded native areas.
+
+For multiple tiles, one native uint8 RGBA render retains the original viewport
+and opacity-group rounding. Only bounded tile windows convert to floats. The
+existing 16 MiB native raster ceiling remains; this is not arbitrary-resolution
+streaming or a complete process-RSS bound. Full checkpoint validation remains
+independent and includes a complete render and score.
+
+Family paint estimates now scan bounded source-label chunks, preserving the
+dense mask's row-major sample stride with at most 4,096 paired position/RGBA
+samples. No full family mask or float crop is needed. The same flat/gradient
+fitter accepts those samples in the analysis frame. Interrupted sampling returns
+no partial model. Rejection proofs hash bounded uint8 chunks and include the
+declared affected bounds, avoiding a spatially different proposal reusing the
+same pixel proof.
+
+New tests compare tile statistics, hard rejections and exact native pixels with
+full evaluation for gradients, transformed opacity groups, holes, one-byte
+marks, first/last ink, spill and opacity loss. They exercise disjoint/overlapping
+cumulative edits and sibling histories, stop between tiles, tile limits before
+rendering, invalid bounds and rejection-key chunk limits. Streaming family
+samples and paint models match dense sampling across chunk boundaries. A real
+160×2,000 gradient edit exceeds the default crop limit; a 192×2,048 RGBA surface
+family reaches both tiled acceptance and an independent full checkpoint.
+
+Reproduce the native development check with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-native-tiles
+```
+
+Source SHA-256 was
+`a9bf113637628776e4e22cc652844e25945beb404a98a3edfc7f214ed4fd6a4c`;
+the frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The former oversized blade boundary at native bounds `(311, 78, 417, 1558)`
+is now evaluated in two tiles. It enters a working state with four fewer nodes
+and visual delta −0.00005715. That alternative was not the published checkpoint;
+the final selection still retains the two cumulative family edits. Synthetic
+long-edit tests supply the independent complete agreement evidence for this
+new path, rather than claiming full validation of an unpublished sword sibling.
+
+The final drawing remains 22,097 nodes, 3,901 contours, 3,864 paths and 538
+gradients, with human MSE 439.64097. Search attempted ten evaluations, scored
+11 tiles, accepted seven working alternatives, bounded one parent expansion
+and published one checkpoint. No proposals hit the old crop-size rejection;
+there were zero checkpoint score/raster disagreements. Stage time was 11.15
+seconds, including 1.89 seconds of full validation. Pipeline time was 49.20
+seconds and operation/apply time 53.56 seconds, without pipeline overshoot.
+Accounted retained SVG/raster peak bytes were 12,662,465. The soft target remains
+46,365 against achieved cost 51,885, reported unmet. This is not a matched-effort
+speedup or a quality improvement over the previous development run.
+
+Native guard and jewel crops still show fragmented shading and a missing
+coherent jewel ink rim. Structural count gates remain failed. Compact opacity
+interpretations and ink replacement with restored underlayers are the next
+quality work; tiling enables their evaluation but does not supply those models.
+No held-out artwork was used. The final relevant suite passed 325 tests with
+the previously recorded broad command. Ruff passed; Pyrefly reported zero
+source errors with 61 existing warnings. Broader paired calibration and complete
+runtime, memory and release evidence remain open.
+
+## Owned ink replacement and restored neighboring paint
+
+The new `cel_plan/ink_replace.py` operator connects owned dark regions with
+substantial detected-ink support, respecting component, parent, transform and
+color compatibility. A paired dark-ridge proof distinguishes ink from an
+ordinary shade step. It compares the current fragments with a filled union and,
+where width and coverage support it, a fitted stroke. The filled alternative
+retains the current exterior, holes and width variation; it does not yet fit a
+new variable-width outline. Constant-width strokes are excluded when measured
+width spread exceeds the initial 1.6 ratio, unless a positive user width supplies
+the explicit competing interpretation. These thresholds are engineering
+proposal rules, not calibrated human preferences.
+
+A stroke restores adjoining surface paint inside the old ink footprint before
+replacing the fragments. Neighbor labels extend by nearest supported exterior
+samples; their existing paint and gradient frames are retained. A dominant
+neighbor covers the complete old union, with other continuations clipped to
+that footprint. The stroke follows in the survivor's drawing position. Opaque
+material, matching isolated opacity, or a geometrically verified opaque core
+is required for overlap; membership alone cannot prove core coverage. Uncovered
+variable translucency retains the filled competitor. Silhouette/hole contacts,
+different parents/transforms and unsupported neighbor context exclude the
+initial stroke interpretation. General occlusion/order inference is still open.
+
+The surviving ink path owns all original members as an overlay. Restored paths
+have secondary underlay ownership; sibling states and the source graph stay
+unchanged. Geometry and explicit-width holds propagate, and ordinary SVG/project
+serialization remains the editing format. Exact local checks and independent
+full checkpoints remain the only acceptance path. No human geometry or sword
+recognition is supplied to the generator.
+
+Discovery is bounded by 16 families, 128 source paths and 6,000 source nodes;
+restoration has at most four neighbors and 6,000 total generated underlay nodes.
+Source masks retain the 262,144-pixel ceiling. At most 16 centerline runs are
+measured per family, with a cached immutable luminance field. Ink discovery has
+one quarter of the remaining search time and a slot after surface, paint,
+boundary and existing ink proposals. Diagnostics distinguish eligibility,
+missing ridge support, variable width, missing restoration, bounded areas,
+proposed models and time expiration. These bounds do not complete candidate
+metadata accounting or the full process-RSS gate.
+
+An initial run with ink discovery first in the cycle, without its own time
+slice, used source SHA-256
+`93d46d03dc23bf5917ef2912234b1faadbde3c606ac2c7d593b33796ff83dc26`
+in `.bench/planned-ink-replacement`. Its checkpoint retained one filled ink
+replacement and one family merge: 22,616 nodes, 4,023 contours and human MSE
+439.75101. The ink edit saved 37 cost units with visual change below 1e-9, but
+the completed search prefix lost the second larger family edit. That is a
+denser final drawing, not a quality improvement or reason to accept additive
+ink indiscriminately. It motivated the bounded discovery slice and scheduling
+change above.
+
+Reproduce the final-source native development run with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-ink-bounded
+```
+
+Source SHA-256 was
+`86f43bff68480441865501b3454f1992fcd3efc15abf6ddfc6b631c5fd83ff86`;
+the frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The final drawing again contains 22,097 nodes, 3,901 contours, 3,864 paths and
+538 gradients, with human MSE 439.64097. The two family edits remain its full
+checkpoint. An additional filled ink alternative entered the working beam,
+saving 37 cost units, but did not enter that checkpoint. No stroke replacement
+was offered in this completed prefix: nine families were scanned, seven lacked
+the required ridge proof, one source area was bounded, and one variable-width
+filled proposal was offered before discovery expired. This is not proof that
+all sword strokes are unsupported or that the full candidate set was searched.
+
+Search attempted ten evaluations, accepted seven working alternatives and
+published one checkpoint, with zero raster/score disagreements. Stage time was
+11.13 seconds including 1.92 seconds of independent validation. Pipeline time
+was 49.05 seconds; operation/apply time was 53.41 seconds without pipeline
+overshoot. Accounted retained SVG/raster peak bytes were 12,604,397. The soft
+cost target remains 46,365 against achieved cost 51,885, reported unmet. These
+different completed prefixes do not establish a matched-effort speedup. Guard
+and jewel MSEs remain 1,015.14 and 1,233.07, and the structural gates still fail.
+
+Tests cover flat/stroke replacement, exact alpha at 255/128/64, local/full
+agreement, restored two-shade paint, retained gradient coordinates, tapered
+filled marks, blank gaps, unsupported shade steps, component boundaries,
+uncovered translucency, transformed native widths, explicit width/hold
+propagation, project reload and cancellation/independent discovery deadlines.
+The broad relevant suite passed 338 tests; all 14 focused ink-replacement tests
+passed, including the additional discovery-deadline case. Ruff passed; Pyrefly
+reported zero source errors with 61 existing warnings. No held-out artwork was
+used. Broader joined/variable-width ink fitting and coverage remain open.
+
+The dense drawing also reports 3,986 native-alpha geometry holds across its
+regions. Source alpha is mostly byte 253, with weaker fringes and low-opacity
+pixels; this does not justify discarding them indiscriminately. The next
+compaction work must offer coherent surfaces and refinable internal chains
+while preserving supported native contacts. In particular, investigate region
+boundaries excluded by coarse line evidence when a paired ridge is absent,
+and compare those alternatives under the same full validation policy. A learned
+ranker cannot recover surface or outline models that are never proposed.
+
+## Bounded shade-versus-ink family evidence
+
+The family operator previously excluded every canonical boundary with coarse
+line support above 0.5. It now checks a paired dark ridge on sufficiently long,
+bounded chains before excluding them. This offers a surface competitor for a
+shade discontinuity falsely marked as ink. The existing native/full objective
+and hard checks still decide whether any resulting merge can be retained.
+
+Each operator caches at most 512 immutable evidence decisions. A proof uses at
+most 2,048 original chain points, minimum chain length eight analysis pixels,
+and the existing ridge estimator at width 1.5 analysis pixels. Smoothed
+luminance is computed lazily once. Short or oversized chains, exhausted proof
+capacity and interruption retain the conservative exclusion. Cancelled proofs
+do not enter the cache. This is a bounded initial interpretation, not a complete
+multi-width or junction classifier.
+
+Family growth also respects every supported or unresolved strong-edge barrier
+between its members. Merely omitting that edge from adjacency was insufficient:
+a weak route through a third region could still absorb both sides. A family
+cannot take that detour around a protected pair. Pairs farther than twice the
+maximum family color threshold cannot belong to the same family and are
+excluded before ridge work. Existing ownership, alpha and native acceptance
+requirements are unchanged.
+
+The native sword development command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-shade-ridges
+```
+
+Its source SHA-256 is
+`0eaaea2fe269f368fd6cd0808f9fe3058d5e986bd954ffce096334fb9de21b7b`.
+The mask SHA-256 remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The result contains 22,122 nodes, 3,901 contours, 3,864 paths and 536 gradients,
+with representation cost 51,886 and human MSE 439.56173. It still fails the
+800-node/140-contour gates. The preceding bounded ink run had 22,097 nodes,
+cost 51,885 and human MSE 439.64097. This comparison does not establish a
+material quality gain, a structural improvement or a matched-effort speedup.
+
+The new evidence check evaluated 107 unique chains: 101 supported a ridge and
+six did not. There were 5,490 unresolved strong-edge encounters, counted across
+parent scans rather than as unique boundaries. The cache capacity was not
+reached. Diagnose short versus oversized chains and their cost contributions
+before changing these bounds. This result supports finer evidence/geometry
+diagnosis rather than assuming that most coarse ink is misclassified shading.
+
+Search attempted ten evaluations, accepted seven working alternatives and
+published one full checkpoint with zero raster/score disagreements. The final
+checkpoint contains two 128-path family replacements, with cost deltas -1,304
+and -1,374. Stage time was 11.15 seconds including 1.88 seconds of independent
+validation. Pipeline time was 50.25 seconds; operation/apply time was 54.72
+seconds with zero pipeline overshoot. Accounted retained SVG/raster peak bytes
+were 12,607,690; this is not process peak RSS. The soft target remains 46,365,
+reported unmet. Guard and jewel human MSEs remain 1,015.14 and 1,233.07.
+
+A small tuning diagnostic used the four declared tuning families, clean inputs,
+192-pixel long sides, complexity 50, balanced quality, refinement disabled and
+20-second operation limits:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-shade-ridges-pairs
+```
+
+| Tuning case | Nodes | Contours | Clean-target MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,677 | 150 | 895.39 | 0.678 | 5.95 |
+| Anime face | 5,467 | 270 | 703.60 | 0.664 | 7.59 |
+| Western park | 4,394 | 226 | 1,280.81 | 0.670 | 6.75 |
+| Rubberhose band | 900 | 123 | 994.56 | 0.651 | 7.77 |
+
+All four returned a validated ready result and complete diagnostic candidate
+storage. Their clean-target oracle at the selected cost found the selected
+candidate; unconstrained pools offered lower MSE at higher cost. This is neither
+an independent preference assessment nor proof that selection is correct.
+Important feature errors remain large, the first three normalizers used the
+conservative fallback, and only clean small renders were examined. No matched
+old/new or legacy comparison was run here, no degradation or held-out artwork
+was evaluated, and these are not calibrated release results.
+
+The 241-test planner/operation/benchmark suite passed, including 21 focused
+family tests. A separate 75-test legacy CEL/shared-boundary suite passed. New
+checks cover coarse false ink on shade steps with native acceptance, cached
+evidence, a protected ridge across an alternate route, conservative short/large
+and proof-bound behavior, and cancellation without caching an incomplete
+decision. Ruff passed; Pyrefly reported zero source errors with 61 existing
+warnings. Its configured exclusions do not type-check tests.
+
+The next concrete experiment in the plan diagnoses hold reasons, carries
+constraints at canonical-chain granularity and compares interior fitting and
+larger coherent surfaces separately. Whole-path native holds remain the safe
+fallback until that finer correspondence is proved. None of these results
+justifies exposing unfinished controls, training a ranker or changing defaults.
+
+## Interior-chain permissions and native hold diagnosis
+
+The RGBA exporter already fit safe interior chains separately from native
+alpha contacts, but its whole-path hold blocked later fitting of both. It now
+records the actually emitted interior segments on eligible held paths. Binding
+requires a matching geometry fingerprint, reference-to-document matrix and
+complete segment correspondence. Every segment outside those permissions,
+including an implicit closure or an unrecorded canvas contact, remains exact.
+
+`cel_plan/constraints.py` freezes protected endpoints, checks protected controls
+and segment multiplicity, and verifies the matrix again after editing. Existing
+corner/junction anchors remain active. A shared edit updates both copies and
+checks their agreement. Geometry simplification enters the native local beam;
+CPU refinement also consumes the permissions and independently validates its
+whole checkpoint. Accepted geometry gets an independently forked fingerprint
+and permissions, retaining export-chain identities and source membership.
+
+The bounds are 8,192 recorded canonical export chains, 32,768 emitted segments,
+4,096 source points per recorded chain and 512 nodes per eligible current path.
+Canonical records may be referenced by both owners. Missing, oversized or stale
+correspondence retains the whole-path restriction. Union and ink replacement
+explicitly discard affected permissions; a sibling's metadata is unchanged.
+This is initial export-chain correspondence, not original-atom subdivision or
+complete canonical-edge reconstruction. Compact primitive holds are unchanged.
+
+Twelve new tests cover a shared interior simplification inside transformed
+groups, exact protected segments, refreshed/sibling metadata, project reload,
+whole-held neighbors, stale geometry and ancestor transforms, native acceptance
+with holes and one-byte-alpha marks, CPU refinement, cubic handles,
+cancellation, replacement invalidation and each independent recording cap.
+The complete relevant suite passed **328 tests**; Ruff passed; Pyrefly reported
+zero source errors with 61 existing warnings. Tests remain excluded by its
+configured ignore rules.
+
+Before the native sword check, the four small clean tuning cases were rerun:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-chain-constraints-pairs
+```
+
+Their selected geometry, clean MSE and line scores exactly match the preceding
+shade/ridge diagnostic. Selected drawings do not carry these RGBA chain
+permissions, so that equality demonstrates no new fitting or quality benefit
+on this subset. All four returned ready, retained complete diagnostic pools and
+had zero checkpoint disagreements. Completed evaluation prefixes differed;
+no speedup is inferred. No held-out or degradation cases were run.
+
+The native development command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-chain-constraints
+```
+
+Both experiments used source SHA-256
+`2a9a38c79d4813007842d3376013870e860b5610d1c0b384616da05dcaae2aa5`.
+The native mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The sword result contains 22,646 nodes, 4,026 contours, 3,991 paths and 544
+gradients, with cost 53,260 and human MSE 439.75132. It is denser than the
+preceding 22,122-node/cost-51,886 result and still fails both structural gates.
+Its selected checkpoint contains one family merge, saving 1,304 cost units.
+The final large-family evaluation was interrupted; the different completed
+prefixes do not isolate a geometry-quality or runtime effect.
+
+Search attempted nine evaluations, accepted six working alternatives and
+published one full checkpoint with zero score/raster disagreements. Stage time
+was 11.33 seconds including 1.93 seconds of independent validation. Pipeline
+time was 49.13 seconds; operation/apply time was 53.60 seconds without pipeline
+overshoot. The accounted retained SVG/raster peak was 12,607,690 bytes and does
+not include all metadata or process RSS. The soft target remains 46,365 and is
+reported unmet. Guard and jewel human MSE remain 1,015.14 and 1,233.07; inspected
+crops still show the same poor contour/shading interpretations.
+
+The selected generation metadata contains 700 permission paths and 1,207
+refinable segments, with no omitted chain-cap records. JSON encoding occupies
+369,955 bytes before additional copies. These are planning IDs: operation Apply
+allocates editor IDs normally, so they are not directly bindable against the
+applied drawing using those original names. Planning constraints do not become
+a new persistent editor/project geometry model or a post-Apply fitting cache.
+
+The new hold-reason diagnostics count canonical callback chains/segments:
+
+| Reason | Chains | Emitted segments |
+| --- | ---: | ---: |
+| Transparent contact | 4,215 | 5,827 |
+| Thin component | 545 | 890 |
+| Explicit width | 0 | 0 |
+| Alpha step | 6,155 | 6,897 |
+| Repaired crossing | 0 | 0 |
+
+Reasons overlap and shared segments can appear in both visible owners; this is
+not an additive decomposition of all nodes. Canvas-border chains bypass this
+callback and are not included. The numbers do establish that protected native
+contacts dominate the recorded chain population, while few segments are
+eligible for interior fitting. Simply removing whole-path holds would neither
+solve the surface partitioning nor justify moving those contacts.
+
+The next compaction work must offer larger connected RGBA surface/coverage
+interpretations and schedule them usefully, while preserving intentional holes,
+thin marks and supported fringes through exact validation. Complete original
+atom splits/edge reconstruction and primitive-parameter fitting remain open.
+This implementation is a useful fitting foundation, not a sword improvement or
+a completed delivery.
+
+## Budget-directed operator slots and resumable parent discovery
+
+Local search now retains one bounded proposal cursor per retained parent, with
+a maximum equal to the quality's beam width. After its four/eight/sixteen exact
+evaluation slice, a parent can resume later if it remains in the beam. A rejected
+prefix with no accepted child no longer ends discovery. The slice check occurs
+before pulling the next proposal, so the first unevaluated tail edit is not
+silently consumed. Pruned/completed cursors and their operator generators close
+normally; stop after discovery prevents scoring or publication of that edit.
+Evaluation, scan, dependency, native raster and checkpoint bounds remain active.
+
+The initial state carries a fixed shared-pool budget context: complexity-50
+anchor, nominal representation target `C₀ / 2`, detailed normalizer and the
+separate explicit node ceiling. Requested complexity still selects from the
+common frontier and does not alter this context. Above 1.25 times either target,
+balanced/high quality offers two/three family proposals before the reserved
+operator round; fast keeps one. Each round reserves paint, shared geometry,
+additive ink and owned ink opportunities, rotating their order by edit depth
+and cycle. Existing sampled paint residuals rank family alternatives; exact
+native evaluation alone accepts them.
+
+Budget reports now include `nominal_target` and `floor_proven: false`. The
+existing clamped target/observed floor is still reported, but using the observed
+floor to schedule exploration would make the cheapest current drawing its own
+lower bound. It is neither a mandatory-feature proof nor a feasibility claim.
+The new ordering is an initial deterministic schedule, not calibrated risk
+prediction, full spatial scheduling or a completed complexity delivery.
+
+The full relevant suite passed **333 tests**, including a useful fifth proposal
+after four rejected fast-quality edits, cursor closure/bounds, reserved operator
+slots under pressure, a node ceiling that cannot admit visual regression,
+cancellation during discovery and nominal-versus-observed budget reporting.
+Ruff passed; Pyrefly reported zero source errors with 61 existing warnings.
+
+The final source was checked on the same small tuning subset before the sword:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-budget-resume-pairs
+```
+
+| Tuning case | Nodes | Cost | Clean MSE | MSE change from chain run | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,681 | 3,603 | 891.84 | -3.55 | 0.678 | 5.81 |
+| Anime face | 5,394 | 7,032 | 703.29 | -0.31 | 0.664 | 7.60 |
+| Western park | 4,295 | 5,661 | 1,304.12 | +23.31 | 0.670 | 6.72 |
+| Rubberhose band | 907 | 1,571 | 982.09 | -12.46 | 0.651 | 7.08 |
+
+All four returned ready with complete diagnostic storage and zero checkpoint
+disagreements. Different completed pools/evaluation counts prevent a
+matched-effort speedup or general quality claim. No held-out or degradation
+cases were evaluated. Western park is a concrete selection conflict: the same
+hard-valid pool contains clean MSE 1,287.24 at cost 5,658, better raw error and
+slightly lower cost than production selection. The selected face-region error
+also rises from 5,785.03 to 6,001.01. This calls for the declared score/feature
+calibration, not a claim that more compaction universally improves quality or
+that raw MSE alone establishes human preference.
+
+The native command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-budget-resume
+```
+
+Both final runs used source SHA-256
+`c99187ce156f4e60aeff5ce48e788f7807e92b31f836a01076b226906e52578c`.
+The native mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The sword again selects two family replacements (-1,304/-1,374 cost units):
+22,122 nodes, 3,901 contours, 3,864 paths, 536 gradients, cost 51,886 and human
+MSE 439.56173. This restores the preceding shade/ridge drawing after the denser
+chain-permission prefix, not a new quality or structural-target pass. Guard and
+jewel human errors remain 1,015.14 and 1,233.07.
+
+Search evaluated ten proposals, accepted eight working alternatives and
+published one full checkpoint with zero disagreements. Six generated proposals
+were families and four were reserved operators. Two compaction parents were
+visited. No parent cursor resumed on this native prefix; the resumed-tail
+behavior is demonstrated by the synthetic test, not attributed to this result.
+Stage time was 11.17 seconds including 1.89 seconds of validation. Pipeline
+time was 48.99 seconds; operation/apply time was 53.42 seconds with zero pipeline
+overshoot. Accounted retained SVG/raster peak was 12,607,690 bytes, excluding
+some metadata and process RSS. Nominal search target was 27,282; reported target
+46,365 includes the observed, unproven floor. Achieved cost remains above both.
+
+An independent native-reference inventory found 136 alpha-positive connected
+components: two with a two-pixel-eroded core and 134 thin components. There are
+110 components of fewer than four pixels, totaling 166 pixels; all have peak
+alpha at most 7/255 (median 1/255). This confirms a population of faint source
+fragments worth interpreting, but does not classify every fragment as noise or
+authorize dropping intentional low-opacity marks. The earlier thin-hold count
+545 measures canonical boundary encounters, not 545 distinct components.
+
+The next surface work also needs owned RGBA compact closed overlays: the
+existing `layers.continued` competitor is in the opaque export branch, while
+RGBA export currently supplies opacity cores and individual chain models.
+Offer compact shape families with restored surrounding paint and retained
+primitive constraints under the same native policy. Source-fragment ambiguity,
+richer RGBA surfaces and the measured tuning selection conflict remain open;
+this scheduling change does not complete any of the eight deliveries.
+
+## Owned RGBA closed overlays and neighboring paint continuation
+
+`cel_plan/overlays.py` adds ellipse and anchored closed-contour competitors for
+small connected owned families and individual surfaces. Native boundary and
+paint samples supply the geometry and flat/linear RGBA models. Replacing the
+fragments retains their original source members on one overlay. It does not
+receive human geometry, evaluation rectangles or artwork-specific labels.
+
+The first implementation added separate underpaint paths. Synthetic tests
+showed that this duplicated the old outline and raised representation cost.
+The retained implementation instead partitions the old footprint by supported
+neighbor paint, clips continuation against the current exact footprint, and
+unions it into those neighboring fills. Extending assignment cells beyond the
+source mask before clipping avoids tiny gaps between a fitted contour and the
+pixel-grid mask. Existing gradient frames stay unchanged.
+
+Primary `Surface.members` remain a partition. Optional `covered` members record
+hidden overlap beneath other owned regions, without claiming complete geometric
+containment. Metadata round trips retain that distinction, and ordinary primary
+replacement cannot silently discard it. Family/ink regrouping currently skips
+surfaces with hidden coverage until those operators support layered replacement.
+The continued neighbors and accepted compact shape keep conservative geometry
+holds; replaced export-chain permissions are discarded.
+
+For translucent evidence, an existing opaque core inside the same isolated
+material group must geometrically contain both the old footprint and the fitted
+shape. Group-relative fill/gradient opacity applies translucency once. Holes,
+silhouette contacts and unproved cores retain their existing interpretation.
+Draw order places the overlay above its continued bases only across those bases
+or provably disjoint siblings. Overlapping bounds trigger a bounded exact fill
+intersection test; an actual overlap, unsupported stroke/clip, or exhausted
+proof limit excludes that order change.
+
+Discovery alternates family and individual-shape opportunities; it no longer
+spends all slots on hole-bearing families before reaching individual shapes.
+Limits are 32 eligible groups, 4,096 perimeter samples, a 262,144-pixel source
+crop, up to 64 raw neighboring paths and 6,000 total neighbor/continuation nodes.
+The pre-union neighbor count is checked as well as the resulting geometry.
+Order changes allow at most 16 intersection proofs per candidate, each bounded
+to 6,000 nodes. Discovery has its own quarter of remaining wall time. Existing
+dependency, raster, scan, evaluation and independent checkpoint limits still
+apply. The shared operator schedule now reserves closed overlays alongside
+paint, geometry, additive ink and owned ink replacement (schedule version 2).
+
+The final relevant suite passed **351 tests**. New cases cover alpha 253/128/64,
+flat/gradient continuation, actual versus merely bounding-box overlap, source
+label order, faint intentional marks, holes and irregular outlines, partial
+core exclusion, a missing core, bounded discovery, fragmented neighboring paint,
+source ownership and offset/scaled scope save/reload. A four-fragment translucent
+fixture goes from 61 nodes/cost 103 to 34 nodes/cost 58 for the ellipse, or 32
+nodes/cost 56 for the contour. Local/full score terms and native pixels agree.
+Ruff passed with 28 formatted files; Pyrefly reported zero source errors and
+61 existing warnings.
+
+The final tuning command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-overlay-order-pairs
+```
+
+Source SHA-256 was
+`cdbebfaea222a79f6a0f90b1574e5965775eecec327409fb6d42bb76182658b6`.
+
+| Tuning case | Nodes | Cost | Clean MSE | MSE change from budget-resume run | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,901 | 3,867 | 889.48 | -2.36 | 0.678 | 6.61 |
+| Anime face | 5,394 | 7,032 | 703.29 | 0 | 0.664 | 9.33 |
+| Western park | 4,295 | 5,661 | 1,304.12 | 0 | 0.670 | 8.15 |
+| Rubberhose band | 907 | 1,583 | 963.78 | -18.31 | 0.651 | 8.48 |
+
+All four returned ready with complete diagnostic storage and zero checkpoint
+disagreements. Closed-contour proposals now reach exact evaluation in three
+cases. Western park accepts working contour replacements of -54/-71 cost
+units; Rubberhose accepts a higher-cost visual alternative. None is in the
+final selected drawing, and no ellipse was offered on this subset. The final
+changes are selected family proposals from different completed pools. These
+results do not establish a general improvement, matched-effort speedup, or
+quality benefit attributable to the closed-overlay operator.
+
+The Western park same-cost oracle gap remains 16.88 raw MSE. Selection
+calibration, broader compact-family coverage, nested opaque-color holes versus
+intentional alpha holes, and richer supported local order remain open. No
+held-out or degradation evaluation was used for this iteration.
+
+The final native command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-overlay-order
+```
+
+It used the same final source hash and frozen mask
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The selected sword has 22,646 nodes, 4,026 contours, 3,991 paths, 544 gradients,
+cost 53,260 and human MSE 439.75132. It retains one family replacement, the
+same drawing as the earlier chain-permission prefix. This is denser than the
+budget-resume prefix and does not improve the sword or pass its structural
+targets. Guard/jewel error remains 1,015.14/1,233.07; blade-facet error is 230.02.
+
+Search evaluates seven proposals, accepts six working alternatives and
+publishes one independent checkpoint with zero disagreements. It visits nine
+family and sixteen single-shape overlay groups. Nine fail topology, one exceeds
+the perimeter bound and fourteen lack restoration; discovery then reaches its
+time slice. Restoration records four neighbor-count exclusions, nine
+silhouette/hole contacts and one unproved core. The shared restoration helper's
+peak neighbor count is 244. No closed overlay reaches native exact evaluation,
+so neither learned selection nor different score weights can select one from
+this prefix.
+
+Pipeline time is 51.21 seconds, operation/apply time 56.95 seconds, with zero
+pipeline overshoot. Structural search takes 11.46 seconds including 2.08 seconds
+of full validation. Accounted retained SVG/raster peak remains 12,607,690 bytes,
+excluding some metadata and process RSS. Nominal target is 27,282, reported
+target includes the unproven observed floor 46,365, and achieved cost remains
+above both. These are completed-prefix measurements, not a matched-effort
+speedup or a memory-limit pass.
+
+Next, provide coherent neighboring material and nested coverage competitors
+before widening raw path limits further. Diagnose whether hole-bearing families
+contain protected alpha holes or separately owned opaque marks that could stay
+above a continuing base. Keep genuine holes and source marks intact and prove
+the local order and complete footprint under native scoring. The initial closed
+operator does not complete richer layer inference, constrained primitive fitting,
+the sword gates or any of the eight deliveries.
+
+## Continuing material beneath owned opaque marks
+
+`cel_plan/nested.py` distinguishes enclosed RGB paint from an intentional alpha
+hole using source ownership and actual SVG paint. Enclosed primary owners must
+be wholly inside the source cavity; a surface that also owns a distant mark is
+excluded. Their current geometry, attributes and gradient definitions remain
+unchanged. A continuing base records their regions as secondary `covered`
+members while their primary ownership remains intact.
+
+Closed overlays fit the filled outer mask and prove containment of every
+retained mark. Neighbor restoration excludes those inside owners. The coherent
+family operator now offers two independent interpretations: its previous
+adjacent union, and a union continuing beneath eligible enclosed marks. The
+second can remove hole contours without flattening the marks into base paint.
+Both enter the ordinary exact evaluator and independent full checkpoint path.
+
+`cel_plan/layer_order.py` shares the bounded order proof between these operators.
+Marks retain their relative order above the base; continued outside material
+stays beneath the closed overlay. An unrelated sibling can be crossed only
+when actual filled geometry is disjoint. Unsupported stroke/clip/non-path
+crossings, actual overlap and exhausted intersection limits exclude the edit.
+The affected IDs include retained marks whose order changes, so dependency and
+local-render bounds cover them as well as edited geometry.
+
+The first diagnostic used source SHA-256
+`f0c63262a51d2807e3ac17f7c687fd5b5d3fc68e158a221d4479b9a793ebd1aa`.
+Its 60-second sword run under `.bench/planned-nested-material` retained the
+same 22,646-node, 4,026-contour drawing, human MSE 439.75132. No closed or nested
+surface candidate reached native scoring. Its overlay exclusions included
+three source-alpha mismatches and one alpha hole; restoration still encountered
+neighbor-count failures. This result led to a compositing investigation rather
+than a weight change or a larger raw-path limit.
+
+The unapplied raw structured export inventory in
+`.bench/nested-core-diagnosis.json` inspected 17 hole-bearing groups. None of
+those source cavities contains alpha-empty pixels. A jewel-area ring surrounds
+960 pixels in 56 owned regions; its parent opacity is 253/255 and source alpha
+ranges from 253/255 to 254/255. Its actual child fills are opaque, and the
+existing core contains the family. Several guard/jewel families have the same
+small source-byte variation. Other handle families exceed the 64-mark bound
+and lack a proved core. This is a raw-export diagnostic, not the production
+selected drawing or a feature box supplied to generation.
+
+The retained implementation therefore permits source-alpha variation only when
+the existing marks' actual paints are opaque and an actual same-group core
+geometrically contains the entire old family and the retained marks. The
+proposed continued fill also needs its own complete core proof. This preserves
+the already rendered alpha through overlap; the native policy still scores
+changed edge colors and checks the source. Source alpha emptiness, current
+translucent fill/gradient paint, unproved cores and partly enclosed owners stay
+excluded. Merely matching an alpha byte or declaring hidden coverage is not a
+compositing proof.
+
+Nested discovery allows 64 marks and 6,000 total selected/mark nodes. Family
+source crops and continued geometry have separate pixel/node bounds; actual
+core geometry is bounded before intersection. The shared order helper retains
+the 16-proof, 6,000-node sibling limit. Existing deadline, evaluator, dependency
+and independent checkpoint limits apply. Metadata reports nested proposal
+counts and specific source ownership, style, alpha/core, geometry and order
+exclusions for both operator routes.
+
+The native synthetic tests cover alpha 253/128/64, source label order, retained
+opaque flat/gradient marks, faint/translucent marks, true holes, distant members,
+unrelated covering paint, source-alpha variation with and without a real core,
+discovery bounds, scaled/offset scope and save/reload. Geometry and paint remain
+identical for retained marks; opaque interior pixels stay unchanged. Mixed
+antialiased edge pixels may change when their underlying material changes, so
+the complete native visible context is scored instead of demanding byte
+equality across that edge. Local/full score terms and independent checkpoint
+pixels agree. On the four-fragment marked fixture, the initial 68 nodes/cost 116
+become 58/cost 92 for the adjacent family, 55/cost 85 for its continued version,
+40/cost 74 for the nested ellipse, or 38/cost 72 for the nested contour.
+
+The final relevant suite passed **383 tests in 37.39 seconds**. Ruff passed
+with 28 formatted files; Pyrefly reported zero source errors and 61 existing
+warnings. The final source SHA-256 is
+`71eb40b5b1208f1330500672a3bb56f863dbf621f95259b1919e57c8302b4932`.
+
+The follow-up raw-export proof in `.bench/nested-core-full-proof.json` uses this
+final source and checks the family **plus the actual retained mark geometries**.
+The jewel ring now qualifies with all 56 opaque mark owners and a proved core;
+its continued union has 39 nodes. A second jewel-area surface qualifies with
+three marks and a 43-node union. An inspected guard surface remains excluded
+because a mark's gradient is not opaque. These are availability and geometry
+proofs on the raw export, not accepted production proposals or a sword-quality
+pass.
+
+The final paired tuning command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-nested-core-pairs
+```
+
+| Tuning case | Nodes | Cost | Clean MSE | MSE change from owned-overlay run | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,883 | 3,845 | 889.48 | 0 | 0.678 | 6.22 |
+| Anime face | 5,427 | 7,047 | 703.60 | +0.31 | 0.664 | 8.13 |
+| Western park | 4,435 | 5,791 | 1,281.92 | -22.20 | 0.670 | 7.11 |
+| Rubberhose band | 849 | 1,505 | 966.66 | +2.88 | 0.651 | 8.42 |
+
+All four return ready with complete diagnostic candidate storage and zero
+checkpoint disagreements. Search attempts 24/14/21/38 proposals, accepts
+20/11/19/31 working alternatives and publishes four independent checkpoints per
+case. All four selected drawings contain a continued family; anime face selects
+two. Nested family proposal counts are 2/2/3/4. One nested closed contour reaches
+evaluation in anime face, but it is not selected; no ellipse is offered on this
+subset. The learned branch is still unnecessary to demonstrate these operators'
+availability.
+
+Counts and errors move in both directions. Anime girl removes 18 nodes at the
+same clean error. Western park improves its raw error while using 140 more
+nodes; its face-region error drops by 266.74, but lettering/animal-face errors
+rise by 81.05/183.46. Anime face's star-clip error rises by 18.51; Rubberhose's
+banjo error rises by 89.32. These are measured tuning regressions to address in
+the declared feature/score calibration, not a feature-gate or general-quality
+pass. The new pools' same-cost oracle gaps are zero, but their differing
+completed prefixes cannot establish that the earlier selection conflict was
+calibrated away. No held-out or degradation evaluation was used.
+
+These initial nested interpretations do not complete any of the eight deliveries
+or the sword gate. The final native comparison is recorded next.
+
+The final native command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-nested-core
+```
+
+It uses the final source hash above and frozen mask
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The selected sword still has 22,646 nodes, 4,026 contours, 3,991 paths, 544
+gradients, cost 53,260 and human MSE 439.75132. One -1,304-cost family replacement
+survives. Guard/jewel error remains 1,015.14/1,233.07; blade-facet error is 230.02.
+It passes only the numerical human-error ceiling, failing the node/contour
+targets and the combined structural milestone.
+
+Search attempts seven proposals, accepts six working alternatives and publishes
+one independent checkpoint, with zero score disagreements. Overlay discovery
+visits 28 groups (ten families/eighteen singles), but no closed or nested family
+candidate reaches native exact evaluation. Nested overlay exclusions are three
+nonopaque gradients and seven alpha holes; family exclusions include three
+alpha holes. Sixteen overlay models lack restoration. The shared restoration
+helper records four neighbor-count exclusions, eleven silhouette/hole contacts
+and one unproved core; peak neighbor count is 244. These production starting
+families differ from the raw-export probe, whose positive proofs must not be
+presented as accepted production results.
+
+Pipeline time is 53.77 seconds and operation/apply time is 60.67 seconds.
+Reported pipeline overshoot is zero, but operation/apply exceeds the requested
+60-second budget by about 0.67 seconds; end-to-end reservation remains a runtime
+requirement. Structural search takes 11.99 seconds, including 2.68 seconds of
+independent validation. Accounted retained SVG/raster peak is 12,607,690 bytes,
+excluding some metadata and process RSS. Nominal representation target is
+27,282; the reported target remains 46,365 including an unproven observed floor.
+Achieved cost is still above both. None of these timings or storage counts
+establishes the broader runtime/memory gates or a matched-effort speedup.
+
+Next provide coherent neighboring material and compact initialization under the
+same alpha/feature policy. The raw ring can now pass the ownership/compositing
+proof, but the production starting partition still prevents it from reaching
+evaluation. Retain exclusions for actual translucent gradient marks and alpha
+holes until richer representations are supported. Score/feature calibration is
+also required by the measured tuning regressions. These findings support work
+on proposal coverage and scheduling before learned selection.
+
+## Coherent material initialization before SVG export
+
+The next bounded proposal operates on original graph atoms before SVG export,
+instead of requiring thousands of individual SVG family edits. The new
+`cel_plan/materials.py` streams weighted moments of position and premultiplied
+RGBA, then compares a flat fit with a linear fit using one shared spatial axis.
+Two independent color axes cannot be represented as one SVG gradient and retain
+a residual. Discovery grows connected families using fit change and estimated
+boundary savings. Supported/unresolved ink ridges, explicit-width atoms,
+different components and strong ink-class changes remain barriers. Blocked
+contacts propagate through merges, so a weak alternate route cannot erase a
+supported ridge.
+
+A broad alpha range requires a linear model explaining at least 98% of alpha
+variance; a continuous ramp is eligible and an abrupt opacity step is excluded.
+These are proposal checks, not replacements for native coverage validation.
+Growth uses an optimistic fit without charging a complete gradient to every
+small merge. Charging that activation repeatedly caused a local minimum on a
+perfect banded ramp with a hole. Actual export still compares flat and gradient
+paints using their price, and the native frontier charges all actual contours,
+nodes, paths and gradients. `linear_estimate_families` describes the growth
+estimate, not the final paint count.
+
+Discovery caps the graph at 16,384 regions and 65,536 boundaries, and edge-model
+evaluations at 32,768. Pixel moments use two-dimensional chunks of at most
+65,536 pixels, including unusually wide inputs, with stop checks inside moment
+and adjacency loops. The orchestrator reserves a discovery slice, uses the
+fixed detailed normalizer and complexity-50 shared-pool context, exports one
+optional competitor and validates it before local search. Failed, interrupted
+or rejected work retains the independently validated frontier. No human data
+enters generation. This initial route runs only on partial-alpha evidence.
+
+Thirteen new cases check independent dense-versus-streamed moments, a shared
+gradient axis, band/alpha ramp compaction, holes, original ownership and
+save/reload, abrupt alpha steps, supported-ridge alternate routes, explicit
+width, discovery bounds, interruption and optional-fit failure. A synthetic
+export can select an actual gradient with a suitable fixed normalizer; at a
+small fixture's production cost scale it can select a flat instead. Neither
+result establishes score calibration on illustration artwork.
+
+The relevant evidence/policy/frontier/operator, planned operation, benchmark,
+legacy CEL and shared-boundary suite passed **396 tests in 30.74 seconds**.
+Ruff and formatting checks passed. Pyrefly reported zero source errors and 61
+existing warnings; project configuration excludes tests from its type-check
+scope.
+
+The native comparison command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-coherent-materials
+```
+
+Source SHA-256 is
+`99786f0f15a3aa97ba737959b6c2f962fd1ddd9a2a1ad1b972394c8752874c2b`,
+with the unchanged frozen mask
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The material route completes 2,933 merges and 14,931 edge-model evaluations
+from a graph of 8,502 atoms, leaving 5,214 visible result regions. Source graph
+counts include hidden atoms; subtracting merges from the total is therefore not
+the visible count. It records 4,133 alpha exclusions, 2,345 linear-model family
+estimates, 255 ridge proofs (252 supported, three shade interpretations) and
+6,556 unresolved boundary encounters. Discovery reaches neither graph nor model
+caps. Total proposal/export/validation time is 6.99 seconds, including 2.36
+seconds of validation.
+
+The native policy rejects this whole-drawing candidate for
+`translucent-component-lost`. The operation benchmark itself does not retain
+rejected SVGs. A follow-up observer capture is recorded below; its rejected
+counts must not be treated as an accepted result.
+
+Selected output remains **22,646 nodes, 4,026 contours, 3,991 paths, 544
+gradients, cost 53,260 and human MSE 439.75132**, pixel-identical to the prior
+nested-core run. Guard/jewel MSE remains 1,015.14/1,233.07. It passes the
+numerical human-error ceiling but fails the structural targets and combined
+milestone. The nominal cost target is 27,282 and the reported target 46,365
+including the unproven observed floor; achieved cost exceeds both.
+
+Pipeline time is 53.13 seconds and operation/apply time 57.61 seconds, within
+this requested 60-second run. This single run does not resolve runtime
+reservation across workloads or establish a speedup: completed candidate
+prefixes differ. Local search attempts five proposals, accepts four working
+alternatives and publishes one checkpoint, with zero score disagreements.
+Accounted retained SVG/raster peak is 11,660,344 bytes, not total process RSS.
+Refinement is disabled, so the result cannot establish automatic fitting's
+benefit.
+
+A diagnostic-only rerun with the same source/settings and 60-second budget
+captures the material SVG, then stops after its native validation. Artifacts
+are in `.bench/planned-coherent-materials-diagnosis`, with the capture command
+saved as `.bench/diagnose-coherent-materials.py`. Discovery reproduces the same
+merge/model/alpha/ridge counts. The rejected SVG key is
+`820271c4b4c07a6ca520851634f96acdbe576091d3315cc0e1e2f1334dad9469`.
+It has 29,540 nodes, 5,275 contours, 5,215 paths, 34 gradients and cost 61,478.
+The estimated 2,345 linear families therefore produce only 34 actual gradients.
+Its cost is below the conservative fallback's 103,482 but above the validated
+detailed seed's 54,564 and selected drawing's 53,260. Source-atom merge counts
+cannot stand in for improvement over an already merged SVG competitor.
+
+Independent native alpha checks identify eight failing components totaling 88
+pixels. None has an eroded core; sizes range from four to 21 pixels and peak
+alpha from 2/255 to 5/255. Their retained alpha mass ranges from 61.54% to 93.75%,
+below the existing 95% thin-component requirement. The first occupies
+`[361,74,365,77]` in source coordinates and retains 61.54%. The diagnostic uses
+the policy's summed-mass comparison, rather than comparing a rounded ratio at
+the 95% boundary. These measurements establish thin/faint coverage loss here;
+they do not authorize deleting those marks, identify its paint-versus-geometry
+cause, or prove the route would be selected after coverage repair. Full renders
+and per-component boxes/masses are retained in the diagnostic bundle. This run
+deliberately stops early and is not an end-to-end performance comparison.
+
+The opaque tuning controls were rerun using:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-coherent-materials-pairs
+```
+
+| Opaque tuning control | Nodes | Cost | Clean MSE | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 2,883 | 3,845 | 889.48 | 5.43 |
+| Anime face | 5,427 | 7,047 | 703.60 | 7.18 |
+| Western park | 4,435 | 5,791 | 1,281.92 | 6.43 |
+| Rubberhose band | 842 | 1,492 | 966.05 | 7.25 |
+
+All four report material initialization unavailable because the input is opaque;
+they are controls, not real-artwork tests of the new RGBA route. The first three
+selected counts/errors match the previous run. Rubberhose removes seven nodes
+and lowers MSE by 0.61 with a longer completed search prefix; this cannot be
+attributed to the new material route. Search attempts 35/15/25/45 proposals,
+accepts 30/12/23/38 working alternatives and publishes four checkpoints each,
+with zero score disagreements. Diagnostic pools are complete without omissions.
+Same-cost oracle gaps are zero; unconstrained gaps remain
+22.66/45.09/34.35/79.93. No score calibration, held-out, degradation or blind
+review gate is claimed.
+
+Next distinguish paint and geometry causes of the native alpha rejection,
+offer component/family competitors with preserved validated coverage, and add
+real partial-alpha tuning cases. Do not relax the retained-alpha gate or use a
+ranker to admit the rejected drawing. This proposal foundation completes none
+of the eight deliveries by itself.
+
+## Screening thin paint and growing from the detailed checkpoint
+
+The rejected material SVG established a paint mismatch. Growth could fit a
+linear alpha model across 1–5-byte marks, but cost-aware export could select a
+median flat instead. An initial analytic screen still rejected the sword:
+Cairo renders a 1.5-byte flat alpha as one byte, whereas ordinary numerical
+rounding predicted two. That intermediate run is retained in
+`.bench/planned-coherent-checkpoint` (source
+`d4720fed2e58674063192ffedcd72b6e8277055b71957704eca112ca141a4c03`).
+It restored nine families but did not repair native coverage.
+
+`materials.retain_thin_paint` now screens the actual fitted flat/linear paint
+with a native SVG rectangle in its analysis-coordinate frame. Each rectangle
+has at most 8,192 pixels; a larger bound restores source atoms instead of
+starting an oversized render. Thin families whose paint loses more than 5% of
+source alpha mass, or exceeds the existing opacity allowance, return to their
+original complete atoms. Supported uniform and gradient marks still compact.
+The screen checks paint only; it cannot prove geometry, transformed native
+coverage or compositing. Full candidate validation remains authoritative, and
+stop is checked between fitting/render calls.
+
+The optional seed also grows from the **validated detailed partition** rather
+than rebuilding a denser alternative from original atoms. Its graph statistics
+are recomputed, but exported ownership still names original evidence atoms.
+Repair can therefore restore atoms inside a coarser starting cohort without
+splitting or duplicating their primary ownership. A rejected/failed discovery
+leaves the detailed checkpoint available. No production score weights changed.
+
+Six additional cases cover faint-paint loss, native half-byte rounding,
+supported thin flat/gradient compaction, bounds/stop and growth from a coarser
+checkpoint with original owners. The expanded relevant suite passed **410
+tests in 45.15 seconds**. Ruff/formatting passed; Pyrefly reported zero source
+errors and 61 existing warnings.
+
+Final source SHA-256 is
+`e28f16a2013b9e7b647599aa082efad32dc01244fe9b818c99a297ec89abb354`.
+The native comparison command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-coherent-native-paint
+```
+
+The frozen mask is unchanged. Material discovery starts with 4,472 graph atoms
+(including hidden atoms), completes 888 merges/3,990 edge-model evaluations and
+records 2,244 alpha exclusions. It checks 198 thin paints and restores 25
+families, leaving 3,256 visible regions versus 3,229 before paint repair. No
+paint rectangle hits the pixel bound. The seed passes full native validation
+with cost 40,096; subsequent local search selects cost 38,868. Seed stage time
+is 4.97 seconds, including 1.59 seconds of full validation.
+
+| Native selected result | Previous material run | Native paint screen |
+| --- | ---: | ---: |
+| Nodes | 22,646 | 19,528 |
+| Contours | 4,026 | 3,176 |
+| Paths | 3,991 | 3,138 |
+| Gradients | 544 | 30 |
+| Representation cost | 53,260 | 38,868 |
+| Human MSE | 439.75 | 472.73 |
+
+Cost falls by about 27%, but human error rises by 32.98. Blade tip/facets,
+guard/wrapping/jewel MSE becomes 580.57/241.84/1,106.97/680.73/1,370.95;
+all five regress. The result passes only the numerical human-error ceiling,
+failing the ≤800-node/≤140-contour targets and combined milestone. Visual
+inspection of the jewel crop shows fragmented shading and an irregular ring
+compared with the clean human outline. The current score's cost/error tradeoff
+is not a human-quality pass.
+
+Pipeline time is 51.33 seconds; operation/apply takes 54.77 seconds within this
+60-second run. No speedup at equal quality or completed proposal effort is
+claimed. Search attempts 12 proposals, accepts seven working alternatives and
+publishes one independent checkpoint with zero score disagreements. Accounted
+retained SVG/raster peak is 10,107,827 bytes, not process RSS. The observed floor
+and reported target fall to 38,868, so the clamped report says unmet false;
+the **nominal 27,282 target is still exceeded**, and the floor is unproven.
+Do not interpret that report as achieving the desired nominal budget.
+
+Remaining native constraints include 4,809 alpha-step and 3,710
+transparent-contact chain encounters, with 5,715/5,466 emitted segments.
+There are 3,027 geometry-constrained paths. These overlapping counts still
+point toward alpha-fringe/geometry interpretations rather than treating every
+alpha change as a distinct surface. No closed contour or ellipse reaches
+evaluation in this prefix. Six nested overlays are excluded (four mark
+style/frame, two alpha holes); restoration records four neighbor-count and one
+silhouette/hole exclusions. One filled-ink proposal becomes available.
+
+The paired benchmark now has version 2 and `--composition-opacity` (default
+one). It isolates the repository-authored fixtures' rendering children so the
+opacity multiplier applies once, including overlaps; definitions, holes and
+root attributes remain. Default one preserves exact original SVG bytes. Both
+clean and input renders derive from that target variant before deterministic
+input corruption. Reported variant/opacity fields and distinct artifact paths
+prevent confusing it with alpha degradation. Variants inherit the original
+family and split, and add no independent artworks to the corpus.
+
+New tests verify composition opacity, overlapping paint, existing root opacity,
+gradient definitions, holes, invalid values, actual pair construction and that
+clean pixels/geometry still never reach the generator. The final RGBA tuning
+command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-coherent-native-paint-rgba-pairs
+```
+
+A previous-production control was run from an isolated archive of `ce89446`,
+backporting only the same two version-2 paired benchmark scripts to construct
+identical targets. Its actual source hash is
+`c1535dd17d39210fc3a5b36c8ceb51a717cba7da9de501c61c85927ad5a5d06d`;
+results are in `.bench/planned-coherent-checkpoint-rgba-pairs-before`.
+The archive is not a Git checkout, so its report's revision is unavailable;
+the source hash identifies the executed combination. Input/clean SVG/clean
+pixel/mask hashes, families, splits, dimensions, settings and deadlines match
+the final run. Completed search prefixes differ; these are matched-deadline
+controls, not identical-pool or equal-quality speed comparisons.
+
+| Half-opacity tuning case | Previous nodes/cost | New nodes/cost | Previous → new clean MSE | New line F1 | New generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 266 / 454 | 175 / 319 | 139.48 → 177.70 | 0.270 | 8.83 |
+| Anime face | 433 / 825 | 176 / 272 | 133.69 → 206.86 | 0.600 | 15.93 |
+| Western park | 452 / 834 | 532 / 936 | 195.44 → 193.63 | 0.652 | 8.73 |
+| Rubberhose band | 527 / 895 | 407 / 765 | 162.90 → 167.23 | 0.641 | 10.36 |
+
+All four new material seeds are retained, with 29/30/26/43 merges from
+50/46/92/88 starting atoms. These opaque-canvas compositions have a translucent
+uniform background and no thin component requiring paint repair; they test
+material growth and selection, while synthetic/native sword cases test repair.
+New search reaches 48 evaluations each, accepts 14/22/22/21 alternatives and
+publishes four checkpoints per case, without score disagreements. Every
+diagnostic pool is complete with zero omissions. The earlier control reaches
+48/38/37/25 evaluations, so attribution cannot ignore scheduling.
+
+Three cases regress in global clean error. Anime girl's bag-clasp MSE rises by
+182.10 despite improvements in eyes/bow/hairclip. Anime face's eyes/necklace/
+star-clip errors rise by 166.93/313.67/366.77; its inspected eye crop loses iris
+and highlight structure. Rubberhose notes rise by 105.47 and left-eye error by
+31.34. Western park's reported feature errors improve. Same-cost oracle gaps
+are 15.60/0.25/0/0.39; unconstrained gaps are
+159.41/190.68/165.04/134.03 and favor much denser conservative drawings.
+These are explicit score/proposal-quality conflicts, not calibrated-away
+regressions or a broader feature gate pass. No held-out or blind-review data
+was used.
+
+Next produce faithful alpha-fringe/coherent-surface interpretations and preserve
+small ink details; prepare the declared same-pool calibration replay using
+these selection conflicts. Native validation establishes safety and exact
+agreement, not sufficient resemblance. None of the eight deliveries is complete.
+
+## Reset after comparison with legacy CEL
+
+The owner challenged the practical gain over baseline. The appropriate
+comparison is 19,528 nodes versus legacy CEL's 2,312 and the human fixture's
+523, not only the previous 22,646-node development result. The latest global
+human-reference MSE is approximately 29% lower than legacy's, but geometry is
+8.45 times larger. The most recent compaction also regresses all five feature
+crops. This is not the intended overhaul or a release-quality improvement.
+
+A source-only coverage experiment decomposed connected native opacity into
+15 nested envelope bands for the main component, and used legacy CEL
+(`regions=50`, `tolerance=1`, filled ink) on its near-modal opaque paint core.
+Other faint/unsupported components retained native pixel-level alpha paths.
+The generator never received the human geometry. This is an isolated diagnostic,
+without complete planning ownership, deadline/memory proofs or integration.
+
+Artifacts are in `.bench/alpha-envelope-diagnosis`, with the experiment source
+in `.bench/diagnose-alpha-envelope.py`. Executed production source hash is
+`e28f16a2013b9e7b647599aa082efad32dc01244fe9b818c99a297ec89abb354`, and
+the diagnostic script hash is
+`13ebde101942a8db758538bc5e72b761eaa6cbc25061e7292b569f1e57f22eeb`.
+The final diagnostic retains faint components; an earlier interrupted loop and
+two unsuccessful construction attempts did not yield selected drawings.
+
+The resulting 273 paths, 1,294 contours, 6,769 nodes and nine gradients cost
+12,599. Human MSE is 645.40, failing the 497.39 ceiling, with tip/facets/guard/
+wrapping/jewel errors 901.88/496.42/1,087.05/677.12/933.32. Native policy rejects
+five self-crossings, excess opacity and a lost protected hole. The inspected
+jewel remains irregular and its surrounding shades fragmented. Reducing alpha
+partitions alone, then tracing the interior as before, is insufficient. This
+result is not published through the operation or treated as an accepted proposal.
+
+### Native admission audit
+
+`.bench/diagnose-human-validation.py` reconstructed source evidence and graph
+with default options and refinement disabled. It exported and validated the
+actual conservative RGBA fallback, established that baseline, then evaluated
+the human, legacy and latest development SVGs only as benchmark diagnostics.
+The baseline has 54,320 nodes and zero missing/excess opacity pixels. The fixed
+native pixel allowance is 85. Its score uses source graph features and ink,
+matching production policy construction; a preliminary unbased audit did not
+include those fields and is retained separately.
+
+The authoritative report is `.bench/human-native-validation-baseline.json`.
+Its source hash is
+`672cc945d986665e6d75a683e324228d121bf7a049b1b90c9ffdcc0afdbbef77`.
+This differs from the envelope/source comparison because only frontier budget
+reporting changed before the audit; the admission policy and drawing algorithms
+were unchanged.
+
+| Diagnostic drawing | Missing / excess opacity pixels | Self-crossings | Native rejection |
+| --- | ---: | ---: | --- |
+| Human | 1,234 / 86 | 2 | Crossings, translucent gap/excess, protected hole and component loss |
+| Legacy CEL | 833 / 279 | 0 | Translucent gap/excess and component loss |
+| Latest development result | 80 / 38 | 0 | None |
+
+This does not establish that each rejected human/legacy discrepancy is visually
+acceptable or that the target is mathematically unattainable. It establishes
+that the current safeguards exclude the exact human drawing that motivates
+the requested abstraction. Locate and classify the failures before altering
+the policy. Tiny/faint source components cannot be presumed intentional or
+discardable solely from their area or alpha; true faint marks and meaningful
+holes need explicit regression coverage.
+
+With the latest detailed normalizer 54,564 at complexity 50, the audited
+human objective would be approximately 0.04627 versus 0.06698 for the latest
+development drawing. The fixed score can prefer that human drawing, but hard
+admission prevents its consideration. A learned ranker or reweighting does not
+remove this feasibility conflict. These values are diagnostic evaluations,
+not generated candidates, training examples or release gate passes.
+
+### Explicit nominal budget shortfalls
+
+Selected drawings and alternatives now share one budget-reporting helper.
+`representation_budget` adds `nominal_unmet`, `nominal_overrun` and
+`search_floor_clamped`. Existing effective `target`/`unmet` semantics and the
+separate explicit `node_budget` flag remain. An observed floor may clamp the
+effective target, but cannot hide an unmet nominal slider target. No selection,
+score weight, admission check or geometry changed.
+
+Regression coverage exercises all 101 slider positions, selected/alternative
+consistency, a clamped target with a genuine nominal shortfall, and a detailed
+target without a shortfall. The targeted frontier and operation suite passes
+35 tests; Ruff lint and formatting pass. Existing drawing benchmark numbers
+are not presented as fresh results from this metadata-only change.
+
+The plan now prioritizes admission compatibility, direct structural proposals
+before palette/alpha segmentation, then joint coverage/geometry/paint fitting.
+The sword gate and broader release criteria remain unchanged. Full delivery
+remains open.
+
+## Material coverage and an ink-aware silhouette competitor
+
+The admission audit was localized before changing production policy. The
+source's 69 raw alpha holes are mostly narrow gaps in weak perimeter coverage;
+the eight holes lost by the human are of that kind. The 25 omitted native
+components total approximately 2.35 fully opaque pixels of alpha mass. Two
+human self-crossings belong to filled shade shapes near the lower guard. These
+observations explain the conflicts, but do not justify deleting every faint
+mark or permitting arbitrary crossings.
+
+`coverage.py` now derives material interiors from each component's modal alpha
+and persistent holes from the half-modal support. A coherent weak enclosing
+plateau retains an intentional hole even when attached to a stronger body.
+Source color/alpha scoring still includes the entire fringe. Independent
+component mass retention, opaque interior, exterior spill and crossing checks
+remain. Reduced-opacity holes gain their own source-derived ceilings, and
+local/native evaluation uses the same fixed supports and component retention.
+The coverage interpretation is version 1; the admission/score version is now
+4. These development thresholds still require broader tuning and freezing.
+
+`core_materials.py` offers a competing fitted silhouette for a native-scale,
+near-uniform material. It accepts complete original source atoms, retains
+unsupported opacity and thin components, and records fringe ownership separately
+from secondary core coverage. The new evidence interpretation does not change
+the original pixels, labels or atom namespace. A promoted primary base's
+secondary coverage can support a replacement only when actual transformed
+geometry proves containment. Native independent validation admits the candidate;
+ownership metadata alone is insufficient.
+
+The hypothesis is bounded to 1,536² native analysis pixels and eight material
+components. Variable intrinsic alpha, protected partial-opacity holes, resized
+analysis and explicit filled width retain the existing interpretations. This
+does not implement joint coverage/geometry/paint fitting or primitive fitting.
+
+### Native sword comparisons
+
+All runs use complexity 50, balanced quality, refinement disabled, the same
+native mask and a 60-second generation limit. They complete different candidate
+pools and do not establish equal-quality speedups.
+
+| Drawing / control | Nodes | Contours | Human MSE | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy CEL baseline | 2,312 | 339 | 663.31 | See frozen baseline |
+| Previous coherent native-paint search | 19,528 | 3,176 | 472.73 | 60-second limit |
+| Coverage v4 with core initialization disabled | 19,105 | 3,078 | 472.70 | 57.87 |
+| Initial color-only material silhouette | 3,818 | 296 | 683.61 | 58.43 |
+| Ink-aware material silhouette, separate export budget | 12,618 | 2,229 | 517.60 | 50.60 |
+| Frozen development gate | ≤800 | ≤140 | ≤497.39 | Balanced quality |
+
+The color-only run and disabled-core control use source hash
+`6bf4b7877b8d22b9b1169cae610b44ae4fa8286fc1dcdc2d79cf4eb2d77cb315`.
+Artifacts are `.bench/planned-material-silhouettes` and
+`.bench/planned-persistent-alpha-only`; the latter records its no-op monkeypatch
+and diagnostic script hash. The large compaction worsens all five human feature
+crops and erases much of the jewel's dark rim. It is a rejected development
+approach, despite passing native policy.
+
+The ink-aware run uses source hash
+`599c4758f6030d858830f497d4c65e63abf2c5c9283525cd85422015d654509c`
+and artifacts `.bench/planned-material-silhouettes-ink-live-export`. It retains
+the jewel rim but still produces patchy surrounding paint and jagged blade
+shading. Tip/facets/guard/wrapping/jewel human errors are
+542.09/259.79/1,164.70/896.53/1,308.24. It costs 26,176 and has zero
+self-crossings or native policy rejections. The core model uses alpha 253/255,
+2,608 core atoms and 5,240 fringe atoms. Ink-aware growth performs 762 merges,
+but 2,497 ridge encounters remain unresolved. These counts are not unique
+semantic edges. The candidate is still 5.46 times the legacy node count and
+fails every combined sword milestone; this is not a practical baseline win.
+
+An earlier ink-aware run discarded the optional candidate after its growth
+deadline also expired the export budget. It selected 20,078 nodes and human
+MSE 472.74; source hash
+`3aa6dee88ef65b66d092b183c7ac41a76fdd014b0d369d50a368cdf735415998`,
+artifacts `.bench/planned-material-silhouettes-ink`. Growth now has a separate
+bounded slice: a complete partition may export under the remaining search
+budget. Stop still discards it. Tests cover both cases.
+
+The first color-only operation crashed on an optional native curve boolean.
+The scheduler now catches only `pathops.PathOpsError`, records the failed
+operator cursor and continues other operators from validated states. Six
+regressions exercise each operator slot; programming exceptions remain visible.
+The completed color-only run records four such failures. Its initial crashed
+attempt did not produce a benchmark drawing.
+
+### Updated admission audit
+
+`.bench/human-native-validation-material-support.json` repeats the native audit
+with the original independently validated conservative baseline. Its source
+hash is
+`7868624b1c222ac1b5276293c185e14a9aef3e8b4b6befc46a704c0f538026f6`;
+the only source change after the successful ink-aware sword run adds a return
+type annotation. The policy has 148,322 material-interior pixels and no
+protected holes of at least four pixels on this sword. The 85-pixel allowance
+and original 26 component supports remain.
+
+| Diagnostic | Missing / excess opacity pixels | Remaining rejection |
+| --- | ---: | --- |
+| Human | 14 / 0 | Two crossings and faint component loss |
+| Legacy CEL | 8 / 0 | Faint component loss |
+| Ink-aware material candidate | 0 / 0 | None |
+
+This resolves the fringe/hole admission conflict without granting the human
+fixture an exception. The human is still diagnostic input only. Synthetic
+regressions preserve clear/reduced-opacity holes, weak attached rings, faint
+independent marks, opacity steps, closed dark ink and full/local agreement.
+Passing admission does not establish likeness, and the human drawing remains
+inadmissible under the unchanged crossing/component rules.
+
+The next implementation priority is whole contours and coherent shade surfaces
+across palette fragments, with bounded restoration of underlying paint. Diagnose
+candidate availability and selection at the frozen cost/feature gates. A dense
+trace's nominal complexity target is too weak to serve as a product milestone.
+No UI rollout, learned-model benefit or delivery completion is claimed here.
+
+### Translucent tuning controls
+
+The same four half-opacity, clean tuning variants were rerun at a 192-pixel long
+side, complexity 50, balanced quality, refinement disabled and a 20-second limit:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-material-silhouettes-rgba-pairs
+```
+
+The summary records source hash
+`7868624b1c222ac1b5276293c185e14a9aef3e8b4b6befc46a704c0f538026f6`.
+Input, clean SVG, clean pixel and mask hashes match
+`.bench/planned-coherent-native-paint-rgba-pairs`. All four selected PNGs are
+byte-identical to that previous production run, although candidate keys/pools
+change. The new core candidates are retained, but do not improve selection.
+
+| Tuning variant | Nodes / cost | Clean MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 0.270 | 11.60 |
+| Anime face | 176 / 272 | 206.86 | 0.600 | 17.97 |
+| Western park | 532 / 936 | 193.63 | 0.652 | 10.19 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.641 | 13.41 |
+
+Every run reaches 48 local evaluations and retains a complete diagnostic pool,
+without score disagreements. Same-cost clean oracle gaps remain
+15.60/0.25/0/0.39; the existing feature and line shortcomings remain. These
+controls establish neither a quality improvement nor independent corpus
+expansion. No held-out artwork or blind review was used.
+
+The focused planner, operation and benchmark suite passes 370 tests, including
+the new source-coverage, ownership, closed-ink, deadline/stop and native-boolean
+regressions. Ruff lint/format checks pass; Pyrefly reports zero errors with 61
+existing warnings. A separate legacy CEL/shared fitting/generation regression
+batch passes 112 tests, for 482 relevant tests across the two batches. Numerical
+acceptance and these tests do not complete delivery.
+
+## Owned ink, short shade contacts and closed-mark checkpoints
+
+The preceding material candidate still depended on thousands of partitions.
+This work removes three specific proposal/publication barriers without changing
+the native admission policy, score weights, detailed normalizer or release
+targets. All changes remain in the experimental method.
+
+### Evidence and implementation
+
+The source-only audit in `.bench/material-boundary-audit.json` reconstructs the
+committed evidence and graph at source hash
+`7868624b1c222ac1b5276293c185e14a9aef3e8b4b6befc46a704c0f538026f6`.
+The core-material adjacency has 2,497 short high-line-support contacts and 211
+testable long contacts. Every such contact joins two ink-majority atoms. These
+are graph contacts, not unique semantic edges; coarse line support alone cannot
+distinguish a continuous mark's internal palette divisions from its boundary.
+
+`boundary_evidence.py` now requires complete monotone source cross-sections
+before a short contact permits a competing shade merge. Dark troughs, pale
+marks, empty support and large opacity discontinuities keep the contact
+protected. At most 64 segment profiles are sampled per proof, with a four-pixel
+reach. `families.py` caps short proofs at 4,096 and permits compatible internal
+dark-ink contacts only when both complete, bounded native atom samples agree
+with their paint models. Each sample rectangle is capped at 65,536 pixels;
+fixed-width atoms keep their existing protection. Interrupted proofs are never
+cached as successful. Eligibility does not replace native geometry/paint
+acceptance or complete source ownership.
+
+The closed-mark availability diagnosis at source hash
+`9f68962db83f575966603f1b40a5a0e683aac8833e973c8c8bc0b2abd3b22424`
+finds a source-backed ring with 76 nodes, a 239-pixel owned rim, a 952-pixel RGB
+cavity and fit residual 1.7293 against a 2.125 tolerance. Its 35 interior paths
+are geometrically contained in the proposed ellipse. Direct proposal generation
+exhausts the previous 16 individual order proofs. This is an order-proof barrier,
+not an ellipse containment failure. Other larger cavities protrude outside
+their material base and remain correctly excluded. Diagnostic artifacts include
+`.bench/closed-material-ellipse-availability.json`,
+`.bench/closed-ellipse-containment.json` and
+`.bench/closed-ellipse-direct-proposals.json`. Human geometry is not an operator
+input, and the generator has no sword-specific region rules.
+
+`layer_order.py` now proves the union of objects actually crossing each
+unrelated child disjoint once, reusing that proof for the remaining crossings.
+Stationary enclosing surfaces are excluded from that child's crossing union.
+This preserves the strict geometric disjointness requirement; overlaps still
+require individual proofs and are rejected when real. The independent bounds
+are 64 group proofs, 16 fallback pair proofs and 6,000 moving geometry nodes.
+The caches are local to one immutable order operation and stop is checked
+between native unions. Native tests cover transformed half-opacity scenes,
+more than 16 moved marks, actual overlaps and unchanged rendered pixels.
+
+`overlays.py` prioritizes bounded, source-backed RGB cavities ahead of ordinary
+complex patches. Per-cavity inspection is capped at 65,536 pixels and aggregate
+inspection at 262,144 pixels. A cavity is not treated as an alpha hole or an
+admission exception. All restoration, core support, containment, topology and
+order checks remain.
+
+`search.py` accepts a separate live checkpoint budget from `pipeline.py`.
+Useful local states can receive independent full validation after their local
+discovery slice expires, using remaining global search time. The pipeline's
+final validation/fitting reserve remains separate. Explicit cancellation still
+prevents publication, and observed full-validation time limits subsequent
+checkpoint attempts. Tests cover phase expiration and shared cancellation.
+
+### Native sword experiments
+
+All rows use complexity 50, balanced quality, refinement disabled and a
+60-second requested limit. Times are actual generation times, not matched
+completed proposal effort. Each source stayed fixed during its benchmark.
+
+| Experiment | Nodes / contours | Human MSE | Seconds | Full local checkpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Prior ink-aware material candidate | 12,618 / 2,229 | 517.60 | See preceding record | 0 |
+| Monotone short contacts | 11,086 / 1,917 | 513.11 | 54.18 | 0 |
+| Compatible internal ink | 10,286 / 1,711 | 512.81 | 54.30 | 0 |
+| First group-order proofs and cavity priority | 10,286 / 1,711 | 512.81 | 59.37 | 0 |
+| Actual crossing unions and live checkpoints | 10,121 / 1,660 | 514.67 | 51.17 | 4 |
+| Legacy operation baseline | 2,312 / 339 | 663.31 | See baseline record | — |
+| Human fixture | 523 / 93 | 0 | — | — |
+| Frozen development gate | ≤800 / ≤140 | ≤497.39 | — | — |
+
+Artifact directories and source hashes, in experiment order:
+
+- `.bench/planned-monotone-fragments`:
+  `5fdcc619e925c5e9c3bafbc3663c3f5b51505f7532ed20a366d2063cd5143e85`.
+- `.bench/planned-compatible-ink`:
+  `9f68962db83f575966603f1b40a5a0e683aac8833e973c8c8bc0b2abd3b22424`.
+- `.bench/planned-closed-mark-order`:
+  `038af0b9f6071b72f393760b8a0e203117fb2a5c3ad73696387cb03a467edae1`.
+- `.bench/planned-closed-mark-checkpoints`:
+  `5b4c010af121892dd76aee987788fea89ecb30c281672d43f49a07cf8c386d29`.
+
+Reproduce the final operation/export comparison with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-closed-mark-checkpoints
+```
+
+The final source has 1,281 core-material merges, 1,657 visible regions, 432
+compatible internal-ink contacts, 148 proven short shade contacts and 1,917
+protected short contacts. No encountered short contact remains unresolved.
+Local search reaches five evaluations, accepts four states and fully checks
+four checkpoints, with zero local/full score disagreements. Closed overlays
+emit one nested ellipse, with 25 group proofs, 519 proof reuses and no order
+proof limit. The isolated closed-overlay state saves 55 representation cost
+and passes local checks; its full checkpoint is dominated. It is not part of
+the selected drawing. The selected filled-ink replacement saves 471 cost and
+slightly improves native visual score. Full frontier cost is 20,347, with 31
+gradients, zero crossings and no native policy rejections.
+
+The final human tip/facets/guard/wrapping/jewel errors are
+560.66/254.12/1,166.23/882.61/1,332.64. The jewel crop remains patchy and its
+human error worsens from the compatible-ink initialization. All three numerical
+sword targets still fail; meeting the nominal 27,282 slider budget is not a
+product quality win. The result has 4.38 times the legacy node count and more
+than twelve times the gate's node limit. `refinement_complete` remains false.
+
+### Final-source translucent controls
+
+The four existing half-opacity tuning variants use the same input/clean/mask
+hashes as `.bench/planned-material-silhouettes-rgba-pairs`. The summary in
+`.bench/planned-closed-mark-checkpoints-rgba-pairs` records final source hash
+`5b4c010af121892dd76aee987788fea89ecb30c281672d43f49a07cf8c386d29`.
+Reproduce with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-closed-mark-checkpoints-rgba-pairs
+```
+
+| Tuning variant | Nodes / cost | Clean MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 0.270 | 9.49 |
+| Anime face | 176 / 272 | 206.86 | 0.600 | 16.06 |
+| Western park | 547 / 987 | 178.72 | 0.652 | 8.62 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.641 | 11.17 |
+
+Selected PNGs remain byte-identical for anime girl, anime face and rubberhose
+band. Western park changes from 532 nodes/cost 936 and MSE 193.63. Lettering
+error improves from 684.38 to 483.85, ball from 258.69 to 254.46 and face from
+522.42 to 521.55; animal-face error is unchanged. No measured feature worsens.
+Its line F1 is unchanged. All four reach 48 local evaluations and four full
+checkpoints, retain complete diagnostic pools and have zero score disagreements.
+Same-cost clean-oracle gaps remain 15.60/0.25/0/0.39. This small tuning benefit
+does not resolve existing feature/line failures, expand the corpus or pass
+held-out/release evaluation. Runtime differences are observations, not a
+separate matched-effort performance claim.
+
+### Verification
+
+The full relevant planner, legacy CEL, shared fitting, operation and benchmark
+suite passes 503 tests in 47.47 seconds. A subsequent focused run passes all
+five layer-order tests, including an added regression where a stationary outer
+surface overlaps an unrelated child but the moving inner marks are disjoint.
+That brings coverage to 504 distinct relevant tests across these runs; no
+production source changed after the benchmark or full suite.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest -q \
+  tests/refine/test_cel*.py tests/refine/test_shared.py \
+  tests/refine/test_simplify.py tests/refine/test_snap.py \
+  tests/operations/test_cel_planned.py tests/operations/test_generate.py \
+  tests/test_bench_cel_planned.py tests/test_cel_pairs.py tests/test_bench_cel_pairs.py
+```
+
+Ruff lint/format and `git diff --check` pass. Pyrefly, explicitly using the
+workspace virtualenv interpreter, reports zero errors and 61 existing warnings.
+The final production source hash still matches both final benchmark summaries.
+These checks validate the implementation slice, not completion of a delivery.
+
+### Next structural experiment
+
+Couple compact closed contours with coherent enclosed paint and retained
+highlights; propose long supported facet boundaries with their paint models.
+Measure candidate availability separately from selection and whether useful
+edits can compose within the beam's bounded time, rather than remaining isolated
+alternatives. Keep complete atom ownership and native local/full checks. The
+current fixes prove that one ellipse can reach evaluation, not that the pool
+contains a faithful compact sword. A learned ranker and slider UI remain
+dependent on that missing structural milestone.
+
+## Coupled enclosed material and cumulative search
+
+`enclosed_paint.py` extends a proved closed-overlay proposal with a competing
+interior material. The largest eligible owner supplies the initial flat or
+linear RGBA model. Every analyzed source pixel of each eligible whole owner is
+checked against it; an owner with a strong unexplained residual stays separate.
+Fixed source atoms and constrained paint remain separate even when their color
+matches. Complete ownership is retained; no majority mask can claim an entire
+source atom. The operation has no human fixture or sword-specific region input.
+
+The material proposes a compact ellipse or fitted contour from the cavity's
+source boundary, with flat/gradient paint alternatives. Actual retained mark
+geometry must lie inside it, the material must lie inside the proposed rim, and
+its full new footprint must have an actual opaque core when RGBA requires one.
+Retained mark geometry and paint remain unchanged. Secondary covered membership
+is explicit and local order still uses strict disjointness proofs. A composite
+candidate is independently scored before it can become a published checkpoint.
+
+### Source availability diagnosis
+
+`.bench/enclosed-paint-inventory.json` at source hash
+`5b4c010af121892dd76aee987788fea89ecb30c281672d43f49a07cf8c386d29`
+finds 35 interior owners in the source-backed jewel cavity. The largest owns
+705 pixels across 16 original atoms; a shadow owner has 107 pixels and two
+highlight owners have 35 and 33 pixels. This identifies a real whole-material
+opportunity rather than a contour-only replacement.
+
+The first native combined-material run emits no combined candidate and retains
+the previous 10,121-node drawing. Its source-only availability audit,
+`.bench/enclosed-material-availability.json`, uses source hash
+`1580bd58b070da76baa56fb7b63d2786bb212c51e4d4b877e08e04f87aaf473a`.
+The dominant owner's maximum native color residual is 81.1 bytes, while its
+95th percentile is 26.1. A maximum-only material model cannot account for its
+edge samples, and relaxing that maximum would also swallow independent marks.
+
+The retained operator instead tests explicit convex color mixtures between the
+material and its enclosing rim or distinct neighboring owned paint. This is
+restricted to a 1.5-native-pixel boundary band, with compatible modeled alpha.
+An interior residual remains protected; a lone outlier in a matching owner
+cannot serve as its own paint context. All source samples still participate in
+the screen, and all changed native pixels participate in acceptance. Distance
+sampling follows the evidence scale. This changes proposal evidence, not the
+hard policy, score weights, normalizer or frozen sword targets.
+
+Inspection is capped at 65,536 analysis pixels, bounded paint fits at 4,096
+samples and source perimeters at 4,096 vertices. Existing enclosure limits cap
+the owner count at 64 and its original geometry at 6,000 nodes. Each proposed
+material also has a 6,000-node limit. Checks observe stop/deadline between
+contexts, models and native proofs; incomplete work is never published.
+
+### Search composition
+
+Balanced search retains the existing eight evaluated alternatives per parent
+and the 48-evaluation total cap. Following an ink replacement, a closed interpretation receives the first complementary
+opportunity; following a closed interpretation, ink replacement does. Every
+other operator remains in that cycle. These are shared-pool scheduling choices,
+independent of the requested complexity anchor.
+
+A previously feasible enclosed ellipse also supplies a scheduling hint keyed
+by its complete original members. Storage is bounded to 64 hints with at most
+256 members each. Changed parents repeat every ownership, style, core,
+restoration, containment and order proof; no admission decision is cached.
+Tests invalidate an actual core after a hint is recorded and require rejection.
+
+When the pipeline supplies a separate live full-checkpoint budget, local
+discovery now uses its complete allotted phase. Standalone search still keeps
+its own 25% validation reservation. This removes the duplicated reservation;
+the global search deadline, final validation/fitting reserves, minimum full
+checkpoint estimate and cancellation behavior remain. A controlled-clock
+regression proves that a useful proposal in the last quarter is evaluated only
+under the supplied shared reserve and then independently validated.
+
+### Experiments that did not improve the drawing
+
+All native trials below use the frozen sword mask, complexity 50, balanced
+quality, refinement disabled and a 60-second operation budget. No human
+geometry enters proposal generation. The initial three trials isolate proposal
+availability; none selects the combined material.
+
+| Local experiment directory under `.bench/` | Source SHA-256 | Selected nodes / contours | Human MSE | Generation seconds |
+| --- | --- | ---: | ---: | ---: |
+| `planned-enclosed-material` | `1580bd58b070da76baa56fb7b63d2786bb212c51e4d4b877e08e04f87aaf473a` | 10,121 / 1,660 | 514.67 | 53.51 |
+| `planned-enclosed-material-coverage` | `bfd6f4d7d7ec64a46f74e3465235e18339a963a162080e224984a6edabe762ad` | 10,121 / 1,660 | 514.67 | 52.07 |
+| `planned-enclosed-material-mark-coverage` | `6c1c0463607eb3840a0e75993c8a4ad477eeab8f8661a04d4dded13b78062276` | 10,121 / 1,660 | 514.67 | 52.33 |
+| `planned-enclosed-material-composition` | `b85c122dda54a896c4706b3eb553a44095f577072d4de5dc4febc0b63f7d4586` | 10,009 / 1,630 | 514.85 | 51.82 |
+| `planned-enclosed-material-revisits` | `e59339fd8f688b77b3a7ebb6969e666e4a0e9609dc78fa450cc47f741d94c4ac` | 10,009 / 1,630 | 514.85 | 54.49 |
+| `planned-enclosed-material-shared-reserve` | `6c1b192674c16a6b7745cb764f13af756dc7e7540ec1a255982976f3eca52dc3` | 10,009 / 1,630 | 514.85 | 54.11 |
+| `planned-enclosed-material-priority-depth` | `89b5c21da059b7ccf010a7b75342a4d15f43050364c83fc4b239dd402a5704c6` | 10,009 / 1,630 | 514.85 | 51.50 |
+
+The mark-coverage interpretation allows one combined material candidate to
+reach native local evaluation. It saves 387 representation cost and increases
+native visual error by about 0.000248, improving the objective at anchors
+0/25/50. Hints and the shared reserve allow another such candidate on a parent
+with one ink replacement. The selected five-expansion trial instead contains
+two ink replacements, costs 20,055 and has 31 gradients. Its human
+blade-tip/facets/guard/wrapping/jewel errors are
+560.66/254.12/1,167.78/882.61/1,332.64. The jewel remains fragmented; this is
+not a whole-surface quality win. It has zero crossings and native policy
+rejections and still fails every numerical sword target.
+
+The depth-priority experiment immediately bounded the beam after expanding one
+parent, usually following the fixed anchor 50 and rotating other fixed anchors
+every third turn. A controlled-clock native test reached three cumulative
+edits, and another retained a useful faithful branch behind a rejected prefix.
+The full 523-test relevant suite passed in 48.55 seconds. This verifies
+mechanics, not quality. At native sword size the four parent expansions still
+exhausted discovery before a combined material entered the selected drawing;
+16 evaluations led to 12 local acceptances and four independent checkpoints,
+with zero score disagreements. The output PNG is unchanged from the previous
+two-ink result.
+
+At the same existing four half-opacity tuning inputs, 192-pixel long side,
+20 seconds, complexity 50, balanced quality and refinement disabled, the
+priority schedule regresses western-park clean MSE from 178.72 to 204.43 and
+lettering from 483.85 to 683.50, while saving 63 representation cost. Its
+same-cost oracle gap grows from zero to 9.00. The other outputs are anime-girl
+177 nodes/cost 327/MSE 178.09, anime-face 175/271/206.73 and rubberhose-band
+407/765/167.85. Every case reaches 48 evaluations and four full checkpoints,
+with complete diagnostic pools and zero score disagreements. Line F1 remains
+0.270/0.600/0.652/0.641; measured feature failures persist. The prior
+five-expansion schedule also worsened anime-girl eye error from 842.31 to
+928.92. These regressions are recorded, not treated as acceptable progress.
+
+The priority experiment and the five-evaluation per-parent change were removed.
+Final production search retains the established eight-evaluation parent
+expansion. The coupled material, complementary operator opportunity, bounded
+source-membership hints and corrected checkpoint reservation remain for final
+validation. Scheduling changes cannot substitute for useful interpretations or
+calibrated feature selection. No policy threshold, score weight, normalizer,
+release gate or default method was changed.
+
+### Final source and candidate audit
+
+The retained source hash is
+`84fe778a9e7da258a8ed9b73f445422bc4b4da5ed4052f6fc6d89e1050739c02`.
+The final native run in `.bench/planned-enclosed-material-original-width`
+uses the same settings and mask as the table above and takes 52.45 seconds.
+It selects the same two-ink drawing: 10,009 nodes, 1,630 contours, 1,577 paths,
+31 gradients, cost 20,055 and human MSE 514.85. There are zero crossings or
+native policy rejections. Twelve local evaluations lead to nine acceptances
+and four full checkpoints with zero score disagreements. Local search and
+validation take 21.04 seconds, including 4.15 seconds for the full checkpoints.
+Only one combined material is emitted before discovery expires. The drawing
+has 4.33 times the legacy node count and more than twelve times the gate's
+node limit. The nominal slider budget and all frozen targets are unchanged.
+
+Reproduce the retained native and paired runs with the commands above, using
+`.bench/planned-enclosed-material-original-width` and
+`.bench/planned-enclosed-material-original-width-rgba-pairs` respectively.
+The four final half-opacity tuning inputs have identical source, clean and
+mask hashes to the prior controls, and all selected drawing PNGs are
+byte-identical to `.bench/planned-closed-mark-checkpoints-rgba-pairs`.
+
+| Final tuning variant | Nodes / cost | Clean MSE | Same-cost oracle gap | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 15.60 | 10.36 |
+| Anime face | 176 / 272 | 206.86 | 0.25 | 15.85 |
+| Western park | 547 / 987 | 178.72 | 0 | 9.19 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.39 | 11.77 |
+
+All four again reach 48 local evaluations and four full checkpoints, with
+complete diagnostic pools and zero score disagreements. Feature scores and
+line F1 are restored exactly. These unchanged controls remove the observed
+scheduling regressions; they do not establish a quality or runtime improvement.
+
+A separate source-only availability audit in
+`.bench/enclosed-material-candidate-audit/summary.json` reconstructs immutable
+evidence, the owned initialization and the native policy using a 180-second
+diagnostic limit. It evaluates the first combined material independently and
+only then compares it with the human fixture. This is an availability check,
+not a matched-effort selection result. The candidate is native-valid and
+compacts 32 interior paths into an ellipse with a gradient, retaining the two
+highlight owners. It reduces the core initialization from 10,286 to 10,115
+nodes and cost 20,818 to 20,431. Human MSE decreases from 512.81 to 511.84;
+jewel error decreases from 1,302.62 to 1,279.26. Other measured feature errors
+are unchanged. The raster agrees exactly with the native local update; the
+largest full/local score-term difference is 2.31e-10, within the existing
+checkpoint tolerance. The candidate still fails all numerical sword targets
+and makes only a small local improvement. It is not the published drawing.
+
+The audit also tests the possible straight-chain corner blocker without
+changing generation. Of 21,454 bounded open source chains, 5,283 already meet
+the current straight-distance and monotonicity bounds. Fourteen are rejected
+by the raw corner classifier; smoothing removes only seven exclusions, all
+with endpoint spans under twelve native pixels. This does not substantiate a
+claim that staircase-corner filtering blocks long facets. Leave that classifier
+unchanged until a representative supported case demonstrates the need.
+
+The next structural milestone therefore needs broad material/shade proposals
+and supported boundaries across fragmented graph junctions, with explicit
+whole-atom ownership or canonical atom splits. Continue comparing available
+compact candidates with production selection and protected feature crops.
+Neither a larger ranker, a deeper beam, nor a slider mapping supplies that
+missing drawing. General joint fitting, calibration and release evaluation
+remain open.
+
+### Retained-source verification
+
+After removing the unsuccessful scheduling experiments, the full relevant
+planner, legacy CEL, shared fitting, operation and benchmark suite passes
+521 tests in 49.57 seconds. This includes 12 new enclosed-material cases and
+five new composition/checkpoint-reservation cases. Ruff lint passes and all
+59 checked files are formatted. Project Pyrefly reports zero errors and 61
+existing warnings; its configured exclusions omit tests, which are exercised
+by pytest. The final native benchmark, paired controls and source-only
+candidate audit all record the same retained source hash above.
+
+## Broad material models and measured checkpoint time
+
+The broad-model experiment adds `cel_plan/surface_models.py`, integrates it
+within the existing family slot in `families.py`, and reports its exclusions
+in `pipeline.py`. It offers coherent paint across complete source owners rather
+than requiring every neighbor to resemble one seed color. Existing adjacency,
+ink, geometry and enclosed-material operators keep their slots. It does not
+change score weights, coverage gates, slider normalization or the legacy default.
+
+### Model and safety bounds
+
+A source-supported seed proposes a flat or linear material model. Its linear
+hypothesis can extend beyond the seed's observed extent; the exported paint is
+refitted over the complete proposed family and screened with actual SVG
+clamping. Both gradient and flat competitors reach the same native objective.
+Every source pixel of every included owner must meet the paint residual screen,
+including distant atoms and isolated outliers. Fitting samples are bounded, but
+the eligibility proof streams complete owned source support in 65,536-pixel
+chunks. Interruption never publishes a partially screened owner.
+
+The model considers at most eight material seeds, 128 paths and 6,000 geometry
+nodes per family, sixteen emitted proposals per parent, 4,096 eligible owners
+and a 1,536-squared analysis grid. Residual proposal parameters are 24 and 48
+RGB byte values; these are eligibility screens, not relaxed native acceptance
+thresholds. Fixed atoms, chosen ink overlays, paint constraints, translucent
+current paints, strokes and clips are excluded. A partially translucent source
+requires proof that the entire actual replacement geometry lies in the existing
+opaque core of its supported opacity group.
+
+Coarse ink classification is evidence for an alternative interpretation, not a
+blanket veto of compatible shade owners. Coarse ink does not seed the material
+model; any such owner included in a family must satisfy the complete source RGB
+screen. A distinct dark mark stays independent when it fails that screen, and
+fixed atoms or already selected ink overlays cannot be absorbed. Tests explicitly
+exercise compatible coarse labels beside an unchanged black ink owner.
+
+Exact contour unions retain the exterior geometry. They prove local order by
+intersecting the actually moving earlier-fragment prefix with each intervening
+sibling union. Siblings crossing the same prefix share one exact geometric
+proof; the stationary last fragment is not part of the moving prefix. The
+128-proof and 6,000-node temporary geometry bounds remain. A real overlap,
+unproved stroke/clip, core failure or bounded proof rejects the proposal.
+Whole geometry holds remain held after union. This is paint/model availability,
+not fitted facet geometry or canonical source atom splitting.
+
+### Exclusion experiments
+
+Separate 180-second source-only audits explain the initial lack of candidates.
+They use immutable source evidence, owned initialization and native policy;
+the human render is consulted only after generating and evaluating a proposal.
+
+| Eligibility/order experiment | Eligible owners | Emitted proposals | Interpretation |
+| --- | ---: | ---: | --- |
+| Veto any source atom classified as coarse ink | 118 | 0 | Coarse labels prevent material connectivity |
+| Veto only owners with at least 60% coarse ink support | 118 | 0 | A whole-owner majority veto still blocks the same connectivity |
+| Allow compatible coarse labels, prove order per sibling | 1,403 | 1 | A larger family reaches the unchanged 128-proof limit |
+
+The audit directories are `.bench/broad-material-candidate-audit-atom-veto`,
+`.bench/broad-material-candidate-audit-owner-veto` and
+`.bench/broad-material-candidate-audit-before-group-proofs`. Their source hashes
+are respectively `5c6b66795cc23660a9cbd08af859ef5792db3a936a9f597f718e2dccd220a069`,
+`d36b3adeaa03f532612f2c6fe42e99f2bce8fedde9b910ffa124adf0faa03570` and
+`faf70bad17934a8068fdb91a5b6689c3005adb78e4c8b996e63bf261cc8a5499`.
+The per-sibling version emits one native-valid gray surface, removes 34 paths
+and lowers initialization cost from 20,818 to 20,530. Its human MSE rises from
+512.81 to 513.47. It is availability evidence with a negative visual tradeoff,
+not a quality improvement or the selected drawing.
+
+### Publication and final native comparison
+
+The first matched 60-second run with grouped order proofs, before the checkpoint
+time fix, is `.bench/planned-broad-material-surfaces` with source hash
+`d4cbefea36b8249bdcdd8ff23226579e4d369b019ed07ca22988179b1eb94649`.
+Nineteen evaluations and thirteen local acceptances receive no full checkpoints.
+It returns the 10,286-node initializer with human MSE 512.81 in 53.15 seconds.
+Local search could consume the time required by its own minimum full-check
+estimate, even with a separate shared validation deadline.
+
+`search.py` now caps discovery at the earlier of its local deadline and the
+shared validation deadline minus the measured minimum checkpoint duration.
+It does not subtract another fixed percentage when the caller already has a
+longer validation window. Two deterministic clock tests reproduce the short
+window failure and preserve full useful discovery with a longer window. Stop
+still prevents publication; incomplete working states remain unpublished.
+
+The retained source hash is
+`4999e6c766974d418a488784941aaf6ac7b354ce1fa2d971cbdd3cecaba89999`.
+The final matched run, `.bench/planned-broad-material-checkpoints`, uses the same
+native source/mask, complexity 50, balanced quality, refinement disabled and
+60-second time limit. It takes 53.24 seconds, evaluates 23 proposals, accepts
+sixteen locally and publishes four independently validated checkpoints. There
+are zero score disagreements, crossings or published native policy rejections.
+Local search and validation take 16.81 seconds, including 4.84 seconds for the
+full checkpoints. Three broad material proposals reach local evaluation.
+Initialization timings differ between runs, so this rerun does not isolate
+how much publication improvement comes from the deadline fix alone.
+
+| Native sword drawing | Nodes | Contours | Paths | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Human fixture | 523 | 93 | 80 | 1,127 | 0 |
+| Legacy CEL | 2,312 | 339 | 137 | 4,230 | 663.31 |
+| Previous retained material/ink run | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Broad models with full checkpoints | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Frozen sword gate | At most 800 | At most 140 | — | — | At most 497.39 |
+
+The selected drawing still contains the same two ink replacements and 31
+gradients. Tip/facets/guard/wrapping/jewel errors remain
+560.66 / 254.12 / 1,167.78 / 882.61 / 1,332.64. Out-of-time, search-out-of-time
+and stopped are false, and deadline overshoot is zero. Refinement remains
+incomplete. The detailed normalizer is still 54,564 and the nominal complexity
+50 representation target is 27,282. The selected result is more than four times
+the legacy node count and exceeds every numerical sword target. Broad paint
+models provide no improvement to the published sword.
+
+### Final paired controls and reproduction
+
+The four final half-opacity tuning controls in
+`.bench/planned-broad-material-checkpoints-rgba-pairs` use the same source,
+clean-target and mask hashes as
+`.bench/planned-enclosed-material-original-width-rgba-pairs`. Every selected PNG
+is byte-identical; all global, feature and line scores are unchanged. All four
+reach 48 local evaluations and four full checkpoints, with complete diagnostic
+pools and zero score disagreements.
+
+| Tuning variant | Nodes / cost | Clean MSE | Same-cost oracle gap | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 15.60 | 11.55 |
+| Anime face | 176 / 272 | 206.86 | 0.25 | 17.94 |
+| Western park | 547 / 987 | 178.72 | 0 | 10.29 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.39 | 13.38 |
+
+These are unchanged quality controls, not runtime improvements. No timed CPU
+tests overlap the native benchmark or paired controls. Reproduce with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-broad-material-checkpoints
+
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-broad-material-checkpoints-rgba-pairs
+```
+
+### Final source-only availability audit
+
+The final audit in `.bench/broad-material-candidate-audit/summary.json` records
+the retained source hash above, checks that it stays unchanged, and evaluates
+the first four broad proposals from the independently validated initializer.
+Its 180-second diagnostic limit is not matched-budget production selection.
+The human geometry never enters generation, screening, fitting or native policy.
+
+| Independent candidate | Removed paths | Nodes / contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initialization | — | 10,286 / 1,711 | 20,818 | 512.81 |
+| Broad blue-gray gradient | 50 | 10,098 / 1,661 | 20,342 | 513.22 |
+| Broad blue-gray flat | 50 | 10,098 / 1,661 | 20,330 | 512.06 |
+| Broad gray gradient | 34 | 10,202 / 1,677 | 20,530 | 513.47 |
+| Broad gray flat | 34 | 10,202 / 1,677 | 20,518 | 511.70 |
+
+All four pass the unchanged native policy and agree exactly with the independent
+local raster. The maximum full/local score-term difference is 2.32e-10, within
+the existing checkpoint tolerance. The audit inspects 579,894 source pixels,
+fits three seeds and uses 144 exact interval order proofs across the four
+proposals, with no core/order exclusion or proof-limit failure. It deliberately
+stops after four proposals; this is not an exhaustive pool or oracle.
+
+Flat blue-gray paint slightly improves the blade facet score from 254.12 to
+252.51 but worsens guard error from 1,166.23 to 1,169.40. Flat gray paint lowers
+guard error to 1,162.86 but raises facet error to 255.23. Wrapping and jewel scores are unchanged in all four candidates; the blue-gray
+models slightly lower tip error. Neither independent candidate meets the
+combined sword target. The best global MSE gain here is only 1.11 points,
+about 0.22%, while the largest node reduction is 188, about 1.83%. This is far
+below the required abstraction. The production selected PNG is byte-identical
+to the previous retained drawing. Candidate availability has expanded, but
+there is no material whole-drawing improvement to report.
+
+### Verification and remaining structural work
+
+The relevant planner, legacy CEL, shared fitting, operation and benchmark suite
+passes 541 tests in 62.55 seconds. This includes eighteen broad-material cases
+and two measured-checkpoint-time cases. Ruff lint passes and all 61 checked
+files are formatted. Project Pyrefly reports zero errors and 61 existing
+warnings; tests are excluded from that project check and are exercised by pytest.
+
+No complete delivery or sword gate passes because of this change. The next
+structural work must fit supported exterior boundaries across graph junctions,
+combine compact geometry with broad paint/retained marks, and introduce exact
+canonical source splits when whole atoms cannot represent the proposed drawing.
+Retaining jagged unions and merely recoloring them cannot deliver the intended
+human abstraction. General joint fitting, content normalization, UI controls,
+corpus expansion, conditional ranking and independent release review remain open.
+
+## Structured interior fitting and union correspondence
+
+The previous goal turn was progress: `b56761b` added broad material competitors
+and independent availability evidence. This turn addresses the geometry blocker
+found in the source-only initialization rather than claiming a sword quality gain.
+The eight complete deliveries and their frozen gates remain open.
+
+### Diagnosed and changed behavior
+
+The inventory in `.bench/coherent-boundary-inventory-before-permissions.json`
+records source hash
+`4999e6c766974d418a488784941aaf6ac7b354ce1fa2d971cbdd3cecaba89999`.
+All 1,658 primary paths of the owned material initializer have whole geometry
+holds and no usable chain permissions, totaling 10,286 nodes. Some large
+surfaces nevertheless lie entirely inside the actual opaque core. Structured
+RGBA export held every path and omitted permissions even for generic interior
+curve models; this also blocked ordinary CPU fitting of those curves.
+
+`opacity.py` now records bounded chain permissions for generic curve models in
+structured export. Straight and ellipse primitives remain protected. Native
+transparent contacts, thin components, explicit widths, alpha steps, repaired
+crossings and unrecorded segments retain their exact complement. A path with
+both generic and protected chains can fit only its proved generic segments.
+The existing path/node/chain/segment caps and fingerprint/frame checks apply.
+
+`constraints.merged` transfers permissions through an owned exact contour union
+in `families.py` and `surface_models.py`. It matches surviving complete segment
+controls in the same current frame, retires internal edges, fingerprints the new
+geometry and keeps original chain identities as lineage. A protected coincident
+copy vetoes a free copy. Unknown, stale, differently framed, over-bound or
+interrupted paths cannot authorize new fitting. New or boolean-subdivided
+segments stay protected. Continued-under-mark geometry still discards replaced
+permissions because it changes more than an ordinary union.
+
+The shared fitter also redrew already identical neighbor runs, creating new
+node identities on a held underlayer and making a legal interior fit appear to
+edit that protected path. `shared.follow` now skips only an exactly identical
+run. It still follows an actual change as small as 0.000001 native coordinate
+units; rounded shared-edge equality is not used for this no-op check. Native
+regressions verify both adjacent surfaces change together while the underlayer
+geometry and complete alpha raster remain unchanged. Full/local scores and
+reload permissions agree.
+
+These changes preserve existing supported curves; they do not prove arbitrary
+boolean subcurves or rebuild the canonical graph after splitting source atoms.
+Parameterized primitive fitting and richer variable-width ink remain unfinished.
+
+### Discovery completion guard
+
+The first matched run with the geometry fixes but without a completion guard,
+`.bench/planned-structured-boundary-permissions`, records source hash
+`dd688a3928baa51b5906dbf4ff5b76787fbae1172400ea3894e110cb75370be0`.
+Eight evaluations and seven local acceptances include two boundary fits, but
+receive zero full checkpoints. It returns the 10,286-node initializer with human
+MSE 512.81 in 53.24 seconds. Reserving exactly the estimated full-check duration
+was insufficient when a proposal finished after its last deadline poll.
+
+Search now additionally leaves the longest observed proposal opportunity before
+the shared validation deadline, with a 0.05-second minimum guard when an explicit
+full-check estimate is supplied. This changes only the time bound; anchors,
+beam order, evaluation caps, native acceptance and score weights are unchanged.
+The report includes `checkpoint_guard_seconds`. A deterministic-clock test
+reproduces completion just after a deadline poll and verifies that the admitted
+state receives a full checkpoint. An observation-based guard is not a proof of
+worst-case latency for an unseen renderer/boolean; hardware runtime gates remain
+open.
+
+### Final matched native and paired evidence
+
+The retained source hash is
+`69f704de9bb688c279822826e008a273922e7ad9c1825602069b5f96173183f8`.
+The final sword run in `.bench/planned-structured-boundary-guarded` uses the same
+native source/mask and 60-second, complexity-50, balanced, refinement-disabled
+settings. It takes 53.61 seconds. Nine proposals are evaluated, seven are locally
+accepted and three receive independent full checkpoints, with zero score
+disagreements. The completion guard is 2.90 seconds. Local search and validation
+take 12.13 seconds, including 3.77 seconds for full checks. Two boundary fits
+are admitted locally; neither is selected.
+
+| Sword result | Nodes | Contours | Paths | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Human fixture | 523 | 93 | 80 | 1,127 | 0 |
+| Legacy CEL | 2,312 | 339 | 137 | 4,230 | 663.31 |
+| Previous retained broad-material run | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Structured permissions and guarded checkpoints | 10,121 | 1,660 | 1,607 | 20,347 | 514.67 |
+| Frozen gate | At most 800 | At most 140 | — | — | At most 497.39 |
+
+The selected drawing contains one ink replacement and 31 gradients. It has zero
+crossings or published native policy rejections. Tip/facets/guard/wrapping/jewel
+errors are 560.66 / 254.12 / 1,166.23 / 882.61 / 1,332.64. Out-of-time,
+search-out-of-time and stopped are false; deadline overshoot is zero and
+refinement remains incomplete. The normalizer stays 54,564 and the nominal
+complexity-50 cost target stays 27,282. Against the prior retained run, error
+decreases by just 0.18 while nodes increase by 112 and cost increases by 292.
+This is not a useful drawing improvement. Initialization times vary between
+runs, so the comparison does not isolate the guard's runtime effect.
+
+The final four half-opacity tuning controls in
+`.bench/planned-structured-boundary-guarded-rgba-pairs` have identical source,
+clean-target and mask hashes to `.bench/planned-broad-material-checkpoints-rgba-pairs`.
+All selected PNGs are byte-identical, and all global, feature and line scores
+remain unchanged. Each reaches 48 evaluations and four full checkpoints with
+complete diagnostic pools and zero score disagreements.
+
+| Tuning variant | Nodes / cost | Clean MSE | Same-cost oracle gap | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 15.60 | 14.18 |
+| Anime face | 176 / 272 | 206.86 | 0.25 | 18.02 |
+| Western park | 547 / 987 | 178.72 | 0 | 10.16 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.39 | 13.02 |
+
+The paired completion guards range from 0.11 to 0.25 seconds. This establishes
+unchanged quality on these controls, not a speedup or broader corpus coverage.
+Tests do not overlap timed benchmarks. Reproduce with the native and paired
+commands in the preceding section, replacing output directories with
+`.bench/planned-structured-boundary-guarded` and
+`.bench/planned-structured-boundary-guarded-rgba-pairs` respectively.
+
+### Final source-only boundary availability
+
+The final inventory in `.bench/coherent-boundary-inventory.json` uses the retained
+source hash. It finds 1,233 paths with usable permissions, containing 8,650 nodes
+and 5,794 free segments; 425 paths with 1,636 nodes retain their whole holds.
+The underlying initializer geometry is unchanged. The first broad material
+union merges 51 paths; its surviving `cel-fill-4295` retains exact permissions.
+Its whole metadata fork has 1,197 permission records. Retired source chains are
+lineage only, not evidence of rebuilt canonical boundaries.
+
+The 180-second diagnostic audit in
+`.bench/coherent-boundary-candidate-audit/summary.json` tests the first four
+boundary fits on the initializer and then on that broad union. It records the
+same source hash before and after. It uses only source evidence for proposals,
+and consults the human render afterward. All eight proposals pass native policy,
+match the independent local raster exactly and have a maximum full/local
+score-term difference of 2.32e-10. This bounded prefix is not an exhaustive
+candidate pool or matched-budget production result.
+
+| Fitting prefix | Resulting node counts | Human MSE range | Largest node saving within the prefix |
+| --- | --- | --- | ---: |
+| Initializer (10,286 nodes, MSE 512.81) | 10,285 / 10,286 / 10,286 / 10,264 | 512.25–512.83 | 22 |
+| Broad gradient union (10,098 nodes, MSE 513.22) | 10,097 / 10,098 / 10,098 / 10,098 | 513.18–513.27 | 1 |
+
+The best initializer fit reduces nodes by about 0.21% and MSE by about 0.11%.
+A usable permission is therefore not proof of a compact interpretation. The
+next geometry work must rebuild supported current boundary correspondence
+through fragmented junctions, including proved subdivisions and true canonical
+source atom splits, and compose those boundaries with coherent paint and ink.
+Do not substitute more generic curve fitting or a learned ranker for that
+missing representation.
+
+### Retained verification
+
+The full relevant planner, legacy CEL, shared fitting, operation and benchmark
+suite passes 554 tests in 61.44 seconds. New coverage includes structured export
+and CPU refinement with holes/faint marks; exact surviving union permissions
+with native joint fitting and reload; stale frames, bounds, stop and unproved
+boolean subdivisions; protected ellipses; exact no-op shared runs and tiny real
+changes; and the completion guard. Ruff lint passes and all 63 checked files
+are formatted. Project Pyrefly reports zero errors and 61 existing warnings;
+tests are excluded from that project check and exercised by pytest. No complete
+delivery or release gate is claimed finished.
+
+## Remaining requirements
+
+None of the eight complete deliveries is claimed finished yet. In particular:
+
+| Delivery | Remaining evidence or behavior |
+| --- | --- |
+| 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
+| 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
+| 3 | General curved source splits and boundary rebuilding beyond the bounded straight-cut operator, broader coherent surface/paint interpretations beyond owned family, enclosed-material and bounded two-paint/contained-contour proposals, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
+| 4 | Fitting variable-width filled ink beyond retained unions, broader stroke replacement/underlayer coverage, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
+| 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
+| 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
+| 7 | Expanded paired evaluation/corpus coverage, ablations and conditional learned-ranker experiment |
+| 8 | Independent blind review, fresh held-out results and default migration only after release gates pass |
+
+The operation still reports `refinement_complete: false`. The bounded CPU
+foundation implements real fitting behavior; it does not complete joint fitting
+or the required runtime/memory and quality gates. Owned family merges and
+individual paint/boundary/ink edits, including initial owned replacements, have
+a bounded working beam and independent full checkpoints. Complete merge/tolerance
+anchor proposals also remain; general curved source splits and supported boundary
+rebuilding, broader ink replacement, richer models and order edits are unfinished.
+These gaps must be resolved before completion is claimed.
+
+## True source atom splits and branch graphs
+
+The structural family slot now also proposes bounded source-supported straight
+shade cuts. These cuts classify source pixels directly, including inside an
+original color region. They do not use a majority assignment or merely regroup
+original region IDs. An immutable ledger records each retired parent and its
+children's exact disjoint row runs, source-label hash, shape and pixel counts.
+Replay against the original graph rejects foreign support, incomplete support,
+other-owner runs, hidden/fixed roots and malformed or oversized ledgers.
+
+Ownership expands atomically for every primary surface, covered membership and
+underlay. The canonical region graph, statistics and edge owners are rebuilt
+for each admitted namespace. All downstream family, paint-restoration, closed
+contour and ink operators use that branch's graph and label image. Original
+native policy masks and source evidence remain fixed. Search state identities
+and rejection proofs include the atom namespace. Existing structural operators
+preserve the ledger through their immutable ownership replacements.
+
+Candidate generation inspects at most eight complete material owners, 128 atoms
+per owner and 262,144 pixels per owner bounding box. Thirty-two normal angles and
+integer offset votes propose at most four lines per owner; edge observations
+are capped at 4,096. Flat/linear models fit at most 4,096 samples, then screen
+**every** owned pixel with the exported gradient clamping. Both sides need at
+least 16 pixels and five percent of the owner, maximum RGB-byte residual 48 and
+at least ten percent lower source-paint squared error than the whole-owner fit.
+These are proposal restrictions, not relaxed native acceptance rules.
+
+Current contours are clipped into complementary children in their actual SVG
+frame. They retain the parent's exterior and holes. Partial-alpha proposals
+require actual opaque-core geometry beneath both children. Exact surviving
+interior permissions can rebind; new cut segments and unproved subdivisions
+stay protected. Real translucent paint, fixed atoms, chosen overlays, covered
+owners, strokes and clips remain excluded. Nominally opaque gradient stops can
+have numerical roundoff within 1e-9 of one after parent-opacity conversion;
+actual geometry and native coverage checks still apply.
+
+The ledger is capped at 64 cuts and 16,384 runs on at most a 1536-square analysis
+grid. The branch cache retains two contexts with a conservative 32 MiB graph
+charge, including live contexts held by proposal cursors after cache eviction.
+Oversized branches cannot enter the search. Labels and canonical boundary point
+arrays are read-only. Ledger objects and serialized atom metadata contribute to
+the existing working-state memory charge. These explicit restrictions and
+synthetic cancellation checks do not establish hardware runtime/memory gates.
+
+Verification covers a real split through a single source region, different
+editable side paints, canonical separating edges, holes, partial alpha,
+rotated child frames, independent native/local agreement, direct project
+save/reload, successive splits/merges, secondary support, sibling rollback,
+namespace-separated rejection proofs, active branch memory restrictions,
+foreign/stale/malformed ledgers, complete-pixel paint outliers, fixed atoms,
+missing actual cores and stop/bounds behavior. The full relevant suite passes
+576 tests in 52.50 seconds; the subsequent focused file passes 14 tests,
+including the added sibling-cache test (577 distinct tests across the two runs).
+Ruff and project Pyrefly pass; Pyrefly reports zero errors and the existing 61
+warnings. Tests do not overlap the timed benchmarks below.
+
+This is a first bounded straight-cut operator and a complete source-ownership
+mechanism for it. It is not general canonical boundary simplification, curved
+splitting, joint variable-opacity/width fitting, a compact whole-sword drawing,
+a calibrated complexity slider or completion of delivery 3. Numerical sword
+and paired evidence follows below.
+
+### Matched evidence and source-only availability
+
+The retained production source hash is
+`03e479ac9a16482307787e278e18f22b3f9819ff3356c12641c7d469ec66b6a9`.
+The native sword run in `.bench/planned-source-atom-splits` uses the same source,
+mask, 60-second budget, complexity 50, balanced quality and refinement disabled.
+It produces 10,009 nodes, 1,630 contours, 1,577 paths and 31 gradients, cost
+20,055 and human MSE 514.8500919869 in 52.24 seconds. It evaluates 26 alternatives,
+locally admits 22 and publishes four independent checkpoints with zero score
+disagreements. The selected drawing contains two existing ink replacements.
+There are no crossings or published native rejections. Out-of-time,
+search-out-of-time and stopped are false; refinement remains incomplete.
+
+Against the preceding 10,121-node result, this removes 112 nodes but increases
+human MSE by 0.18. It matches the earlier broad-material drawing. Against legacy
+CEL it still has over four times as many nodes and fails all frozen numerical
+sword gates. This is **not a new sword quality improvement**. Native operators
+can now compose across nominally opaque gradient stops after numerical
+roundoff, and the run gets more evaluations; the measured outcome does not
+isolate runtime effects or establish a quality benefit from that correction.
+
+The production report records zero split-owner visits and zero graph rebuilds:
+the new third family cursor is not reached before the bounded discovery window
+ends. The independent diagnostic audit in
+`.bench/source-split-candidate-audit/summary.json` explicitly reaches that
+operator on the 10,286-node initializer and the first broad material union.
+Its source hash is identical before and after. It constructs proposals from
+source evidence only, and does not feed the human rendering into the model.
+For each phase it examines the bounded eight-owner prefix. Initial inspection
+finds 28 line hypotheses and 20 complete-paint exclusions; post-union inspection
+finds 32 and 24. The other lines fail minimum side support. Neither phase yields
+a candidate, so there is no new native admission or human score to report.
+This distinguishes missing interpretations in the inspected prefix from a
+selection error; it is not an exhaustive search or evidence that a different
+split model cannot work.
+
+The next structural experiment must couple coherent whole-family geometry and
+piecewise paint directly. Requiring a broad single-paint intermediate owner
+prevents useful shade partitions from reaching the split stage. Exact contour
+booleans alone also retain the dense exterior. Combine supported compact
+boundary geometry, flat/linear side paint, source atom ownership and local order
+in one proposal, then measure native admission and the best faithful compact
+candidate against the selected drawing. Keep all frozen sword, feature and
+line gates. Do not substitute a larger ranker or an exposed slider for this
+missing representation.
+
+The four paired half-opacity tuning controls in
+`.bench/planned-source-atom-splits-rgba-pairs` have identical source, clean-target
+and mask hashes to `.bench/planned-structured-boundary-guarded-rgba-pairs`.
+All selected PNGs and global/feature/line scores remain identical. Each reaches
+48 evaluations, four checkpoints and zero score disagreements. Anime girl,
+anime face, western park and rubberhose band retain 175/176/547/407 nodes,
+costs 319/272/987/765 and clean MSE 177.70/206.86/178.72/167.23. Their observed
+generation times are 9.58/15.67/9.25/12.44 seconds. No speedup is claimed.
+
+Reproduce with the native and paired commands above, using output directories
+`.bench/planned-source-atom-splits` and
+`.bench/planned-source-atom-splits-rgba-pairs`. The ignored diagnostic driver is
+`.bench/diagnose-source-split-candidates.py`, with an independent 180-second
+budget. All tests, timed benchmarks and the diagnostic audit run sequentially.
+No complete delivery or release gate is claimed finished.
+
+## Coupled contours and piecewise surface paint
+
+The prior source-split audit found no candidate on existing single-paint
+parents. `piecewise_surfaces.py` now proposes a whole connected family against
+two side-paint hypotheses from the outset. It does not require a single-paint
+merge or a poor intermediate SVG to enter the beam. Adjacent whole-owner pairs
+supply source RGB line hypotheses; flat/linear models screen every candidate
+owner, including distant source atoms. A connected compatible family then
+refits both sides on complete support. Original region IDs remain intact where
+possible, and the immutable atom ledger supplies exact new ownership where a
+real source split is needed. Primary ownership, underlay membership, branch
+canonical graphs and rejection identities compose with the existing operators.
+
+The edit combines source-supported partitioning, whole-family geometry,
+independent side paint and current SVG order. It competes with the old material,
+adjacency and single-owner split cursors in the existing family slot. Other
+reserved operator slots remain. The production report exposes a separate
+`piecewise_surfaces` diagnostic. Fixed atoms, selected overlays, covered owners,
+strokes, clips, incompatible frames and components remain independent.
+
+Exact contour unions compete with contained straight and curved fits. The
+fitter flattens in analysis coordinates and samples by arc distance, so uneven
+SVG vertex spacing cannot determine corner positions. Local tangent rays snap
+supported turns to original vertices. Straight simplification retains those
+anchors; curved runs fit between the same exact endpoints. Tiny unfitted
+contours remain intact. An actual opaque underlayer must cover the family
+before a compact exterior can compete. Intersecting the fitted contour with the
+exact union preserves holes and prevents expansion over unrelated paint; the
+ordinary geometric order proof and native policy still decide admissibility.
+Exact variants can inherit surviving curve permissions. Compact variants and
+new cut segments remain held. This is not proof of general canonical graph
+junction preservation or an intrinsic-alpha/coverage model overhaul.
+
+Bounds include eight seed pairs, 65,536 contacts, 128 paths, 512 source members,
+6,000 geometry nodes, a 262,144-pixel owner-family box and the 1536-square
+analysis limit. Pixel screening streams in 65,536-pixel chunks. Fits use at most
+4,096 samples but screen the complete support. Compact fitting has a 16,384-point
+bound, retains at least 95% of the exact union area and requires a ten-percent
+union-node saving. There are at most 16 emitted proposals per parent. These
+proposal restrictions do not change score weights, native feature/coverage
+acceptance, the detailed normalizer or the requested complexity frontier.
+
+### Verification
+
+The full relevant suite passes **594 tests in 55.02 seconds**. The 17 new cases
+cover direct eight-fragment/two-paint replacement when a single material model
+cannot offer the whole family; real source splits; native/local agreement and
+direct project reload; opaque/partial-alpha paint; gradients; holes; diagonal
+partitions; equivalent child transforms; complete-owner outliers; independent
+intervening geometry and order vetoes; actual-core and size limits; stop during
+streamed screening; and whole-contour compaction. The compact synthetic case
+removes more than half the nodes, retains its four original corners and keeps
+alpha byte-identical. Production search also publishes a compound synthetic
+edit and uses its derived graph for all subsequent graph operators.
+
+Ruff lint/format and `git diff --check` pass. Project Pyrefly, using the explicit
+workspace interpreter, reports zero errors and the existing 61 warnings. Tests
+are excluded by that project configuration and exercised with pytest. CPU tests
+finish before timed benchmarks; benchmark and diagnostic source hashes are
+verified against the retained tree.
+
+### Matched native and tuning evidence
+
+The retained production hash is
+`8bc08a5e6dc708e4aa7d76e8a8c4433a74b4a2319d9bd6f8f5712f258bcf8e96`.
+The native sword run in `.bench/planned-coupled-piecewise-surfaces` retains the
+same source/mask, 60-second budget, complexity 50, balanced quality and disabled
+refinement. It takes 52.34 seconds and produces the **same selected drawing**:
+10,009 nodes, 1,630 contours, 1,577 paths, 31 gradients, cost 20,055 and human MSE
+514.8500919869. The two selected edits are the prior ink replacements. There is
+no new sword quality gain and all frozen numerical sword gates remain unmet.
+Crossings and published native rejections remain zero; out-of-time,
+search-out-of-time, stopped and deadline overshoot remain false/zero.
+Refinement remains incomplete.
+
+Twenty local alternatives are evaluated, 15 accepted and four independently
+checkpointed, with zero score disagreements. Two coupled contained-line/gradient
+alternatives reach local evaluation on separate parents. Each saves 496
+representation units but increases native visual loss by approximately 0.002127;
+both are rejected for local objective regression. The new source graph is
+rebuilt once, with a conservative retained/cache peak charge of 25,685,024 bytes.
+The working-canvas beam charge remains separate; this does not prove a total
+hardware memory or runtime gate. The report records 11 seed pairs, 35 source
+line hypotheses, 30 seed exclusions, 5,351,783 inspected pixels, two compact
+fits and two emitted coupled alternatives. The live full-check guard is 2.15
+seconds; local search plus validation takes 16.26 seconds, including 4.29 seconds
+for full checks. No ranking change is justified from this run alone.
+
+The four half-opacity tuning cases in
+`.bench/planned-coupled-piecewise-surfaces-rgba-pairs` preserve source,
+clean-target and mask hashes from `.bench/planned-source-atom-splits-rgba-pairs`.
+All selected PNGs are byte-identical and global/feature/line scores are identical.
+Each reaches 48 evaluations, four checkpoints and zero score disagreements.
+Anime girl / anime face / western park / rubberhose band retain nodes
+175 / 176 / 547 / 407, costs 319 / 272 / 987 / 765 and clean MSE
+177.70 / 206.86 / 178.72 / 167.23. Observed generation times are
+10.56 / 15.28 / 9.37 / 12.96 seconds; no speedup is claimed. No coupled proposal
+is emitted on these four bounded controls. Anime face's seed pairs reach the
+member restriction; the other cases reach complete-paint exclusions. This is
+limited operator coverage, not evidence of broader corpus effectiveness.
+
+### Source-only contour and paint audit
+
+The final diagnostic in `.bench/piecewise-surface-candidate-audit/summary.json`
+uses the retained source hash before and after, an independent 180-second
+budget and the same native policy. The algorithm receives only source evidence;
+the human rendering is consulted afterward. It evaluates the first four coupled
+alternatives on the initializer, then inspects the bounded seed prefix after
+one broad union. The initializer has 10,286 nodes, 1,711 contours and cost 20,818.
+
+| Initializer proposal | Nodes | Contours | Human MSE | Native-valid |
+| --- | ---: | ---: | ---: | --- |
+| Contained straight contours, flat/gradient sides | 10,072 | 1,662 | 511.7873 | Yes |
+| Exact union, flat/gradient sides | 10,095 | 1,662 | 514.9020 | Yes |
+| Contained straight contours, flat/flat sides | 10,072 | 1,662 | 511.7533 | Yes |
+| Exact union, flat/flat sides | 10,095 | 1,662 | 512.9744 | Yes |
+
+All four match the independent local raster exactly and full/local score terms
+to numerical precision. The best contained fit removes 214 initializer nodes,
+including 23 beyond its exact-union alternative. Its error improves by about
+1.05 against the initializer. This is still roughly a two-percent node reduction
+and cannot satisfy the requested structural milestone. The post-union prefix
+finds 32 lines, 28 seed exclusions and two final refit exclusions, producing no
+coupled candidate. The diagnostic is a bounded prefix, not an exhaustive pool,
+matched production effort or proof that the selector should prefer a particular
+human score.
+
+### Remaining structural priority
+
+Coupling now offers a real source-owned two-paint/contour alternative, but it
+still starts from current fragment families and conservatively clips back to
+their exact unions. Fragmented holes and contacts therefore bound the savings.
+The 512-member restriction also excludes large original-atom owners even on a
+small tuning render. General supported boundary rebuilding, complete coherent
+material/mark continuation with joint order, broader piecewise models and
+bounded whole-surface planning remain required. Diagnose these availability and
+geometry restrictions before changing score weights or adding learned ranking.
+Continue the planned admission and coverage-interpretation audit on meaningful
+holes, faint marks, genuine variable opacity and supported thin features; do
+not relax gates merely to admit the sword fixture.
+
+Reproduce with the earlier native/paired commands, changing output directories
+to `.bench/planned-coupled-piecewise-surfaces` and
+`.bench/planned-coupled-piecewise-surfaces-rgba-pairs`. The ignored diagnostic
+runner is `.bench/diagnose-piecewise-surface-candidates.py`. All three runs use
+the same final production sources. No complete delivery or release gate is
+claimed finished.
+
+## Piecewise material continued beneath retained marks
+
+The coupled operator now competes with exact and contained compact surfaces
+continued beneath independently owned enclosed marks. It proves full source
+enclosure, complete current mark ownership, opaque current paint, actual
+geometric containment and, for RGBA, actual opaque underpaint beneath material
+and marks. The complementary shade surfaces and retained marks are ordered as
+one block. Each moving shape is mapped from its actual frame, and every changed
+crossing with unrelated paint must be geometrically disjoint. The shared proof
+includes only shapes that move relative to that child; a stationary surface
+cannot contaminate a proof for moving marks. Existing single-surface callers
+retain the same API and proof bounds.
+
+Marks keep their original geometry, paint and primary ownership. New shade
+surfaces record secondary support on the exact source side of the line; a mark
+crossing it may support both children without acquiring a second primary owner.
+Source atom splitting affects material only, and existing underlays follow the
+same appended ledger. Continued compact contours must contain every retained
+mark. Actual core proof covers the expanded whole surface. A metadata claim of
+coverage is insufficient. True holes, partly enclosed owners, translucent
+current marks and unrelated overlap retain the existing representation.
+
+The arbitrary 512-member limit is replaced by the supported 16,384-region
+namespace plus at most 128 appended child slots. This lets a compact drawing
+own many small source atoms. Discovery still bounds source analysis, the
+262,144-pixel family box, 128 paths, 6,000 nodes, streamed screening, 64 cuts,
+16,384 cut runs and 16 proposals. Oversized namespaces are rejected before
+building source-owner lookup arrays. Score, normalizer, native admission and
+the release targets are unchanged.
+
+### Verification and measured limits
+
+New regression cases cover an unchanged highlight crossing both shade surfaces
+at full and half opacity, native/full-local agreement, exact alpha and mark
+interiors, atom replay and project reload, a 960-source-atom/eight-path family,
+bounded namespaces, true holes, translucent paint, partly enclosed owners,
+actual missing underpaint, independent transformed shade frames and order
+vetoes for overlapping unrelated paint. The prior full regression set plus the
+new cases passes **606 tests in 55.92 seconds**, covering planner/legacy CEL,
+shared fitting, simplify, snap, operation and benchmark behavior. Focused
+order/material tests pass 34 cases.
+Ruff lint/format and project Pyrefly pass; Pyrefly has zero errors and the
+existing 61 warnings. Its project configuration excludes tests, which pytest
+exercises. Benchmark runs and the diagnostic execute sequentially and retain
+the same source hash:
+`6b2d7be37ab29e547051f14547665602732a14e380dcfc3af4ee0d3c138a54d6`.
+
+The matched native run in `.bench/planned-continued-piecewise-surfaces` produces
+a **byte-identical drawing PNG** to the preceding coupled run: 10,009 nodes,
+1,630 contours, 1,577 paths, 31 gradients, cost 20,055 and human MSE
+514.8500919869. It takes 52.75 seconds at complexity 50, balanced quality,
+refinement disabled and a 60-second budget. The two selected edits are the
+same ink replacements. There is no sword quality gain. All frozen numerical
+targets remain unmet; refinement remains incomplete.
+
+The search evaluates 21 alternatives, admits 16 locally and checkpoints four,
+with zero score disagreements. Two ordinary compact piecewise alternatives
+save 496 units each but regress native visual loss by approximately 0.002127;
+both are rejected for local objective regression. No continued alternative
+reaches local evaluation. The coupled diagnostic records 12 seed pairs,
+42 lines, 37 seed exclusions, 6,159,470 screened pixels and two proposals.
+Core, enclosure, containment and order exclusions are zero in that cursor:
+it never reaches a family with retained inner marks, so those proof bounds
+are not evidence for the real discovery failure. Local search plus validation
+takes 16.30 seconds, including 4.32 seconds for full checks; its live guard is
+2.09 seconds. One source graph rebuild charges a conservative 25,685,024-byte
+cache peak. Timeout, stop and overshoot remain false/zero. These charges do not
+establish the total hardware memory gate.
+
+The four tuning controls in
+`.bench/planned-continued-piecewise-surfaces-rgba-pairs` retain their input,
+clean target and mask hashes. All four selected drawing PNGs and global,
+feature and line scores are byte-identical to the preceding coupled run.
+Anime girl / anime face / western park / rubberhose band retain nodes
+175 / 176 / 547 / 407 and clean MSE 177.70 / 206.86 / 178.72 / 167.23.
+Generation takes 10.41 / 16.16 / 9.37 / 12.58 seconds; no speedup is claimed.
+Each reaches 48 evaluations, four checkpoints and zero score disagreements.
+The member cap no longer excludes seed pairs. All 160 / 160 / 128 / 160
+source-line hypotheses fail complete paint screening. No continued or ordinary
+coupled alternative is emitted on these controls. Larger bounds therefore
+expose the next exclusion without supplying a useful drawing.
+
+### Source-only proposal audit and next work
+
+The independent 180-second diagnostic in
+`.bench/continued-piecewise-candidate-audit/summary.json` evaluates the bounded
+16-proposal initializer prefix and the eight-seed prefix after one broad union.
+It verifies the source hash before and after. The algorithm sees only source
+evidence; human rendering is scored afterward. All 16 initializer alternatives
+are native-valid and match the local raster exactly, with maximum score-term
+disagreement below 2.32e-10. They involve only 96 or 97 source members and no
+retained marks. The best human-MSE alternative is still 10,072 nodes and
+511.7533. The most compact alternatives have 10,070 nodes, only 216 fewer than
+the 10,286-node initializer. Post-union discovery produces zero alternatives,
+with 28 seed-paint and two refit exclusions. This is a bounded source-only
+audit, not exhaustive search or a matched production oracle.
+
+The continuation primitive is now implemented and tested, but real candidate
+availability still blocks useful compaction. It does not complete a delivery.
+The next work must propose supported whole-surface boundaries independently of
+the current fragment union, combine them with fitted paint and retained marks,
+and continue the coverage-interpretation/admission audit. Measure the resulting
+pool against the legacy baseline and the unchanged 800-node/140-contour/497.39
+sword gate. Increasing bounds, changing ranking or adding the slider cannot
+substitute for a compact faithful alternative.
+
+Reproduce with the earlier native/paired commands, changing output directories
+to `.bench/planned-continued-piecewise-surfaces` and
+`.bench/planned-continued-piecewise-surfaces-rgba-pairs`. The ignored source-only
+runner is `.bench/diagnose-continued-piecewise-candidates.py`. The objective
+remains the complete eight-delivery plan; no release gate is marked complete.
+
+## Independent material boundaries with visibility proofs
+
+### Implementation
+
+Whole-family straight and cubic fits now also compete without intersecting
+their exterior back into the original fragment union. The old contained fits
+remain competitors. Independent fits retain exact hole contours, including in
+reflected object frames, and prove that the complete original void interiors
+remain unpainted. They retain at least 95% of the original area, add at most 5%
+and must reduce nodes by at least 10% without crossings.
+
+The new `cel_plan/supported_boundaries.py` checks actual opaque underpaint across
+the complete proposed geometry. It subtracts actual higher opaque path geometry
+from the extension before screening visible source pixels; partial paint cannot
+hide a mismatch. Every visible extension pixel must have source support and
+agree with its exported, clamped side paint within the existing 48-level RGB
+bound. This prefilter is conservative: it compares pure material RGB even at
+partially covered edge pixels. Native evaluation still checks full compositing
+and antialiasing. Lower unrelated paint requires exact disjointness proofs even
+when draw order does not change. Higher paint and retained marks keep their
+primary ownership; newly covered source owners are recorded as secondary side
+support. Pixel, geometry, proof and interruption bounds remain active.
+
+This implements a new competitor and its proofs, not a complete source-first
+boundary model or a completed delivery. Scores, normalizer and release gates
+are unchanged.
+
+### Verification and matched results
+
+Twelve additional cases cover independent dent removal at full and half group
+opacity, true holes, reflected geometry, actual core coverage, unchanged lower
+paint inside or outside an extension, and continuation beneath opaque versus
+translucent boundary marks. They check exact alpha, primary ownership, native
+admission and full/local raster agreement. The full regression set passes
+**618 tests in 55.87 seconds**. Ruff lint/format and project Pyrefly pass with
+zero errors and the existing 61 warnings. Tests and timed runs execute
+sequentially. The retained production source hash is
+`13e6aa90ef05b759696001e3b751cdca33d7b1c1a91dfbb868b29be8cacaa7e4`.
+
+The matched native run in `.bench/planned-supported-boundaries-visibility`
+takes **54.01 seconds** at complexity 50, balanced quality, refinement disabled
+and a 60-second budget. Its drawing PNG is byte-identical to the preceding
+retained-mark run: **10,009 nodes, 1,630 contours, 1,577 paths, 31 gradients,
+cost 20,055 and human MSE 514.8500919869**. The same two ink replacements are
+selected. Search attempts 21 alternatives, admits 16 locally and checkpoints
+four with zero score disagreements. Two ordinary contained fits save 496 cost
+units each but regress native visual loss by approximately 0.002127 and are
+rejected. Four independent fits fail visible source-paint screening before
+native evaluation. No independent fit is selected; there is no sword gain.
+
+Local search plus validation takes 16.05 seconds, including 4.07 seconds for
+full checks. The live guard is 2.09 seconds. The beam/cache charge is 10,045,156
+bytes and the conservative source-graph cache charge is 25,685,024 bytes with
+one rebuild. These are not total hardware memory measurements. Timeout, stop
+and overshoot remain false/zero; refinement remains incomplete.
+
+The four clean, half-opacity tuning controls in
+`.bench/planned-supported-boundaries-visibility-rgba-pairs` also retain
+byte-identical selected PNGs and unchanged global, feature and line scores.
+Anime girl / anime face / western park / rubberhose band retain nodes
+175 / 176 / 547 / 407 and clean MSE 177.70 / 206.86 / 178.72 / 167.23.
+Generation takes 10.21 / 16.28 / 9.33 / 12.85 seconds; no speedup is claimed.
+Each attempts 48 alternatives and checkpoints four with zero score
+disagreements. All 160 / 160 / 128 / 160 source-line hypotheses fail paint
+screening; no compact coupled proposal is emitted.
+
+### Source-only rejection audit and next work
+
+`.bench/supported-boundary-candidate-audit/summary.json` records the bounded
+16-proposal initializer prefix and eight-seed prefix after one broad union.
+The ignored runner `.bench/diagnose-supported-boundaries.py` verifies the same
+source hash before and after; its prediction wrapper only records residuals
+and returns the production prediction unchanged. Human rendering is scored
+after proposals are generated from source evidence.
+
+All 16 ordinary initializer candidates remain native-valid and match local
+rasters exactly, with maximum score-term disagreement 2.32e-10. Their best
+human MSE is 511.7533 at 10,072 nodes; the most compact has 10,070 nodes, only
+216 fewer than the 10,286-node initializer. None uses retained marks or an
+independent exterior. All 16 independent fits fail the source-paint prefilter.
+The audit records 64 rejection samples at ten unique source locations belonging
+to three other material owners. Nearby light-facet pixels differ from the
+proposed shade by up to 108 RGB levels; a dark-mark pixel differs by 99. No
+opaque higher geometry hides those proposed extensions. This is a bounded
+diagnostic, not exhaustive search or a matched production oracle. The
+`supported_boundary_pixels` counter counts only completely passed screening
+chunks; zero does not mean no pixels were inspected.
+
+The next model must fit adjacent paints and their shared source-supported edge
+jointly, including coverage/compositing and exact source ownership where pixels
+transfer. Simply extending one shade cannot explain these neighboring colors.
+Continue the broader coverage/fringe interpretation work as well: the drawing
+is still dominated by fragments. Increasing bounds, weakening paint checks,
+changing ranking or adding the slider cannot establish structural quality.
+The frozen sword targets remain **800 nodes, 140 contours and MSE 497.39**,
+with all local feature and coverage checks. All eight deliveries, automatic
+refinement, the useful complexity control, learned ranking evaluation and
+release work remain subject to the complete plan; no release gate is complete.
+
+Reproduce with the earlier native/paired commands and the output directories
+above, then run `.bench/diagnose-supported-boundaries.py` separately. The earlier
+`.bench/planned-supported-boundaries` run predates the reflection and upper-paint
+proof corrections and is not the retained matching-source result.
+
+## Two-material subpixel coverage and shared-edge fitting
+
+### Implementation
+
+`cel_plan/shade_edges.py` adds a continuous shared-edge competitor to the
+coupled material operator. The existing source vote initializes a line; two
+rounds alternate pure-side paint fits with bounded angle/offset optimization.
+After growing a connected family, the complete family refits the edge and its
+paints again. The planning fit uses at most 4,096 samples and `max_nfev=24`
+per round for the two-parameter solver. Finite-difference Jacobian calls add
+bounded residual evaluations, all counted by diagnostics. The angle window is
+pi/32 and the centered offset window is four pixels. CPU SciPy supplies the
+optimizer; no model training or new
+dependency is required. Work checks discard interrupted fits.
+
+The mixture model uses the exact unit-square area on each side of a line.
+Pixels wholly inside a side fit its flat or linear RGB paint; edge pixels
+contribute geometric coverage rather than becoming a third color or changing
+material opacity. The robust fitting loss cannot hide an outlier: whole-owner
+discovery and the final family screen inspect complete source support under
+the unchanged 48-level bound, with clamped exported gradients in the final
+screen. Independent-exterior screening uses the same coverage mixture for
+this competitor. The adjoining RGBA interpretation remains available.
+
+Actual opaque core geometry must contain the seed and final replacement.
+Only then may the two fitted materials be opaque in their current group,
+whose existing opacity remains effective. The base paints the entire family
+and the second shade paints one side above it. This avoids exposing an
+unrelated core color through antialiased adjoining fills. Exact source atoms
+still split by the fitted line with one primary owner each; the base adds the
+shade's members as secondary support. Retained marks keep their existing
+primary owners, geometry, paint and proved order. Source holes stay voids.
+Native scoring and independent full/local checks still decide admission.
+
+The seed samples and members now remain immutable while growing/refitting
+different hypotheses. Previously, a successful family replaced these local
+variables before the next line vote reused them. Geometry, ownership and
+visibility bounds remain active; the score, normalizer and release targets
+are unchanged. This is a two-material interpretation, not the complete
+whole-component silhouette/coverage model required by the redesign.
+
+### Verification
+
+Twenty-two new cases independently compare pixel coverage with square
+supersampling, recover non-quantized shared edges from supersampled SVG
+references at full/half opacity, preserve true holes, demonstrate lower color
+error than adjoining fills, and check local/full agreement, reload and primary/
+secondary ownership. They also cover mixed-edge exterior extension, reject an
+actually translucent core and discard cancellation inside the solver. The
+existing retained-mark case now checks the base's legitimate secondary shade
+support in addition to unchanged primary mark ownership.
+
+The full regression run passes **640 tests in 75.46 seconds**. Ruff lint and
+format checks pass. Project Pyrefly has zero errors and the existing 61 warnings;
+tests remain excluded from its project configuration and are exercised by
+pytest. Tests, native benchmark, paired controls and the source-only audit
+execute sequentially. All retained benchmark results match production source
+hash `730d90af559c587f80b6f23462faa06f98a11f4c8a2b70c16a1a4fb5769c2116`.
+
+### Matched native and paired results
+
+`.bench/planned-subpixel-shade-edges` completes in **52.86 seconds** under the
+same 60-second/complexity-50/balanced/refinement-disabled settings. The selected
+sword drawing remains byte-identical: **10,009 nodes, 1,630 contours, 1,577
+paths, 31 gradients, cost 20,055 and human MSE 514.8500919869**. The same two
+ink replacements are selected. Numerical and feature gates remain unmet;
+refinement remains incomplete. No sword quality gain or speedup is claimed.
+
+Search attempts 14 alternatives, admits ten locally and checkpoints four with
+zero score disagreements, compared with 21/16/4 previously. Local search plus
+validation takes 16.19 seconds, including 4.19 seconds for full checks; its
+live checkpoint guard is 3.15 seconds. The beam/cache charge is 9,526,042 bytes,
+not a total hardware memory measurement. Timeout, stop and overshoot remain
+false/zero, though the bounded structural-search report is interrupted. The
+coupled cursor records 34 line votes, 32 completed fits, 2,696 residual calls
+and 10,014,368 screened pixels. No base/shade family fit reaches proposal
+emission. Two ordinary adjoining fits still fail local objective admission
+with approximately 0.002127 worse visual loss; four independent fits fail
+source-paint screening.
+
+The half-opacity, clean tuning controls in
+`.bench/planned-subpixel-shade-edges-rgba-pairs` retain input, target and mask
+hashes but all four selected PNGs change as the timed search follows a different
+prefix. None emits a coupled two-material proposal. These changes therefore
+do not prove a benefit from the new material model.
+
+| Control | Nodes / cost | Clean MSE before → after | Generation seconds |
+| --- | --- | --- | --- |
+| Anime girl | 175 / 331 | 177.7000 → 165.4348 | 12.75 |
+| Anime face | 176 / 272 | 206.8583 → 206.7383 | 18.03 |
+| Western park | 545 / 979 | 178.7189 → 178.7425 | 10.97 |
+| Rubberhose band | 405 / 757 | 167.2262 → 167.7354 | 13.45 |
+
+Search attempts drop from 48 each to 16 / 16 / 24 / 16; checkpoints are
+3 / 4 / 3 / 4, with zero score disagreements. Two controls improve clean MSE
+and two regress; western park and rubberhose use eight fewer cost units.
+Anime girl's bag-clasp error improves while its eyes/bow/hairclip are unchanged;
+anime face's eye error improves. Western park's feature scores are unchanged;
+rubberhose's eye/face errors rise slightly and notes/banjo remain unchanged.
+Alpha IoU stays one with zero missing/spill pixels. Line F is unchanged for
+anime girl / western park / rubberhose at 0.270 / 0.652 / 0.641; anime face
+regresses from 0.600 to 0.589 and exhausts the search time slice.
+all overall timeout/stop/overshoot flags remain false/zero. Solver work consumes
+thousands of residual calls on hypotheses that complete screening rejects.
+Effort allocation is unfinished; these results do not establish the broad
+quality, complexity-frontier or runtime gates.
+
+### Source-only candidate pool and structural accounting
+
+`.bench/shade-edge-candidate-audit-retained/summary.json` evaluates the bounded
+16-proposal initializer prefix and the eight-seed prefix after one broad union
+under the independent 180-second diagnostic budget. Eight initializer proposals
+use base/shade coverage; the others remain adjoining alternatives. All 16
+are native-valid and match local rasterization exactly. The best human MSE is
+509.5867 at 10,100 nodes; the most compact has 10,070 nodes. The post-union
+prefix now supplies one native-valid base/shade proposal, where the preceding
+model supplied none: **10,062 nodes, 1,651 contours, cost 20,244 and human MSE
+506.0089**. Its native visual loss is 0.03579567 versus the initializer's
+0.03457019. It is still neither faithful enough nor compact enough for the
+frozen gate. Maximum full/local score-term disagreement is below 2.36e-10.
+No retained-mark or independent-exterior proposal reaches this pool; 16 / 2
+independent fits fail source-paint screening. The rejection wrappers log only
+and return unchanged production predictions. Human scoring happens after
+source-only proposal generation. This is not exhaustive search or a matched
+production oracle.
+
+The audit also counts actual initializer geometry by source ownership. Its
+coverage carrier is **one 30-node/one-contour path**, owning 5,240 fringe atoms
+and supporting 2,608 material atoms. The other **1,657 primary paint paths have
+10,256 nodes and 1,710 contours**, owning 2,907 source atoms. After one broad
+union, the carrier remains 30 nodes while 1,607 primary paint paths still have
+10,068 nodes. This corrects the tentative assumption that retracing alpha
+fringe is the main remaining count problem: the current coverage base is
+already compact. Paint-path fragmentation dominates this initializer.
+
+The next structural operator must propose source-driven material cells and
+shared boundaries across many existing paint fragments in one atomic edit,
+with retained meaningful ink, holes, actual compositing and exact source atom
+cuts. Current family-contour fits leave most paths untouched. Keep real
+unsupported opacity cases explicit, and allocate fitting effort so failed
+primitive hypotheses do not consume the remaining structural search. Do not
+relax source checks solely to admit the sword or treat incidental timed-search
+changes as learned/planner quality evidence. The **800-node/140-contour/497.39**
+gate, local features and the entire eight-delivery objective remain active.
+
+Reproduce with the earlier native and paired commands using the directories
+above, then run `.bench/diagnose-shade-edge-candidates-retained.py` separately.
+The earlier `.bench/shade-edge-candidate-audit` is a preliminary source snapshot
+before full-family edge refitting and coverage-aware exterior screening; its
+507.71 result is not the retained matching-source result.
+
+
+## Source material cells with native alpha preservation
+
+This package adds a whole-core source-contour competitor. It does not meet a
+quality, structural, runtime or release gate. The retained matched sword is
+still the prior 10,009-node drawing; the useful new evidence is why a larger
+material replacement remains unavailable in the production search.
+
+### Implemented interpretation and bounds
+
+`core_cells.py` keeps the actual coverage carrier's geometry, frame, fill rule
+and intrinsic opaque fill. It builds connected color families from complete
+current source owners, continues their paint beneath retained marks and fits
+flat or linear RGB material. Canonical source contours use a 0.75 native-pixel
+linear simplification and are intersected with a bounded native interior.
+This reconstructs source regions instead of boolean-unioning the old fill
+fragments. Single-owner or tiny color families retain their existing paths.
+Every resulting path, contour, node and gradient remains charged.
+
+The same factory also fits a greedy tree of straight source cuts. Every complete
+prefix can compete, including an exact three-cell result that cannot benefit
+from a fourth cut. Its complete maximum RGB residual must satisfy the existing
+48-level straight-material screen. Connected color regions use their complete
+squared residual as finite approximation evidence, record the maximum residual,
+and rely on the unchanged native objective and hard checks for admission. They
+do not claim that every pixel passes that straight-material screen.
+
+`Atoms.partition` classifies complete source support once and appends exact
+binary RLE cuts when an atom crosses cells. Existing lineage, protected atom,
+64-cut and 16,384-run limits remain unchanged. It supports up to 64 cell classes;
+connected whole-owner regions need no cuts. Failure leaves the original atoms
+intact. Ownership includes the carrier's new primary material, explicit
+secondary paint and the original fringe and retained owners.
+
+Native raster proofs check the old paint being removed as well as each new
+opaque overlay. Every covered pixel must lie where the original carrier's
+intrinsic native coverage is exactly one. Old antialiased edge paint stays when
+that proof fails. The carrier retains its original evenodd/nonzero rule; Boolean
+working geometry explicitly normalizes winding. Solid unit masks preserve the
+actual local geometry, transforms and fill rule used in export. This avoids
+filling an evenodd hole whose contours have equal winding.
+
+Within that proved interior, partial-opacity solid/linear paint can be replaced
+with an opaque material interpretation without changing composed alpha.
+Retained partial marks keep their actual geometry, paint and mutual order; their
+mixed RGB may change with the new underpaint and is scored. An actual opaque
+linear-gradient carrier is supported. A partial carrier, unknown overlapping
+object, unsupported clip/stroke/filter or paint server keeps the fallback.
+
+The source ridge classifier uses supported bright pairs across dark troughs,
+normalized smoothing over painted pixels and comparable cross-section opacity.
+Coarse CEL darkness alone cannot veto a monotone color step or declare alpha
+contrast intrinsic ink. Long supported components keep their current owners;
+explicit fixed atoms and paint constraints remain protected. This bounded
+classifier is not a completed ink/feature interpretation.
+
+Bounds are 1,536² analysis pixels, four cores, 4,096 input paths, 16,384 scanned
+input nodes, 6,000 emitted geometry nodes, 64 connected material cells and eight
+straight-cut cells. Native coverage work is bounded to four million pixels;
+paint fits sample at most 4,096 points and screen complete support in chunks of
+65,536. Region adjacency is collected in bounded chunks with at most 16,384
+unique edges. Unchanged tree leaves reuse their split fit. The search cursor
+reserves this route for at least 32 replaceable paths; ordinary small local
+families retain their existing competitors.
+
+### Negative prototypes and integration diagnosis
+
+An early one/two/four-cell whole-object plane model erased too much material
+variation. With comparable-opacity ridge evidence but before the final native
+edge proof, its four-cell diagnostic had 6,533 nodes and human MSE 1,273.71.
+It was native-valid, demonstrating that validity alone cannot establish fidelity.
+Its earlier coarse-ink filter also left most material ineligible. This motivates
+connected materials and complete source-plane screening; those broad poor
+planes are absent from the final source audit.
+
+The first integrated order, source hash
+`922d6a03d204026aeb4abec764c0bd24fa196986b9c0a3181cf48a83643d8ff1`,
+offered the least aggressive color family first. In
+`.bench/planned-core-material-cells`, the 60-second-budget operation took
+52.68 seconds and selected 10,121 nodes, 1,660 contours, cost 20,347 and human
+MSE 514.67. It evaluated eight proposals, accepted five locally and published
+four full checkpoints with zero score disagreements. The new 40-cell proposal
+removed 127 paths but increased nodes and worsened the native objective; its
+local rejection was correct. Only an existing ink replacement was selected.
+This is a worse structural result than the prior dense prototype.
+
+The final order offers the coarsest connected-region alternative first. This
+changes opportunity under the shared deadline, not acceptance requirements.
+All final experiments use source hash
+`71db4952e354d3063b62e9e309ba4182167a4af90679ba83631cef2367cf9594`.
+
+### Matched selected sword
+
+`.bench/planned-core-material-cells-structural-first` takes **52.52 seconds**
+under the same 60-second budget, complexity 50, balanced quality and refinement
+disabled. Its selected native drawing is the prior **10,009 nodes, 1,630
+contours, 1,577 paths, 31 gradients, cost 20,055 and human MSE 514.8500919869**.
+It evaluates 13 proposals, accepts 11 locally and publishes four independent
+checkpoints with zero score disagreements and no overall deadline overshoot.
+The selected edits are the same two ink replacements.
+
+The new cursor considers 649 paths and 141,992 source pixels. Thirty existing
+paths fail the native opaque-interior deletion proof. It emits a 22-cell
+connected-region proposal, but normal search rejects it with
+`local-dependency-limit`: the edit declares 394 old paint objects, its carrier,
+21 inserted material objects and the parent dependency, exceeding the existing
+256-object local-edit contract. This is an integration bound, not a failed
+native raster or ownership check. Do not hide the touched paths or raise the
+ordinary local bound solely to admit this fixture.
+
+### Independent final-source pool
+
+`.bench/core-cells-structural-first-audit` reproduces the source evidence,
+initializer, native policy and exact ownership. It evaluates the factory
+independently of search's edit-object gate with a declared 180-second work
+limit. Six candidates are native-valid, pass complete ownership validation and
+have exact local/full native raster agreement. The largest score-term difference
+is **2.874e-10**. Their SVGs and full native renders are retained in that bundle;
+human measurements remain outside generation.
+
+| Parent / color threshold | Cells | Removed paths | Nodes | Contours | Actual cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Initial / 56 | 22 | 373 | 8,588 | 1,315 | 16,778 | 551.16 |
+| Initial / 28 | 38 | 250 | 10,203 | 1,438 | 19,323 | 528.83 |
+| Initial / 12 | 40 | 127 | 10,439 | 1,562 | 20,361 | 534.11 |
+| Broad union / 56 | 21 | 349 | 8,659 | 1,289 | 16,717 | 533.99 |
+| Broad union / 28 | 37 | 231 | 9,944 | 1,407 | 18,866 | 527.71 |
+| Broad union / 12 | 39 | 125 | 10,190 | 1,514 | 19,836 | 530.45 |
+
+The compact initializer alternative lowers cost by approximately 19% from its
+20,818-cost parent. Its human error worsens, and it still has over three times
+the legacy baseline's nodes. The best human error in this pool is 527.71, worse
+than the selected dense prototype's 514.85. No candidate meets 800 nodes,
+140 contours and MSE 497.39. Restoring access to this pool is necessary for this
+operator but cannot by itself achieve the requested abstraction.
+
+### Paired controls and checks
+
+`.bench/planned-core-material-cells-structural-first-rgba-pairs` repeats the four
+192-pixel, clean, half-opacity tuning controls with a 20-second per-case budget.
+All four selected PNGs are byte-identical to
+`.bench/planned-subpixel-shade-edges-rgba-pairs`. No core-material candidate is
+emitted on these controls. They demonstrate preserved existing outputs, not
+broader validation or a quality benefit for the new model.
+
+| Case | Nodes / cost | Clean MSE | Line F | Generation seconds | Evaluations |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 331 | 165.4348 | 0.270 | 12.08 | 16 |
+| Anime face | 176 / 272 | 206.7383 | 0.589 | 17.56 | 16 |
+| Western park | 545 / 979 | 178.7425 | 0.652 | 10.50 | 24 |
+| Rubberhose band | 405 / 757 | 167.7354 | 0.641 | 13.10 | 16 |
+
+The final relevant suite passes **665 tests in 76.13 seconds**. Ruff passes and
+Pyrefly reports zero errors with the existing 61 warnings. The 25 new core-cell
+tests cover full/partial group opacity, exact multiway replay and cut bounds,
+protected atoms, complete alpha, genuine holes, same-winding evenodd holes,
+curved carriers, retained opaque/partial marks, partial paint replacement,
+antialiased deletion exclusions, opaque/partial gradient carriers, unknown
+compositing, coarse dark steps, alpha contrast, supported ink, odd tree prefixes,
+local/full agreement, save/reload and cancellation. These are implementation
+checks; no delivery is marked complete.
+
+### Required next work
+
+Implement a bounded whole-component edit contract before claiming production
+availability. It must retain the complete changed-object declaration, original
+and new source namespaces, parent/frame and paint-server revisions, visible and
+occluded context, local order and feature/coverage aggregates. Verify rejection
+invalidation after sibling color/geometry, gradient-stop and frame edits, as
+well as cancellation and rollback. Keep ordinary local limits, exact native
+checks and all actual representation charges. Compare matched pools and budgets;
+a broader cache key or dependency omission cannot stand in for this work.
+
+Then reconstruct continuous ink and canonical long material boundaries jointly
+with paint, and audit the previously recorded admission conflicts against
+meaningful source coverage. The current source masks still create many contour
+fragments and conservative held geometry. Neither a learned ranker nor a
+cosmetic slider can supply the missing compact faithful representation.
+The combined sword, broader feature/coverage/line, runtime/memory, editing,
+held-out and blind-review gates remain open. The implementation goal remains
+active.
+
+## Whole-component dependencies: smaller drawing, worse fidelity
+
+This experiment's source hash is
+`b23d530956f5763d023b23fc3491bdd203c801bc07d2865f24e2d6930dac5333`.
+It changes proposal dependencies and admission while retaining the preceding
+material models, native policy and weights. No delivery or release gate is
+complete. The smaller selected drawing is not a practical redraw improvement.
+
+### Component contract and verification
+
+`component_edits.py` introduces sealed replacements inside a container of
+direct path children. Ordinary edits retain the 256-object dependency limit.
+Components retain every declared old/new path and require their parent
+dependency. They use the established 8,192-object / 32,000-node seed footprint,
+including stored unused geometry, with bounded elements and a 16 MiB dependency
+payload. Nested containers keep the existing fallback.
+
+The source seal includes the full immutable document and ownership metadata:
+geometry, pins, locks, paint definitions, ancestor frames, layer order, source
+atoms and cuts. Validation rejects stale sources, undeclared changes, changed
+external paint/geometry/order, changed parent frames, reordered retained paths,
+omitted paint bounds and changes to locked/pinned paths. Only validated private
+gradient resources belonging to declared paths may change outside the group;
+shared resources remain exact. Rejection proofs require a validated complete
+target revision as well as the source seal. Hidden source paint and changed
+target stops cannot reuse a proof merely because the visible raster, IDs or
+parameters coincide.
+
+Existing visible/occluded context, feature/coverage aggregates, native tile
+limits, graph/memory bounds, actual representation charges and independent
+full checkpoints remain in force. Broad diagnostics retain complete declared
+IDs. Core-material proposals now use this contract.
+
+The relevant suite passes **691 tests in 76.07 seconds**. Final focused checks
+pass **51 tests in 2.66 seconds**, including actual core-material contract
+validation under full/partial opacity and with/without holes. The 26 added
+contract cases cover exact 299-path compaction, sealed/unsealed admission,
+complete diagnostics, actual cost, hidden paint/geometry, gradient stops,
+order/frames, locks/pins, ownership, undeclared/external edits, bounds,
+declarations, private-gradient updates, source/target rejection invalidation,
+footprint limits, stop and independent-checkpoint rollback. Ruff passes;
+Pyrefly reports zero errors and the existing 61 warnings.
+
+### Matched native result
+
+`.bench/planned-component-edit-contract` uses the same 60-second operation
+budget, complexity 50, balanced quality and refinement disabled.
+
+| Drawing | Nodes | Contours | Paths | Actual cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Preceding matched prototype | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Sealed component replacement | 8,571 | 1,313 | 1,283 | 16,749 | 550.85 |
+| Frozen balanced gate | At most 800 | At most 140 | — | — | At most 497.39 |
+
+Generation takes **51.88 seconds**, with no overall deadline overshoot. The
+22-cell proposal declares **416 changed paths**, plus its parent dependency,
+and reaches normal exact evaluation. Its cost delta is **−4,040**, with a
+native visual-loss increase of **0.00114988** against its parent. The unchanged
+objective admits it. The selected drawing combines it with one filled ink
+replacement. Search completes 13 evaluations, 10 local admissions and four
+full checkpoint attempts, with **zero score disagreements** and about
+10.25 MiB of retained search state. This is not a process peak-memory result.
+
+Nodes fall by **14.4%**, but human-reference error rises by **7.0%**. The drawing
+still has **3.7 times the legacy CEL node count** and **16.4 times the human
+count**. Native input RGB MSE also rises from **182.08 to 267.51**. The objective
+buys representation savings with a fidelity loss; admission is not resemblance.
+
+| Human feature error | Previous | Component replacement |
+| --- | ---: | ---: |
+| Blade tip | 560.66 | 744.04 |
+| Blade facets | 254.12 | 263.32 |
+| Guard | 1,167.78 | 1,180.78 |
+| Handle wrapping | 882.61 | 948.49 |
+| Jewel | 1,332.64 | 1,506.76 |
+
+Inspection of the saved source/human/generated crops confirms jagged blade
+facets, fragmented guard outlines and an irregular jewel rim. Merging color
+patches has not reconstructed supported long boundaries and continuous ink.
+
+### Independent pool and tuning controls
+
+`.bench/component-edit-contract-audit` reruns the preceding source-only pool
+with component validation, exact original graph validation and independent
+native local/full comparisons. Its local driver is
+`.bench/diagnose-component-contract.py`, SHA-256
+`a0bbc819e0095e896ae84117bf56e23075f406b6ae4649d71d91906420ea6ad9`.
+The shared work limit is 180 seconds; human data remains outside generation.
+All six candidates pass the contract and native hard validity. Their renders
+are **byte-identical** to the preceding six-candidate pool. Maximum local/full
+score-term difference is **2.874e-10**. Complete declarations and source/target
+seals are saved with each candidate. Four declarations exceed the ordinary
+local limit: 416/325 paths on the initializer, 390/304 after broad union.
+
+The pool itself has not improved. Its best human error remains **527.71**, and
+no candidate meets the combined sword gate. Better scheduling or ranking of
+this pool cannot supply the missing compact faithful drawing.
+
+The four clean, half-opacity, 192-pixel tuning controls remain **byte-identical**
+to `.bench/planned-core-material-cells-structural-first-rgba-pairs`. No core
+candidate is emitted, so they establish unchanged existing outputs rather than
+broader validation of the new material model. Girl/face/park/band retain
+175/176/545/405 nodes, costs 331/272/979/757, clean MSE
+165.4348/206.7383/178.7425/167.7354 and Line F 0.270/0.589/0.652/0.641.
+Generation takes 12.49/17.71/10.63/13.33 seconds with 16/16/24/16 evaluations.
+
+The first paired command exited with status 143 after completing Anime girl;
+its one-case report remains at
+`.bench/planned-component-edit-contract-rgba-pairs`. The remaining three
+completed in a separate sequential invocation, exit status zero, at
+`.bench/planned-component-edit-contract-rgba-pairs-tail`. Both reports have
+the same final algorithm hash and settings. The combined comparison record,
+`.bench/component-edit-contract-paired-summary.json`, preserves this run split.
+
+### Next work and verdict
+
+The local dependency limit is resolved for this bounded component route.
+Representation and fidelity remain the failure. Rebuild continuous ink and
+canonical long material boundaries jointly with adjacent paint and source
+coverage, preserving retained marks, genuine holes and native alpha. Remove
+the old fragments when replacing a boundary. Then apply constrained
+geometry/paint/width fitting to that compact plan and audit the source-admission
+exclusions that prevent useful alternatives.
+
+Selection calibration remains necessary because the objective preferred a less
+faithful candidate. Use the declared tuning grid and same-pool replay; do not
+adjust production weights from this sword alone. Candidate coverage must also
+improve because the pool contains no gate-passing alternative. A mini-ML ranker
+and product slider remain later work. All combined sword, broader feature,
+coverage, line, runtime/memory, editing, held-out and blind-review gates remain
+open. The implementation goal remains active.
+
+## Paired closed ink and compact underpaint
+
+This package adds a source-supported closed-rim competitor to filled ink
+replacement. It fits both complete source perimeters, removes the replaced
+fragments and continues neighboring paint beneath the fitted rim. Opposite
+winding, complete ownership, bounded geometry, native core coverage and draw
+order must validate before the candidate reaches normal scoring. Requested or
+source-fixed line widths exclude this interpretation. Deliberate gaps,
+genuine alpha holes and unsupported cavities retain existing alternatives.
+
+For a cavity owned by one opaque surface and surrounded by another, the two
+paints share a compact boundary beneath the rim. Native rasterization must
+prove that every mixed underpaint pixel is covered by fully opaque ink, and
+that visible inner/outer antialias pixels receive the corresponding pure
+paint. Group opacity remains intact. Gradient definitions and coordinate
+frames remain intact; partial-opacity paint cannot establish this proof.
+Other cavities use traced paint continuations. This is a narrow operator,
+not yet discovery of arbitrary closed ridges or multi-owner cavities.
+
+### Controlled verification
+
+The saved fixtures at `.bench/source-rim-fixtures` compare full, half and
+quarter group opacity. Each drawing falls from **94 nodes, 15 paths, 16
+contours and cost 188** to **23 nodes, four paths, five contours and cost 51**.
+Native alpha is exact, cavity paint remains correct, primary source ownership
+is complete and independent local/full raster comparisons agree. Maximum
+score-term differences are at most **1.581e-11**. These are synthetic controls,
+not evidence of human-reference improvement on artwork.
+
+Twenty-one new rim cases cover search/checkpoint/save/reload behavior,
+deliberate gaps and holes, unsupported cores, source widths, gradients,
+scaled/offset native coordinates, sheared/reflected local frames, reversed
+neighbor order, work interruption and conservative fallback when native
+coverage is insufficient. Three additional discovery-interruption cases
+verify retained checkpoints and canceled-work rollback. The relevant suite
+passes **715 tests in 78.56 seconds**. Ruff passes; Pyrefly reports zero errors
+and the existing 61 warnings.
+
+### Matched sword and discovery audit
+
+The final algorithm source SHA-256 is
+`ea17c4f0c2bc7c4c822020901a3a224d429a56564bb994c7ff0901bd3117d0da`.
+The final native, paired, audit and fixture reports use this source. The
+60-second sword run at complexity 50, balanced quality and refinement disabled
+is saved at `.bench/planned-source-rims-final`.
+
+It retains **8,571 nodes, 1,313 contours, 1,283 paths, cost 16,749 and human
+MSE 550.854631** in **52.56 seconds**. Its PNG is byte-identical to the preceding
+component-contract result. There are 14 evaluations, 11 local admissions,
+four checkpoint attempts and zero score disagreements. Discovery reaches its
+local time slice; useful independently validated checkpoints survive. No new
+rim or compact-underpaint proposal is emitted. **There is no sword quality
+gain and no frozen gate passes.**
+
+An intermediate run at `.bench/planned-source-rims-ordered` failed optional
+search when a component dependency seal raised an interruption during proposal
+discovery. It reverted to the initializer (10,286 nodes, 1,711 contours and
+human MSE 512.8079). Commit `272516c` catches that interruption at component
+binding and the search cursor. Discovery can end cleanly while an uncanceled,
+live independent checkpoint validates previous admissions. A canceled or
+expired validation budget cannot publish those edits. The failed run remains
+recorded; the final result above supersedes it.
+
+The bounded source-only audit `.bench/source-rim-final-audit` examines 16 ink
+groups on the initializer and 16 after a coarse material replacement, with
+180 seconds of shared work. Both finish without interruption and emit zero
+new rim candidates. Its local driver `.bench/diagnose-source-rims-final.py`
+has SHA-256
+`2dfde8aab05816dc3d3d13563201e33bfac5794263cdd183cbd855a9ae08154f`.
+
+The deeper diagnostic `.bench/source-rim-deep-audit` temporarily sets its group
+cap to 64; production remains at 16. It exhausts **60 eligible groups on the
+initializer and 59 after material replacement**, without reaching that larger
+cap or its deadline. Initial exclusions comprise 49 groups without supported
+ridges, one area bound and ten incompatible rim topologies; the coarse state
+has 50, one and eight respectively. Neither emits a new rim. These counts
+describe the existing eligibility and bounded path-family grouping, not every
+possible geometric ridge in the raster. Its local driver
+`.bench/diagnose-source-rims-deep.py` has SHA-256
+`91eab564dc0f9863a8f629eef8c77b8a1482308e7e0de8120fa34d44401242e1`.
+Giving this existing palette-owned group pool more search time does not supply
+the missing complete contour.
+
+### Paired controls and next work
+
+All four clean, half-opacity, 192-pixel controls at
+`.bench/planned-source-rims-final-rgba-pairs` finish successfully and retain
+byte-identical PNGs to
+`.bench/planned-core-material-cells-structural-first-rgba-pairs`. No new rim is
+emitted. Girl/face/park/band retain 175/176/545/405 nodes, costs
+331/272/979/757, clean MSE 165.4348/206.7383/178.7425/167.7354 and Line F
+0.270/0.589/0.652/0.641. Generation takes 11.94/17.45/10.55/12.95 seconds,
+with 16/16/24/16 evaluations. Unchanged controls do not establish broader
+artwork benefit from the new operator.
+
+The next structural work must discover continuous source ridges across palette
+boundaries, require complete tangent/width support and split mixed original
+atoms exactly when only part belongs to ink. Preserve deliberate gaps and
+separately owned marks. Extend enclosed paint to multiple owners with retained
+highlights, and fit shared long facet boundaries jointly with paint. Remove
+the old fragments when replacing them; additive outlines or majority ownership
+cannot satisfy the replacement. The compact paired-rim operator supplies a
+validated target representation, but its current palette-family discovery
+cannot reach the sword's contours. ML ranking and slider calibration remain
+later work. All delivery and release gates remain open; the implementation
+goal remains active.
+
+## Source-first closed ridges and exact mixed-owner cuts
+
+Closed source ridges now compete independently of palette-owned ink families.
+Discovery uses existing drawn pixels around complete RGB cavities, with no new
+gap-closing operation. Both-sided dark-ridge support, complete perimeter
+topology, actual opacity-core coverage and ordinary native scoring are required.
+Complete primitive fits prioritize a bounded source pool; general closed curves
+remain competitors. This does not yet cover arbitrary open ridges or junctions.
+
+The scan limits source pixels to the existing atom allowance, detected cavities
+to 8,192, inspected cavities to 32, retained bands to eight, radius to 12 analysis
+pixels and each local buffer to the existing 262,144-pixel bound. Selected owners
+retain the existing 128-path / 6,000-node limits. Source atom cuts retain their
+64-cut and 16,384-run bounds. Requested/source-fixed width, alpha holes,
+unsupported ridge/core evidence, incompatible frames and protected owners
+exclude this route.
+
+Mixed owners are cut through complete binary source classifications and exact
+RLE atom lineage. Independently owned remainders remain in the drawing; this
+is not a majority assignment or an additive outline. Complete disconnected
+contour groups stay exact when every source-owner sample in their conservative
+bounds agrees. Overlapping/nested groups stay together; true partial groups use
+Boolean cuts. This avoids coverage slivers from cutting a whole fitted fragment
+against its pixel-grid approximation, and keeps distant mark pixels exact.
+
+Production source cuts resolve graphs through the original planner's bounded
+cache. A temporary cut keeps its registered branch live until the atomic
+replacement finishes, so its storage is included in existing live graph
+accounting and native validation reuses that same graph. Complete-atom moves
+retain the existing namespace and allocate no graph copy. Default standalone
+diagnostics can still rebuild a bounded graph directly. Locked/pinned neighboring
+paint now excludes restoration cleanly rather than failing optional discovery.
+Model and exclusion counters survive closing a cursor after its first yield.
+
+### Controlled verification
+
+The new control deliberately alternates incompatible ink colors around a ring,
+and places a distant mark in the same source atom as one ink fragment. Legacy
+palette grouping emits no paired rim. Source discovery fits both complete
+perimeters, splits that mixed atom exactly and keeps its mark unchanged.
+
+`.bench/source-ridge-cut-fixtures` saves full, half and quarter group-opacity
+SVG/PNG pairs. Each drawing falls from **98 nodes / 15 paths / 18 contours /
+cost 200** to **28 nodes / five paths / seven contours / cost 66**. Native alpha
+and distant mark pixels remain exact; local/native raster agreement holds.
+Maximum local/full score-term difference is below **7.121e-11**. These are
+synthetic controls, not evidence of improved artwork resemblance.
+
+Thirty new cases cover complete source classifications, retained marks,
+private gradients/frames, native offset and scale, reflected/sheared frames,
+existing atom lineage, actual registered graph reuse, no-copy complete moves,
+closed-gap/alpha-hole/core/width exclusions, owner/node/cavity/band bounds,
+locks/pins, interruption, independent search checkpoints and save/reload.
+The final relevant suite passes **745 tests in 86.43 seconds**. Ruff passes;
+Pyrefly reports zero errors and the existing 61 warnings.
+
+### Matched native result and rejected scheduling experiment
+
+The final algorithm source SHA-256 is
+`15a5428c8597731cfd69bc3a0751ad5d1e757ab49bf9fef0c456460bf999a68e`.
+The final native, paired, fixture and independent audit reports share it.
+`.bench/planned-source-ridge-cuts-accounted` uses the frozen 60-second operation
+budget, complexity 50, balanced quality and refinement disabled.
+
+The selected sword remains **8,571 nodes, 1,313 contours, 1,283 paths, cost
+16,749 and human MSE 550.854631**, in **52.05 seconds**. Its PNG is byte-identical
+to `.bench/planned-source-rims-final`; all five measured human feature errors
+remain unchanged. There are 13 evaluations, ten local admissions, four
+checkpoint attempts and zero score disagreements. Retained search state peaks
+at 10,752,008 bytes; this is not a process peak-memory measurement.
+
+One new source-ridge candidate reaches evaluation and is admitted, with cost
+delta **−393** and native visual delta **−0.0000257139**. Its six neighboring
+paint owners exclude the compact two-owner underpaint model. The selected
+drawing instead retains the previous core-material replacement plus filled ink
+edit. **The new route supplies no selected sword quality gain.**
+
+An initial source-first scheduling experiment changed the matched result to
+8,588 nodes / 1,315 contours / human MSE 551.160658 in 51.82 seconds at
+`.bench/planned-source-ridge-cuts`, source hash
+`25ace268d7b148edfe3681d713e7628fce163f92e38c4132d51156444ec82598`.
+After the protection guard, another run retained 10,121 nodes / 1,660 contours /
+MSE 514.667351 in 53.86 seconds at `.bench/planned-source-ridge-cuts-final`, hash
+`b278591e80ecc1483531a56a25adf73e8786dfddb82613c2bd3a8e2efb4d3f11`.
+Both miss the combined gate; the timing-dependent loss of useful compaction
+does not justify reserving the first slot for this route. That priority was
+removed. The final route participates in the existing round-robin schedule.
+
+### Independent candidate pool and composition limit
+
+`.bench/source-ridge-cut-final-audit` uses 180 seconds of shared work, the
+source-only initializer and a coarse 22-cell material parent. Human scoring
+remains outside generation. Its local driver `.bench/audit-source-ridges-final.py`
+has SHA-256
+`863f78be13d5981a7247b7f8965c560abe86d8858c25b4708a37edebe02ffb09`.
+Both phases inspect 16 cavities and eight retained bands from 45 eligible bands,
+without deadline interruption. The initializer emits two candidates. Both pass
+native hard validity, complete original-graph ownership validation and
+independent local/full raster checks; maximum score-term disagreement is
+**2.333e-10**.
+
+| Source band | Selected pixels / owners / cuts | Nodes | Contours | Cost | Human MSE | Jewel MSE |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Radius 6 | 402 / 51 / 0 | 10,209 | 1,657 | 20,425 | 516.95 | 1,402.85 |
+| Radius 2 | 200 / 30 / 1 | 10,397 | 1,695 | 20,809 | 513.49 | 1,319.02 |
+
+The wider candidate saves 77 nodes against the 10,286-node initializer but
+worsens resemblance. The narrow candidate slightly improves the jewel crop
+against the initializer's 1,332.64, while adding 111 nodes and increasing global
+human error. Neither passes the combined sword gate. Both require traced
+multi-owner paint continuations; compact underpaint is excluded by neighbor
+count. Finding a rim does not itself supply a compact faithful composition.
+
+The coarse-material phase emits none: four bands lack ridge support, two hit
+owner exclusions, one hits geometry exclusion and one fails registered graph
+resolution with **“Active source graphs exceed branch memory bounds.”** Its
+live parent graph is about 24.5 MiB. Cache peak is 25,721,808 bytes, within the
+unchanged 32 MiB bound; a second full graph cannot coexist with that live parent.
+The audit saves the resolver error explicitly. This is an internal storage
+constraint to fix, not an external blocker or a reason to waive the limit.
+
+### Paired controls and next work
+
+The four clean, half-opacity, 192-pixel controls at
+`.bench/planned-source-ridge-cuts-rgba-pairs` all finish successfully and retain
+byte-identical PNGs to `.bench/planned-source-rims-final-rgba-pairs`.
+Girl/face/park/band retain 175/176/545/405 nodes, costs 331/272/979/757, clean MSE
+165.4348/206.7383/178.7425/167.7354 and Line F 0.270/0.589/0.652/0.641.
+Generation takes 12.32/17.79/10.78/13.26 seconds, with 16/16/24/16 evaluations.
+Western park emits two source-ridge proposals using six cuts each; both are
+rejected for native objective regression (cost delta +160). The other three
+emit none. These controls demonstrate unchanged selected outputs, not a
+broader quality gain.
+
+Next remove redundant copies of unchanged source graphs and share immutable
+region/boundary storage or rebuild only the affected neighborhood, with complete
+source validation and actual retained-memory charges. Then compose closed
+ridges with multiple enclosed/surrounding materials and retained highlights.
+Continue general open ridges, junctions and shared long blade facets, followed
+by constrained geometry/paint/width fitting and calibrated common-frontier
+selection. ML ranking cannot substitute for this missing composition. All
+delivery, numerical, feature, coverage, line, runtime/memory, editing, held-out
+and blind-review gates remain open. The full implementation goal remains active.

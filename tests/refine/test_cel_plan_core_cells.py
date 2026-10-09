@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.helpers import required
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_piecewise_surfaces import marked_step, step
 from vectrify.document import (
@@ -127,16 +128,20 @@ def test_whole_core_materials_remove_fragments_with_exact_alpha_ownership_reload
         (
             p
             for p in edits
-            if p.details["core_material_cells"]["region_threshold"] is None
+            if required(p.details)["core_material_cells"]["region_threshold"] is None
         ),
         key=lambda p: p.parameters[0],
     )
     assert edit.parameters[0] >= 2
+    assert edit.details is not None
     assert edit.details["core_material_cells"]["removed_paths"] >= 5
+    assert edit.partition is not None
+    assert state.partition is not None
     assert edit.partition.follows(state.partition)
     Operators(evidence, graph, options).validate_partition(
         edit.partition, Work.start(10)
     )
+    assert edit.component is not None
     assert edit.component.validate(
         state.document,
         edit.document,
@@ -162,7 +167,7 @@ def test_whole_core_materials_remove_fragments_with_exact_alpha_ownership_reload
     assert local.canvas.matches(actual)
     assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
     reloaded, _ = load_project(save_project(edit.document))
-    Partition.from_metadata(edit.partition.metadata()).validate(reloaded)
+    required(Partition.from_metadata(edit.partition.metadata())).validate(reloaded)
     np.testing.assert_array_equal(
         render(export_svg(reloaded), evidence.source_size), actual
     )
@@ -174,6 +179,7 @@ def test_owned_mark_keeps_its_geometry_paint_and_primary_owner(alpha):
     evidence = marked_step(alpha)
     evidence = replace(evidence, opacity=evidence.rgba[..., 3])
     frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     marker = state.partition.owners[9]
     state = replace(
         state,
@@ -186,6 +192,7 @@ def test_owned_mark_keeps_its_geometry_paint_and_primary_owner(alpha):
     edits = list(factory(state, Work.start(10)))
     assert edits
     for edit in edits:
+        assert edit.partition is not None
         assert edit.partition.owners[9] == marker
         assert edit.document.element(marker) == state.document.element(marker)
         assert edit.document.geometry_for(marker) == state.document.geometry_for(marker)
@@ -200,7 +207,8 @@ def test_owned_mark_keeps_its_geometry_paint_and_primary_owner(alpha):
 def test_unsupported_current_compositing_does_not_emit_a_global_replacement(kind):
     evidence = marked_step(128)
     _, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
+    assert state.partition is not None
     marker = state.partition.owners[9]
     state = replace(state, details={**state.details, "paint_constraints": [marker]})
     editor = Editor(state.document, selection=Selection(whole_document=True))
@@ -226,14 +234,16 @@ def test_unsupported_current_compositing_does_not_emit_a_global_replacement(kind
 def test_round_coverage_contour_has_a_proved_native_opaque_interior():
     evidence = material()
     _, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     shape = parse_path("M80 32C80 50 60 58 42 50C10 55 8 20 30 10C50 0 80 8 80 32Z")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Curved actual core") as tx:
         tx.replace_geometry(base.id, shape)
     changed = replace(state, document=editor.snapshot.document)
     factory = CoreCells(Families(evidence, build(evidence), options), options)
-    interior, box, opaque = factory._interior(changed, base, shape, Work.start(10))
+    interior, box, opaque = required(
+        factory._interior(changed, base, shape, Work.start(10))
+    )
     from vectrify.document.redraw import root_matrix
 
     coverage = factory._mask(interior, root_matrix(changed.document, base.id), box)
@@ -254,6 +264,7 @@ def test_cancelled_component_model_keeps_original_state():
         )
         == []
     )
+    assert state.partition is not None
     assert state.partition.atoms is None
 
 
@@ -290,12 +301,14 @@ def test_paired_source_trough_retains_its_owned_ink_without_a_manual_hold():
         drawn=drawn,
     )
     _, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     marker = state.partition.owners[9]
     factory = CoreCells(Families(evidence, build(evidence), options), options)
     edits = list(factory(state, Work.start(10)))
     assert edits
     assert factory.diagnostics["ridge_owners"] >= 1
     for edit in edits:
+        assert edit.partition is not None
         assert edit.partition.owners[9] == marker
         assert edit.document.element(marker) == state.document.element(marker)
         assert edit.document.geometry_for(marker) == state.document.geometry_for(marker)
@@ -320,12 +333,15 @@ def test_connected_materials_use_compact_source_contours_and_complete_uncut_atom
     region_edits = [
         p
         for p in factory(state, Work.start(10))
-        if p.details["core_material_cells"]["region_threshold"] is not None
+        if required(p.details)["core_material_cells"]["region_threshold"] is not None
     ]
     assert region_edits
     for edit in region_edits:
         assert edit.parameters[0] == 3
+        assert edit.partition is not None
+        assert edit.partition.atoms is not None
         assert edit.partition.atoms.cuts == ()
+        assert edit.details is not None
         assert edit.details["core_material_cells"]["removed_paths"] == 6
         Operators(evidence, graph, options).validate_partition(
             edit.partition, Work.start(10)
@@ -343,6 +359,7 @@ def test_connected_materials_use_compact_source_contours_and_complete_uncut_atom
 def test_source_alpha_contrast_does_not_prove_an_intrinsic_ink_trough():
     evidence = step(128)
     _, state, options = prepared(evidence, layers=True)
+    assert evidence.opacity is not None
     rgb, opacity = evidence.target.copy(), evidence.opacity.copy()
     rgb[12:52, 42:44] = (5, 5, 5)
     opacity[12:52, :42] = 0.1
@@ -362,8 +379,8 @@ def test_actual_gradient_core_requires_opaque_stops_inside_the_partial_group(
 
     evidence = material(128)
     _, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
-    surface = next(s for s in state.partition.surfaces if s.role == "surface")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
+    surface = next(s for s in required(state.partition).surfaces if s.role == "surface")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Gradient coverage core") as tx:
         tx.set_fill(
@@ -402,7 +419,10 @@ def test_exact_three_plane_material_prefix_is_not_skipped():
     factory = CoreCells(Families(evidence, build(evidence), options), options)
     planes = [p for p in factory(state, Work.start(10)) if p.parameters[2] is None]
     assert [p.parameters[0] for p in planes] == [3]
+    assert planes[0].details is not None
     assert planes[0].details["core_material_cells"]["source_squared_error"] == 0
+    assert planes[0].partition is not None
+    assert planes[0].partition.atoms is not None
     assert len(planes[0].partition.atoms.cuts) > 0
 
 
@@ -412,6 +432,7 @@ def test_partial_paint_inside_actual_opaque_core_preserves_complete_native_alpha
 ):
     evidence = marked_step(128) if retained else material(128)
     frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     marker = state.partition.owners[9 if retained else 1]
     if retained:
         state = replace(state, details={**state.details, "paint_constraints": [marker]})
@@ -437,12 +458,13 @@ def test_partial_paint_inside_actual_opaque_core_preserves_complete_native_alpha
 def test_native_coverage_proof_keeps_old_paint_on_the_antialiased_core_edge():
     evidence = material(128)
     _, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     parent = state.document.ancestry(base.id)[-2]
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Fractional coverage frame") as tx:
         tx.set_attributes(
-            parent.id, {"transform": parent.get("transform", "") + " translate(0.25 0)"}
+            parent.id,
+            {"transform": (parent.get("transform") or "") + " translate(0.25 0)"},
         )
     state = replace(state, document=editor.snapshot.document)
     factory = CoreCells(Families(evidence, build(evidence), options), options)
@@ -451,6 +473,8 @@ def test_native_coverage_proof_keeps_old_paint_on_the_antialiased_core_edge():
     assert factory.diagnostics["alpha_exclusions"] >= 2
     original = render(export_svg(state.document), evidence.source_size)
     for edit in edits:
+        assert edit.partition is not None
+        assert state.partition is not None
         assert edit.partition.owners[1] == state.partition.owners[1]
         assert edit.partition.owners[8] == state.partition.owners[8]
         actual = render(export_svg(edit.document), evidence.source_size)
@@ -460,7 +484,7 @@ def test_native_coverage_proof_keeps_old_paint_on_the_antialiased_core_edge():
 def test_carrier_keeps_evenodd_holes_whose_contours_have_the_same_winding():
     evidence = material(128, hole=True)
     _, state, options = prepared(evidence, layers=True)
-    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
     shape = parse_path("M0 0H80V48H0Z M32 16H48V32H32Z")
     editor = Editor(state.document, selection=Selection(whole_document=True))
     with editor.transaction("Same winding evenodd carrier") as tx:
