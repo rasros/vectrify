@@ -825,6 +825,8 @@ class BandPlans:
         document = self.document(
             proposal.document, oid, newid, model, marks, {**style, "fill": seed.paint}
         )
+        retained_element = document.element(newid)
+        retained_geometry = document.geometry_for(newid)
         nb = curve_path(transformed_geometry(main, frame)).bounds
         parent = document.ancestry(oid)[-2].id
         result = SourceCaps(guard).extend(
@@ -929,6 +931,22 @@ class BandPlans:
         if joined is not None:
             document, junctions = joined
             ids.extend(w["id"] for w in junctions)
+        # Final pixels alone cannot prove removal: restored old ink beneath a
+        # same-colored stroke can preserve alpha and pass local paint checks.
+        # Seal the already-proved residual through every assembly/fitting stage.
+        if attached:
+            ink_style = path_style(document, document.element(oid))
+            ink_geometry = document.geometry_for(oid)
+            if (
+                document.element(newid) != retained_element
+                or document.geometry_for(newid) != retained_geometry
+                or ink_style["fill"] != "none"
+                or ink_style["stroke"] == "none"
+                or float(ink_style["stroke-width"]) <= 0
+                or len(ink_geometry.subpaths) != 1
+                or ink_geometry.subpaths[0].closed
+            ):
+                return None
         if continuation is not None:
             target = continuation["material"]
             assert isinstance(target, str)
@@ -1025,7 +1043,18 @@ class BandPlans:
                 "junctions": junctions,
                 "continuation": continuation,
                 "material_votes": votes,
-                **({"native_locality": locality} if attached else {}),
+                **(
+                    {
+                        "native_locality": locality,
+                        "retained_shadow": {
+                            "id": newid,
+                            "geometry_exact": True,
+                            "paint_exact": True,
+                        },
+                    }
+                    if attached
+                    else {}
+                ),
             },
         )
 
