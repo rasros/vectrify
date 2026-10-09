@@ -61,6 +61,15 @@ source-line/gap-feasible, exclusive-material vectors, then independently checks
 the whole drawing's alpha, crop consistency and complete original source bank.
 Ownership, sealed residuals and final locality still require the enclosing planner.
 
+The joint fit also requires the new stroke itself to support every qualified
+sample on its original profile. A dark material or retained filled path cannot
+satisfy this contract. Its normal matching windows and permitted raw-positive
+queries are copied when the original source bank is prepared. The fitting crop
+uses a positive-body penalty; final verification renders the isolated actual
+stroke at the full native viewport under its original opacity hierarchy.
+The witness reports supported and missing samples separately. This complements
+painted-line and negative-gap checks without authorizing endpoint movement.
+
 If the complete zero-extension attached attempt publishes no candidate, planning
 tries a half-pixel removal extension at the end, then at the start. The first
 domain that publishes candidates stops the fallback sequence. These are cut
@@ -260,9 +269,9 @@ Ruff and the full source/test Pyrefly check pass at this checkpoint
 formatting; the global formatter flags pre-existing blank lines in unchanged
 `tests/ui/test_server.py`. The automatic joint-fit head `d4be68d` is
 [green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37983035298).
-The closing-edge and retained-width correction head `5187445` has its own
-[CI run in progress](https://github.com/rasros/vectrify/actions/runs/37986737601);
-its result is not yet known.
+The documented closing-edge and retained-width checkpoint `099a081` is also
+[green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37986998409).
+The earlier `5187445` run was cancelled after it was superseded.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
@@ -377,15 +386,90 @@ drivers and logs provide diagnostic provenance, not automated-operation release
 or reference-corpus evidence. Dependent diagnostic inputs retain their own source
 revision; a current source hash does not retroactively validate an earlier input.
 
+## Source terminal and retained-context diagnosis
+
+The following ignored diagnostics use source hash
+`f9d361c9f8780328af0c6d3d23a73170f05a1c0c0143ac9788e28e3274f3198d`.
+They do not add accepted candidates or change production endpoint constraints.
+
+- `.bench/cel-attached-source-port-evidence/` measures qualification and raw
+  alpha at stored source endpoints. Both profile-85 estimates are unqualified
+  with raw alpha at most 2/255. The shared profile-67/97 estimate and profile-97
+  far endpoint are also unqualified and transparent. A transparent cluster mean
+  does not prove a real source gap: connectivity around the junction still needs
+  positive raw-source evidence. Profile 67's qualified start and profile 54's
+  high-alpha attached start remain protected observations.
+- `.bench/cel-attached-source-body-parent-bound/` checks all qualified positions
+  on profiles 43, 54, 67, 85 and 97. Each has parent coverage at at least one of
+  its nine raw-positive normal queries. This necessary condition does not prove
+  that a complete feasible stroke exists, but excludes a simplistic argument
+  based only on transparent stored endpoint estimates.
+- `.bench/cel-attached-bounded-port-source-body-85-replay/` stages a cold compact
+  single-C body before material restoration. Only unsupported low-alpha terminal
+  tails are trimmed to copied qualified observations; uncertain endpoint poses
+  stay within three pixels of their original estimates. Every original qualified
+  body query retains its original matching tolerance. The body covers all 63
+  qualified samples and respects raw-positive endpoints and source gaps, but the
+  atomic material fit emits no complete candidate. The final fitted-material
+  stage still requires its own body-support verification; staging is not proof
+  of the subsequently changed stroke.
+- `.bench/cel-attached-bounded-port-alpha-guide-85/` records the same cold search's
+  best rejected material crop: 19 alpha discrepancies, with summed byte error 68.
+  Its pruned SVG is explicitly a rejected crop, not a complete drawing or preview.
+- `.bench/cel-attached-retained-context-alpha-85/` isolates the original and
+  subtracted shadow. At native pixel `(329, 1996)`, shadow alpha changes from 3
+  to 4 while unchanged underlay alpha remains 12; complete alpha changes from 15
+  to 16. All three standard cuts reproduce this change, with pruned/full crop
+  equality. A separate single-path replay reproduces it without source-cap
+  recovery or new stroke paint, including when unrelated paths are removed.
+- `.bench/cel-attached-source-domain-alpha-85/` completes all 81 quarter-pixel
+  start/end cut combinations from zero to two pixels. Each geometrically valid
+  subtraction still increases that same native alpha byte. This is a limitation
+  of the current directed-winding construction under the native renderer, not a
+  successful source-domain fallback. Positive material restoration cannot remove
+  an excess in untouched retained context.
+
+Opacity, thinner-width, local-material, underlay-hole and terminal-control trials
+on profile 54 also emit no accepted candidate. Their driver/prototype hashes are
+separate from the production source hash. None enables opacity, base holes,
+subdivision, port correction or enlarged fitting bounds in production.
+
+The positive-body contract checkpoint passes all 1,476 CEL planning tests in
+210.83 seconds, including frozen source-window, raw-bright-query, opacity,
+displacement, crop-edge and final isolated-native-body controls. Ruff passes
+across source/tests/scripts; full Pyrefly reports zero errors, two existing
+suppressions and 70 warnings. Changed Python files pass formatting.
+
+`.bench/cel-attached-body-support-43-replay/` records a cold targeted production
+replay: one candidate in 51.18 seconds, byte-identical to the earlier accepted
+automatic handle SVG. Its isolated new stroke supports all 95 qualified samples.
+Complete alpha, native subset, original ownership/component and native reload
+pass with 64 cuts and 81 allocated children. The independent validation also
+passes the literal 167-pixel footprint, exact original shadow/material controls
+and paint, full former-field removal, source ports, gaps and crossings.
+Generation uses source hash
+`139a00b989afed2d0e8254e00d7f338317c4356a0f26f6676e23d0e11599e2d3`;
+independent validation after import/type cleanup uses
+`bc9c3f55cc3d00d814a181086f7d07b9af071a006380dedb48fdaad7d56808aa`.
+No additional accepted sword chain is claimed by this checkpoint.
+
 ## Resume here
 
-The next feasibility experiment should derive stroke coverage and terminal
-controls from the retained context before optimizing material. A cold joint
-opacity trial has not yet found a complete profile-54 proposal. It must preserve a visibly supported editable stroke,
-physical source ports, real gaps and exact complete native alpha. No opacity
-parameter or relaxed material bounds are currently enabled in production.
+The next feasibility work should distinguish qualified physical observations
+from unsupported endpoint estimates, and derive a stroke body before optimizing
+material. The source-only pommel body stage is feasible, but its complete atomic
+candidate remains rejected. Repeating its material optimization cannot correct
+the retained shadow's native alpha increase outside the stroke. No port
+correction, opacity parameter or relaxed material bounds are enabled in production.
 
-1. Co-plan the continued material's partial silhouette and editable stroke using
+1. Establish a bounded source-only endpoint uncertainty policy with synthetic
+   controls for true gaps, supported attached junctions and transparent cluster
+   means. Keep every qualified sample and real gap in the frozen source bank;
+   do not use the human handle repair as evidence. Before material fitting,
+   independently measure the isolated new stroke and the retained context's
+   native alpha floor. Reject impossible positive-restoration constructions
+   before spending the material optimizer's budget.
+2. Co-plan the continued material's partial silhouette and editable stroke using
    the edges that control failed pixels, rather than only nearby vertices. The
    opaque interior restoration is insufficient at these edges. Preserve physical
    source ports and real gaps; do not waive final alpha to obtain a candidate.
@@ -393,13 +477,13 @@ parameter or relaxed material bounds are currently enabled in production.
    stroke and retained context. A positive underpaint cannot subtract that excess.
    Plan interacting source chains together when one field removes another chain;
    a nominal profile is not automatically an independent replacement.
-2. Extend complete planning to the remaining attached chains, including closing
+3. Extend complete planning to the remaining attached chains, including closing
    material edges and interactions with adjacent source support. The unmodified
    search now generates a fully verified profile-43 stroke without saved
    parameters; the other chains still lack complete native-feasible proposals.
    Keep exact residual controls, complete removal and all final native,
    locality/source/ownership gates.
-3. Replay complete ownership, original ledgers, residual controls, native body
+4. Replay complete ownership, original ledgers, residual controls, native body
    gaps, save/reload and the exported editable stroke inventory, then show the
    actual strokes for visual feedback.
 

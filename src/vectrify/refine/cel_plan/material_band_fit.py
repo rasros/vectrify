@@ -14,6 +14,7 @@ from xml.etree import ElementTree as ET
 import cairocffi as cairo
 import numpy as np
 import pathops
+from cairosvg.colors import color
 from scipy.ndimage import map_coordinates
 from scipy.optimize import minimize
 
@@ -46,6 +47,7 @@ from vectrify.refine.cel_plan.paint_continuation import (
 )
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE, SourceAbsence
+from vectrify.refine.cel_plan.stroke_inventory import _style as stroke_style
 from vectrify.refine.crossings import crossings
 
 MAX_FLAT_NODES = 4096
@@ -222,13 +224,22 @@ class MaterialBandFit:
         material = next(e for e in root.iter() if e.get("id") == target)
         stroke = next(e for e in root.iter() if e.get("id") == oid)
         ink_style = path_style(initial_document, initial_document.element(oid))
+        supported_ink = stroke_style(initial_document, initial_document.element(oid))
         cap = ink_style["stroke-linecap"]
         if (
-            ink_style["fill"] != "none"
+            supported_ink is None
+            or ink_style["fill"] != "none"
             or cap not in {"butt", "round"}
             or ink_style["stroke-linejoin"] != "round"
         ):
             return None
+        profiles = self.guard.original_profiles(work=work)
+        if not 0 <= seed.profile < len(profiles):
+            return None
+        positive = self.guard.fitting_body(profiles[seed.profile], bounds, work=work)
+        if positive is None:
+            return None
+        _style, opacity = supported_ink
         lines = self.guard.fitting_crop(bounds, work=work)
         if lines is None:
             return None
@@ -339,6 +350,9 @@ class MaterialBandFit:
             alpha_error = int(
                 np.abs(actual[..., 3].astype(int) - baseline[..., 3]).sum()
             )
+            # Construction uses a crop hint; acceptance below independently
+            # measures this stroke under its exact native opacity hierarchy.
+            body_support = positive.observe(body * opacity, work=work)
             regularization = (
                 float(parameters @ parameters)
                 - (0 if width_fixed else float(parameters[-1]) ** 2)
@@ -348,12 +362,14 @@ class MaterialBandFit:
                 alpha_error
                 + regularization * 1e-6
                 + line_penalty
+                + body_support["penalty"]
                 + 1000 * float(np.maximum(0, gap_alpha - ALPHA_TOLERANCE).sum())
                 + 1000 * min(1, overlap)
             )
             if (
                 alpha_error == 0
                 and line_penalty == 0
+                and body_support["missing_samples"] == 0
                 and overlap <= 1e-8
                 and np.all(gap_alpha <= ALPHA_TOLERANCE)
                 and value < best_value
@@ -409,6 +425,41 @@ class MaterialBandFit:
             )
             tx.set_attributes(oid, {"stroke-width": repr(width / scale)})
         document = editor.snapshot.document
+        body_root = ET.Element(
+            "svg", {"width": str(native_size[0]), "height": str(native_size[1])}
+        )
+        parent = body_root
+        for ancestor in document.ancestry(oid)[:-1]:
+            parent = ET.SubElement(
+                parent, "g", {"opacity": ancestor.get("opacity") or "1"}
+            )
+        # Reuse the supported solid stroke's effective opacity, retaining
+        # group compositing instead of multiplying independently rasterized ink.
+        ET.SubElement(
+            parent,
+            "path",
+            {
+                "d": document.geometry_for(oid).path_data(),
+                "transform": "matrix(" + " ".join(map(str, owner_frame)) + ")",
+                "fill": "none",
+                "stroke": "white",
+                "stroke-width": repr(width / scale),
+                "stroke-linecap": cap,
+                "stroke-linejoin": ink_style["stroke-linejoin"],
+                "stroke-miterlimit": ink_style["stroke-miterlimit"],
+                "stroke-opacity": repr(
+                    float(ink_style["stroke-opacity"]) * color(ink_style["stroke"])[3]
+                ),
+                "opacity": document.element(oid).get("opacity") or "1",
+            },
+        )
+        native_support = positive.observe(
+            _native_raster(body_root, native_size).values(box)[..., 3].astype(float)
+            / 255,
+            work=work,
+        )
+        if native_support["missing_samples"]:
+            return None
         whole = _native_raster(ET.fromstring(export_svg(document)), native_size)
         if not np.array_equal(whole.root[..., 3], baseline_full.root[..., 3]):
             return None
@@ -437,6 +488,7 @@ class MaterialBandFit:
             "width": width,
             "native_alpha_exact": True,
             "native_body_absence": True,
+            "native_body_support": native_support,
             "linecap": cap,
             "source_line_comparison": comparison,
             "source_ports": [list(nodes[0].endpoint), list(nodes[-1].endpoint)],

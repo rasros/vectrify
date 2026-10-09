@@ -109,6 +109,8 @@ def test_joint_material_restores_fractional_silhouette_without_filled_outline(
     assert witness["mode"] == "source-material-joint"
     assert witness["native_alpha_exact"]
     assert witness["native_body_absence"]
+    assert witness["native_body_support"]["missing_samples"] == 0
+    assert witness["native_body_support"]["qualified_samples"] > 90
     assert witness["source_line_comparison"]["rejections"] == []
     actual = candidate.geometry_for("ink")
     assert len(actual.subpaths) == 1
@@ -229,3 +231,28 @@ def test_joint_fit_checks_retained_width_instead_of_last_optimizer_trial(monkeyp
         float(path_style(candidate, candidate.element("ink"))["stroke-width"])
         == witness["width"]
     )
+
+
+def test_joint_fit_rechecks_actual_native_stroke_support_after_crop_hint(monkeypatch):
+    from vectrify.refine.cel_plan import material_band_fit
+    from vectrify.refine.cel_plan.local import Canvas
+
+    evidence, guard, before, assembled, seed, _ = fixture(alpha=0.6)
+    original = material_band_fit._native_raster
+    checked = []
+
+    def missing_body(root, size):
+        paths = [e for e in root.iter() if e.tag.endswith("path")]
+        if len(paths) == 1 and paths[0].get("stroke") == "white":
+            checked.append(True)
+            return Canvas(np.zeros((size[1], size[0], 4), dtype=np.uint8))
+        return original(root, size)
+
+    monkeypatch.setattr(material_band_fit, "_native_raster", missing_body)
+    assert (
+        MaterialBandFit(evidence, guard).fit(
+            before, assembled, "ink", seed, "material", Work.start(20)
+        )
+        is None
+    )
+    assert checked
