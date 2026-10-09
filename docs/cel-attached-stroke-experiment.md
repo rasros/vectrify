@@ -127,6 +127,33 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   2,287 to 2,191). Complete alpha still differs at (397, 1722), from 10 to 11.
   The distinct restored material object has no published ownership interpretation;
   the drawing remains rejected and is not an accepted quality result.
+- The same projected-edge construction can append exclusive restoration to the
+  existing material owner instead of introducing another painted object. On
+  profile 43 it reaches exact crop alpha in 249 evaluations, preserving original
+  material contours, paint, frame and private gradient. Independent checks show
+  zero patch intersection with existing material and unchanged residual shadow
+  commands. An explicitly rejected construction reaches the original ownership
+  and component replay: 64 cuts and 81 allocated children, within the existing
+  64-cut/128-child limits. Save/reload and the final assembled pixels match the
+  fitted trial exactly. The one remote alpha byte remains; the diagnostic bypass
+  only lets that rejected drawing reach independent ledger checks, and is not
+  production acceptance or a new published candidate.
+- Both separate and existing-owner edge fits complete on all five eligible
+  sword chains. Only profile 43 reaches exact crop alpha; none reaches complete
+  alpha equality. The other four fits exhaust their evaluation budgets. Native
+  stroke-only checks show that the pommel fits already spill into transparent
+  parent pixels, including shared physical ports: added material cannot repair
+  those excess pixels. Profiles 67 and 97 also lose support for adjacent source
+  chains when cut independently. Co-planning must account for those interactions.
+- On profile 54, refitting only material normals with a fixed gap-valid stroke
+  leaves the same 65 total alpha-byte discrepancy. A wider material range and
+  a 0.8-pixel stroke minimum reduce that discrepancy to 35, but the source-line
+  guard then rejects lost support on profile 54. Lower alpha error alone is not
+  a usable stroke improvement; neither diagnostic changes production bounds.
+- Resolving the retained shadow as a full Boolean difference preserves its
+  filled region exactly but changes 11 native alpha pixels, rather than one.
+  It does not repair the remote discrepancy and loses the original command
+  prefix; no resolved-shadow construction is adopted.
 - A vector-mask feasibility diagnostic also leaves one remote alpha discrepancy.
   Masks are unsupported by the editor's static SVG subset; this is not a native
   candidate or a proposed mask-support implementation.
@@ -143,12 +170,18 @@ material-continuation and line-fidelity suite passes: 133 tests in 8.14 seconds.
 Ruff and the full source/test Pyrefly check pass at the source-gap retention checkpoint
 (0 type errors, two suppressions and 70 warnings). The changed Python files pass
 formatting; the global formatter flags pre-existing blank lines in unchanged
-`tests/ui/test_server.py`. Draft CI is green at preceding structural-check commit
-`d69824e` (lint and test, 6m39s); the source-gap retention changes need their own CI.
+`tests/ui/test_server.py`. Draft CI is green at the source-gap retention commit
+`f378494` (lint and test, 6m13s). Subsequent changes need their own CI.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
 suffix adds no candidate.
+
+The new captured-proposal replay at the source-gap retention checkpoint reaches
+its 600-second limit and is recorded as interrupted. Its 12 accepted prefix SVGs
+are byte-for-byte unchanged, with native, complete original ownership/component
+and save/reload checks passing. The interrupted suffix cannot establish a
+completed attached search.
 
 ## Active goal
 
@@ -181,6 +214,19 @@ Completed ignored diagnostics:
   selection and independent checks of the saved rejected stroke/material fit;
   exact crop alpha and 96 additional supported source samples, one remote alpha
   byte, and no published original-source ownership proof.
+- `.bench/cel-attached-all-edge-fit-probe/` and
+  `.bench/cel-attached-owned-material-edge-fit-probe/`: completed five-chain
+  comparisons, saved rejected drawings and independent source, residual,
+  material-prefix, round-trip and stroke-only alpha checks.
+- `.bench/cel-attached-owned-fit-ownership-replay/`: the existing-owner profile-43
+  drawing passes original ledger/component and round-trip checks while remaining
+  explicitly rejected for complete alpha. No diagnostic rejection bypass is
+  present in production.
+- `.bench/cel-attached-resolved-shadow-probe/`: six exact-region Boolean residual
+  representations; all change 11 alpha pixels and remain rejected.
+- `.bench/cel-attached-material-normal-refit/` and
+  `.bench/cel-attached-thin-owned-edge-fit-probe/`: profile-54 width/material
+  feasibility controls; the thinner fit loses source support and is rejected.
 - `.bench/cel-attached-masked-cell-material-probe/`: unsupported vector-mask
   diagnostic with one remaining remote alpha byte; no ownership or subset proof.
 
@@ -195,6 +241,10 @@ revision; a current source hash does not retroactively validate an earlier input
    the edges that control failed pixels, rather than only nearby vertices. The
    opaque interior restoration is insufficient at these edges. Preserve physical
    source ports and real gaps; do not waive final alpha to obtain a candidate.
+   Before fitting material, identify native alpha excess already supplied by the
+   stroke and retained context. A positive underpaint cannot subtract that excess.
+   Plan interacting source chains together when one field removes another chain;
+   a nominal profile is not automatically an independent replacement.
 2. Preserve exact residual shadow controls and complete removed-field geometry.
    The remote profile-43 alpha change and silhouette changes still require a
    complete-parent proof.
