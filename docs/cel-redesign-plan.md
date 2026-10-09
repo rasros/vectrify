@@ -125,7 +125,15 @@ ownership checks remain mandatory. Four new alternatives preserve the preceding
 eight artifact sets exactly and export a four-node handle stroke with 29 exact
 residual contours. The complete drawing has 2,920 nodes / 415 contours / 33
 stroke contours. The top endpoint shares an existing stroke endpoint; complete
-lower-junction coverage remains unproved. No human repair supplies a connection.
+lower-junction coverage was initially unproved. `SourceJunctions` now recognizes
+the existing shared physical point from two distinct qualified source chains
+and normalizes the nearby continuation to it, after raw source-ink and full
+native gap checks. Both handle endpoints are literally shared with adjacent
+strokes; original controls and all shadow geometry/paint stay exact. Original
+physical terminals, ambiguous chains and real source gaps cannot authorize a
+snap. More attached filled outline sections and junctions remain unfinished.
+Actual editable strokes, supported connections and removal of filled outlines
+are the primary next acceptance criteria. No human repair supplies a connection.
 
 Post-generation MSE for the matching bundle improves from 524.897535 to
 521.989863; the preserved material parent's 508.055591 remains better. The

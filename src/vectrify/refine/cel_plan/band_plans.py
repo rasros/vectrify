@@ -46,6 +46,7 @@ from vectrify.refine.cel_plan.paint_continuation import PaintContinuation
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_bands import SourceBands
 from vectrify.refine.cel_plan.source_caps import SourceCaps
+from vectrify.refine.cel_plan.source_junctions import SourceJunctions
 
 TOLERANCES = (0.25, 0.15, 0.1)
 MAX_SUBPATHS = 16
@@ -605,6 +606,20 @@ class BandPlans:
         if result is None:
             return None
         document, fit = result
+        joined = SourceJunctions(self.evidence, guard).connect(
+            document,
+            (
+                s.id
+                for s in proposal.partition.surfaces
+                if document.ancestry(s.id)[-2].id == parent
+            ),
+            nb,
+            work,
+        )
+        junctions = ()
+        if joined is not None:
+            document, junctions = joined
+            ids.extend(w["id"] for w in junctions)
         if continuation is not None:
             target = continuation["material"]
             assert isinstance(target, str)
@@ -676,6 +691,7 @@ class BandPlans:
             {
                 "fit": fit,
                 "caps": witnesses,
+                "junctions": junctions,
                 "continuation": continuation,
                 "material_votes": votes,
             },

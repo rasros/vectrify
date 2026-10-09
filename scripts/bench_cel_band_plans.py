@@ -122,7 +122,7 @@ def run(case, captured, output, *, seconds=180):
         )
         changed_ids = {item["id"] for item in converted}
         fitted = proposed.details["planned_band_stroke"].get("source_fit", {})
-        caps = fitted.get("caps", ())
+        caps = (*fitted.get("caps", ()), *fitted.get("junctions", ()))
         continuation = fitted.get("continuation")
         changed_ids.update(witness["id"] for witness in caps)
         if continuation is not None:

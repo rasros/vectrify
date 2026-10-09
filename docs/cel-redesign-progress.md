@@ -65,6 +65,72 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Shared physical source junctions between editable strokes
+
+The next checkpoint focuses on stroke topology, with no human-target error
+fitting or evaluation. Inspection finds that original source profiles 46 and 77
+share `(331.5, 1833.5)`, while the existing continuation starts one pixel right
+of that point. The new handle already retains the original shared point.
+
+`SourceJunctions` now offers a general bounded endpoint alternative. Two distinct
+qualified original chains must share the exact physical point and source
+component. An existing complete stroke must retain that junction. A nearby
+continuation must uniquely match a consecutive qualified outgoing source
+interval and pass raw ink measurement across every intervening half-pixel
+sample. Width/paint/frame compatibility, source visibility, scope, pins/effects,
+references, movement (at most 1.5 native pixels), profile/path/node/port and
+cancellation bounds apply. Original physical terminals and junctions never move;
+duplicate observations cannot establish an incident chain. All other node
+values, controls, identities, styles and frames remain exact.
+
+The first integrated replay excludes the desired connection because its single
+lookahead lands on an obscured side probe. The final matcher requires a
+consecutive qualified interval within the outgoing stroke corridor instead.
+It still requires raw source ink and preserves the original qualification/gap
+bank. A crossing control exercises this case, while ambiguous outgoing chains,
+different components, duplicated profiles, missing holders, original physical
+terminals, source gaps, incompatible paint, pins and cancellation exclude edits.
+
+The explicit band co-planner applies this endpoint competitor after fitting and
+includes every changed stroke in the declared component and actual covered
+membership. Full native white bodies independently permit no increased coverage
+at original absence positions. Complete painted source comparison, restoration
+alpha/locality proof, original-graph ownership and native policy remain required.
+No near-distance rule alone can create a connection or copy the human repair.
+
+The terminal `.bench/cel-source-junction-band-plans-final` replay emits twelve
+complete candidates and preserves the first eight SVG/PNG/project/partition sets
+byte-for-byte. Each new candidate moves exactly one continuation endpoint from
+`(332.5, 1833.5)` to the existing original source junction `(331.5, 1833.5)`.
+The handle remains an actual four-node open stroke. Its top endpoint is shared
+literally with the upper stroke, and its bottom endpoint is now shared literally
+with the lower continuation. Every shadow contour, paint server, original
+control and unrelated path remains exact to the preceding fitted candidate.
+The drawing still has 2,920 nodes / 415 contours / 33 stroke contours; more
+attached filled outline sections remain unfinished.
+
+All twelve candidates pass complete original-graph/component ownership,
+64-entry ancestor replay, native hard validity, exact local/native pixels
+(maximum score-term difference 6.943e-10), and exact project reload. The separate
+source-only topology audit verifies both literal shared endpoints and no new
+full-native body coverage at any of 404 original gap positions. Painted source
+comparison retains 13,145 qualified / 1,628 missing samples and zero newly
+completed inspected gaps. The actual strokes and node diagram are saved in
+`stroke-comparison.png`; no human geometry or error score supplies this change.
+
+Helper/benchmark SHA-256 is
+`85712bdfb1e334babe924397b9bb19035d0e160bdd8d644072b63252cb51e62e`;
+independent source-only audit SHA-256 is
+`1a01eb5e07a0df0ffc4a931a828ad81fd2bf5fa9e32546cc938bda006c6bcfa0`.
+The final captured replay takes 97.86 seconds and peaks at 706,532 KiB RSS;
+this remains offline evidence, not operation-budget delivery. The 252 focused
+tests (including 19 junction controls), Ruff and formatting pass; Pyrefly reports
+zero errors and 63 warnings. The common objective still selects older candidates
+and ordinary experimental High still leaves the flag off. Next continue on
+actual stroke coverage, remaining attached outline/shadow decomposition and
+source-supported junctions while preserving the inspected materials. All
+release gates and the full implementation goal remain open.
+
 ### Automatic source-profile fitting in the explicit band co-planner
 
 `SourceBands` now selects a unique complete original physical source profile
