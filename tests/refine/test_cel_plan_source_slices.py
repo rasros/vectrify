@@ -7,11 +7,23 @@ import pathops
 import pytest
 from PIL import Image
 
-from vectrify.document import export_svg, import_svg, load_project, save_project
+from vectrify.document import (
+    Editor,
+    Selection,
+    export_svg,
+    import_svg,
+    load_project,
+    save_project,
+)
 from vectrify.document.join import curve_path, path_style
+from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import atoms as atom_module
 from vectrify.refine.cel_plan.atoms import Atoms
-from vectrify.refine.cel_plan.band_plans import BandPlans, color_quantization
+from vectrify.refine.cel_plan.band_plans import (
+    BandPlans,
+    attached_locality,
+    color_quantization,
+)
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.graph import build
@@ -26,21 +38,25 @@ from vectrify.refine.cel_plan.search import Proposal, State
 from vectrify.refine.cel_plan.source_slices import source_slice
 
 
-def fixture(*, alpha=1, gap=False):
+def fixture(*, alpha=1, group_alpha=1, gap=False):
     prefix = (
         '<svg width="96" height="96"><g id="scene" '
         f'opacity="{alpha}"><path id="bg" d="M0 0H96V96H0Z" fill="#ad8665"/>'
     )
+    suffix = "</g></svg>"
+    if group_alpha != 1:
+        prefix += f'<g id="paint" opacity="{group_alpha}">'
+        suffix = "</g>" + suffix
     shadow = '<path d="M76.25 25.75H90V70H76.25Z" fill="#121008"/>'
     line = "M20.25 28.25H44 M50 28.25H76.25" if gap else "M20.25 28.25H76.25"
     source = (
         prefix
         + shadow
-        + f'<path d="{line}" fill="none" stroke="#121008" stroke-width="3"/></g></svg>'
+        + f'<path d="{line}" fill="none" stroke="#121008" stroke-width="3"/>{suffix}'
     )
     document = import_svg(
         prefix + '<path id="ink" d="M20.25 25.75H90V70H76.25V30.75H20.25Z" '
-        'fill="#121008"/></g></svg>'
+        f'fill="#121008"/>{suffix}'
     )
     rgba = render(source, (96, 96))
     e = collect(
@@ -115,13 +131,15 @@ def test_color_quantization_cannot_hide_alpha_or_more_than_one_premultiplied_byt
     assert color_quantization(before, after, outside) is None
 
 
-@pytest.mark.parametrize("alpha", [1, 0.75])
-def test_attached_stroke_replays_ancestor_or_keeps_unsupported_alpha_unchanged(
-    alpha, monkeypatch
+@pytest.mark.parametrize(
+    ("alpha", "group_alpha"), [(1, 1), (0.75, 1), (0.5, 1), (0.75, 0.6)]
+)
+def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
+    alpha, group_alpha, monkeypatch
 ):
-    e, guard, document = fixture(alpha=alpha)
+    e, guard, document = fixture(alpha=alpha, group_alpha=group_alpha)
     labels = np.zeros(e.labels.shape, np.int32)
-    labels[e.target.max(axis=-1) < 50] = 1
+    labels[e.target.max(axis=-1) < e.target[0, 0].max() - 25] = 1
     e = replace(e, labels=labels)
     graph = build(e)
     old = Partition((Surface("bg", (0,), covered=(1,)), Surface("ink", (1,))))
@@ -150,23 +168,15 @@ def test_attached_stroke_replays_ancestor_or_keeps_unsupported_alpha_unchanged(
         document,
         bounds(document, document, ("ink",)),
         partition=part,
-        component=ComponentEdit.bind(document, old, "scene", Work.start(10)),
+        component=ComponentEdit.bind(
+            document, old, document.ancestry("ink")[-2].id, Work.start(10)
+        ),
     )
     monkeypatch.setattr(atom_module, "MAX_CUTS", 1)
     planner = BandPlans(e, graph, graph, guard=lambda _work: guard)
     alternatives = list(
         planner.proposals(state, edit, Work.start(20), source_fit=True, attached=True)
     )
-    if alpha < 1:
-        # This unfinished route must retain the original owned drawing when
-        # the complete partial-opacity interpretation is not proved.
-        assert alternatives == []
-        assert planner.diagnostics["source_exclusions"] == 1
-        assert state.document is edit.document is document
-        assert export_svg(document) == svg
-        assert state.partition is old
-        assert edit.partition is part
-        return
     assert len(alternatives) == 1, planner.diagnostics
     candidate = alternatives[0]
     assert candidate.partition.follows(old)
@@ -193,6 +203,34 @@ def test_attached_stroke_replays_ancestor_or_keeps_unsupported_alpha_unchanged(
     assert record["source_line_comparison"]["rejections"] == []
     assert record["source_fit"]["fit"]["native_body_absence"]
     assert record["cut_quantization"]["alpha_exact"]
+    proof = record["source_fit"]["native_locality"]
+    assert proof["scope"] == "complete-final-candidate-vs-material-parent"
+    assert proof["native_alpha_exact"]
+    assert proof["native_footprint_exact"]
+    removed = parse_path(record["removed"])
+    mutations: tuple[tuple[str, dict[str, str | None]], ...] = (
+        ("bg", {"fill": "#ffffff"}),
+        ("scene", {"opacity": "0.25"}),
+        (record["marks"], {"transform": "translate(8 0)"}),
+    )
+    for target, attrs in mutations:
+        editor = Editor(candidate.document, selection=Selection(whole_document=True))
+        with editor.transaction("Unrelated change must not pass locality") as tx:
+            tx.set_attributes(target, attrs)
+        assert (
+            attached_locality(
+                document,
+                editor.snapshot.document,
+                "ink",
+                removed,
+                (),
+                (96, 96),
+                Work.start(10),
+            )
+            is None
+        )
+    actual = render(export_svg(candidate.document), (96, 96))
+    np.testing.assert_array_equal(actual[..., 3], render(svg, (96, 96))[..., 3])
     residual = candidate.document.geometry_for(record["marks"])
     original = document.geometry_for("ink")
     # Published residuals receive fresh editing ids; commands and controls

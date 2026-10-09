@@ -76,6 +76,73 @@ def color_quantization(before, after, outside):
     }
 
 
+def attached_locality(before, after, oid, removed, changed, size, work):
+    """Check the complete fitted drawing against its actual material parent.
+
+    Only the removed field and old/new affected stroke bodies bound the edit.
+    A retained shadow's full bounds never authorize unrelated paint changes.
+    Exact alpha remains mandatory everywhere; any off-field RGB quantization
+    is reported separately from byte-exact locality.
+    """
+    _check(work)
+    if np.prod(size) > MAX_NATIVE_PIXELS:
+        return None
+    ids = tuple(dict.fromkeys((oid, *changed)))
+    if len(ids) > MAX_PARTS:
+        return None
+    root = ET.Element("svg", {"width": str(size[0]), "height": str(size[1])})
+    frame = root_matrix(before, oid)
+    ET.SubElement(
+        root,
+        "path",
+        {
+            "d": removed.path_data(),
+            "transform": "matrix(" + " ".join(map(str, frame)) + ")",
+            "fill": "white",
+            "fill-rule": path_style(before, before.element(oid))["fill-rule"],
+        },
+    )
+    for document in (before, after):
+        for target in ids:
+            _check(work)
+            element = document.element(target)
+            style = path_style(document, element)
+            if style["fill"] != "none" or style["stroke"] == "none":
+                continue
+            ET.SubElement(
+                root,
+                "path",
+                {
+                    "d": document.geometry_for(target).path_data(),
+                    "transform": "matrix("
+                    + " ".join(map(str, root_matrix(document, target)))
+                    + ")",
+                    "fill": "none",
+                    "stroke": "white",
+                    "stroke-width": style["stroke-width"],
+                    "stroke-linecap": style["stroke-linecap"],
+                    "stroke-linejoin": style["stroke-linejoin"],
+                    "stroke-miterlimit": style["stroke-miterlimit"],
+                },
+            )
+    allowed = _native_raster(root, size).root[..., 3] > 0
+    old = _native_raster(ET.fromstring(export_svg(before)), size).root
+    new = _native_raster(ET.fromstring(export_svg(after)), size).root
+    _check(work)
+    if not np.array_equal(old[..., 3], new[..., 3]):
+        return None
+    quantization = color_quantization(old, new, ~allowed)
+    if quantization is None:
+        return None
+    return {
+        "scope": "complete-final-candidate-vs-material-parent",
+        "native_alpha_exact": True,
+        "native_footprint_exact": quantization["changed_pixels"] == 0,
+        "color_quantization": quantization,
+        "allowed_pixels": int(allowed.sum()),
+    }
+
+
 def separate(geometry, rule, work, *, index=None):
     """Retain every other contour exactly; holes and interacting fills exclude."""
     _check(work)
@@ -880,6 +947,19 @@ class BandPlans:
                 "native_footprint_exact": not bool(changed_outside),
                 **({"color_quantization": quantization} if attached else {}),
             }
+        locality = None
+        if attached:
+            locality = attached_locality(
+                proposal.document,
+                document,
+                oid,
+                main,
+                ids,
+                self.evidence.source_size,
+                work,
+            )
+            if locality is None:
+                return None
         return (
             document,
             tuple(dict.fromkeys(ids)),
@@ -889,6 +969,7 @@ class BandPlans:
                 "junctions": junctions,
                 "continuation": continuation,
                 "material_votes": votes,
+                **({"native_locality": locality} if attached else {}),
             },
         )
 
