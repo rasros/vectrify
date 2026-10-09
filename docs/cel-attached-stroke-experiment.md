@@ -94,6 +94,8 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   byte-identical to the accepted automatic result. Independent alpha, locality,
   source, original material/shadow and reload checks still pass. This preserves
   the existing improvement; it does not establish another completed chain.
+  A second cold replay after both fixes completes in 47.05 seconds, again with
+  byte-identical exported SVG and all original native/ownership/reload gates intact.
 - Profile 54 still produces no accepted candidate with the corrected edge
   selection. Runtime diagnostics with wider material motion, additional local
   edge nodes and a thinner stroke also remain rejected. At its fixed terminal,
@@ -102,6 +104,10 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   the 0.8-pixel seed stroke body is 104 where parent alpha is 162. Continuous
   composition estimates excess coverage; these measurements do not prove every
   possible native vector infeasible. Complete native assembly remains the gate.
+- A runtime joint stroke-opacity experiment on profile 54 also emits no candidate
+  across the three automatic cut domains. It fits opacity within 0.25–1 with
+  local material edge nodes and wider material movement; every final acceptance
+  gate remains intact. Neither opacity fitting nor these wider bounds are adopted.
 
 - The unmodified automatic attached proposal search on fitted candidate 11
   completes in 358.55 seconds and generates profile 43 through the joint fitter
@@ -244,6 +250,7 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
 material-continuation, joint material/stroke and line-fidelity suite passes:
 146 tests in 11.09 seconds after the closing-edge and retained-width fixes.
+The broader CEL planning suite also passes: 1,467 tests in 209.36 seconds.
 Synthetic controls restore fractional silhouette coverage which a bounded stroke alone cannot
 preserve, including translucent groups and user-space gradients. A control reaches
 crop fitting but rejects an unrelated remote alpha change at the full native
@@ -253,7 +260,9 @@ Ruff and the full source/test Pyrefly check pass at this checkpoint
 formatting; the global formatter flags pre-existing blank lines in unchanged
 `tests/ui/test_server.py`. The automatic joint-fit head `d4be68d` is
 [green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37983035298).
-The subsequent closing-edge and retained-width corrections need their own CI.
+The closing-edge and retained-width correction head `5187445` has its own
+[CI run in progress](https://github.com/rasros/vectrify/actions/runs/37986737601);
+its result is not yet known.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
@@ -356,6 +365,13 @@ Completed ignored diagnostics:
   measurements at profile 54's source ports. Analytic composition is explicitly
   diagnostic, not evidence of a complete native candidate.
 
+- `.bench/cel-attached-retained-width-43-replay/`: cold production replay at the
+  corrected-width head; full exported SVG matches the accepted automatic result
+  byte for byte. Native, source/locality, ownership/component and reload gates pass.
+- `.bench/cel-attached-opacity-material-54-replay/`: bounded runtime opacity,
+  local-material and wider-movement trial; all three cut attempts return no
+  accepted candidate. Driver, prototype and source hashes are recorded separately.
+
 Each replay records its algorithm source hash and checks it at completion. Saved
 drivers and logs provide diagnostic provenance, not automated-operation release
 or reference-corpus evidence. Dependent diagnostic inputs retain their own source
@@ -363,8 +379,9 @@ revision; a current source hash does not retroactively validate an earlier input
 
 ## Resume here
 
-The next feasibility experiment jointly fits stroke paint coverage with material
-and centerline controls. It must preserve a visibly supported editable stroke,
+The next feasibility experiment should derive stroke coverage and terminal
+controls from the retained context before optimizing material. A cold joint
+opacity trial has not yet found a complete profile-54 proposal. It must preserve a visibly supported editable stroke,
 physical source ports, real gaps and exact complete native alpha. No opacity
 parameter or relaxed material bounds are currently enabled in production.
 
