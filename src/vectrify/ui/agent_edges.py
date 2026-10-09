@@ -13,8 +13,8 @@ from scipy import ndimage
 def edges(image: Image.Image, threshold: float) -> np.ndarray:
     pixels = np.asarray(image.convert("RGB"), dtype=float) / 255
     pixels = ndimage.gaussian_filter(pixels, sigma=(0.7, 0.7, 0))
-    gx = ndimage.sobel(pixels, axis=1) / 8
-    gy = ndimage.sobel(pixels, axis=0) / 8
+    gx = np.stack([ndimage.sobel(pixels[..., c], axis=1) / 8 for c in range(3)], axis=2)
+    gy = np.stack([ndimage.sobel(pixels[..., c], axis=0) / 8 for c in range(3)], axis=2)
     strength = np.hypot(gx, gy)
     channel = strength.argmax(axis=2)[..., None]
     magnitude = np.take_along_axis(strength, channel, axis=2)[..., 0]
