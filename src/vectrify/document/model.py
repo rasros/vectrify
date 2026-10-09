@@ -36,9 +36,12 @@ class PathNode:
     values: tuple[float, ...]
     pinned: bool = False
     handles_aligned: bool = False
+    feature: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", tuple(float(v) for v in self.values))
+        if self.feature not in {None, "position", "tip", "corner", "junction"}:
+            raise DocumentError("Unknown protected feature kind")
         arity = {"M": 2, "L": 2, "C": 6}.get(self.command)
         if arity is None or len(self.values) != arity:
             raise DocumentError("Expected an M/L/C node with complete coordinates")

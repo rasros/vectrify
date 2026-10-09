@@ -57,6 +57,9 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
         ]
         if sources:
             effects["regions_merged"].append({"object": oid, "sources": sources})
+    from vectrify.document.features import violations
+
+    effects["protected_feature_violations"].extend(violations(before, after))
     return {
         "created": sorted(new.keys() - old.keys()),
         "removed": removed,

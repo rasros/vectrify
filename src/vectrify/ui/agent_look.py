@@ -198,3 +198,73 @@ def trace_areas(
         "more": skipped,
         "covered": round(float(mask.mean()), 4),
     }
+
+
+def protect_trace(shapes: list[dict], features: list[dict], pixel: float) -> list[dict]:
+    """Attach explicit feature coordinates to nearby traced vertices as cusps."""
+    from dataclasses import replace
+
+    from vectrify.document import DocumentError
+    from vectrify.document.features import KINDS
+    from vectrify.document.svg import parse_path
+    from vectrify.ui.agent import _finite
+
+    geometries = [parse_path(shape["d"]) for shape in shapes]
+    diagnostics = []
+    for feature in features:
+        if not isinstance(feature, dict) or set(feature) - {"x", "y", "kind", "reach"}:
+            raise DocumentError("Trace features use x, y, kind and optional reach")
+        x, y = (
+            _finite(feature.get("x"), "feature x"),
+            _finite(feature.get("y"), "feature y"),
+        )
+        kind = feature.get("kind", "tip")
+        reach = _finite(feature.get("reach", 3 * pixel), "feature reach")
+        if kind not in KINDS or reach <= 0:
+            raise DocumentError(
+                "Trace features need a supported kind and positive reach"
+            )
+        choices = [
+            (math.dist(n.endpoint, (x, y)), gi, si, ni)
+            for gi, g in enumerate(geometries)
+            for si, sp in enumerate(g.subpaths)
+            for ni, n in enumerate(sp.nodes)
+        ]
+        if not choices or min(choices)[0] > reach:
+            raise DocumentError(
+                f"Protected {kind} at ({x}, {y}) has no traced vertex within reach"
+            )
+        distance, gi, si, ni = min(choices)
+        geometry = geometries[gi]
+        contour = geometry.subpaths[si]
+        nodes = list(contour.nodes)
+        node = nodes[ni]
+        if kind == "position":
+            values = (*node.values[:-2], float(x), float(y))
+            nodes[ni] = replace(node, values=values)
+        else:
+            nodes[ni] = replace(
+                node, command="M" if ni == 0 else "L", values=(float(x), float(y))
+            )
+            following = (ni + 1) % len(nodes)
+            if nodes[following].command == "C":
+                nodes[following] = replace(
+                    nodes[following], command="L", values=nodes[following].endpoint
+                )
+        contours = list(geometry.subpaths)
+        contours[si] = replace(contour, nodes=tuple(nodes))
+        geometries[gi] = replace(geometry, subpaths=tuple(contours))
+        diagnostics.append(
+            {
+                "shape": gi,
+                "contour": si,
+                "node": ni,
+                "kind": kind,
+                "position": [x, y],
+                "trace_displacement": distance,
+                "preserved": True,
+            }
+        )
+    for shape, geometry in zip(shapes, geometries, strict=True):
+        shape["d"] = geometry.path_data()
+    return diagnostics

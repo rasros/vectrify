@@ -300,6 +300,19 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
+    def protect_features(
+        points: Points,
+        kind: Literal["position", "tip", "corner", "junction", "none"] = "corner",
+    ) -> CallToolResult:
+        """Protect explicit nodes from movement/removal and preserve corner geometry.
+
+        position fixes an endpoint; tip/corner/junction also freeze its incoming
+        and outgoing geometry. Positional pins still allow handle edits. none
+        explicitly releases feature protection. Save a project to preserve it.
+        """
+        return state.call("protect_features", {"points": points, "kind": kind})
+
+    @tool(structured_output=False)
     def linked_outline(
         id: str,  # noqa: A002
         colour: str = "#000000",
@@ -449,6 +462,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         dark: bool = True,
         tolerance: float | None = None,
         min_area: float | None = None,
+        protected_features: list[dict[str, Any]] | None = None,
     ) -> CallToolResult:
         """Outlines of the reference's dark areas in region (luminance at
         most tolerance, default 0.35), or of the areas near colour (RGB
@@ -464,6 +478,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "dark": dark,
                 "tolerance": tolerance,
                 "min_area": min_area,
+                "protected_features": protected_features,
             },
         )
 

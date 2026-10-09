@@ -1488,6 +1488,27 @@ class Session:
             raise DocumentError(
                 "Start and end the stroke on the same outline of the selected path"
             )
+        # Check explicit features before fitting, which may be expensive.
+        from vectrify.document.redraw import redrawn
+        from vectrify.document.regions import object_matrix
+
+        geometry = document.geometry_for(oid)
+        _, removed = redrawn(
+            geometry,
+            start.subpath_id,
+            (start.node_id, start.t),
+            (end.node_id, end.t),
+            [("M", (0, 0)), ("L", (0, 0))],
+            matrix=object_matrix(document, oid),
+            long_way=bool(payload.get("long_way")),
+        )
+        for nid in removed:
+            node = geometry.node(nid)
+            if node.feature is not None:
+                raise DocumentError(
+                    f"Protected {node.feature} {nid} would be removed; "
+                    "redraw around it or release protection"
+                )
         stretch = redraw_stretch(
             document,
             oid,

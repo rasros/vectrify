@@ -325,8 +325,13 @@ def redrawn(
         stretch[-1] = replace(stretch[-1], id=pieces[last - 1].id)
         path = pieces[:first] + stretch + pieces[last:]
         new_nodes = [subpath.nodes[0], *(s.node for s in path)]
-    old_pins = {n.id: n.pinned for n in subpath.nodes}
-    new_nodes = [replace(n, pinned=old_pins.get(n.id, False)) for n in new_nodes]
+    old_nodes = {n.id: n for n in subpath.nodes}
+    new_nodes = [
+        replace(n, pinned=old_nodes[n.id].pinned, feature=old_nodes[n.id].feature)
+        if n.id in old_nodes
+        else n
+        for n in new_nodes
+    ]
     updated = replace(subpath, nodes=tuple(new_nodes))
     kept_ids = {n.id for n in new_nodes}
     removed = frozenset(n.id for n in subpath.nodes if n.id not in kept_ids)

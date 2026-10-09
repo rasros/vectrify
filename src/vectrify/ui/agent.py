@@ -110,6 +110,7 @@ CONTOURS = 30
 # selection between calls, so there is no select tool.
 EDITS: dict[str, tuple[str, ...]] = {
     "linked_outline": (),
+    "protect_features": (),
     "properties": ("paint", "rename", "locks"),
     "transform": ("resize", "move"),
     "arrange": ("reorder", "move_objects"),
@@ -1136,6 +1137,7 @@ class Agent:
         dark: bool = True,
         tolerance: float | None = None,
         min_area: float | None = None,
+        protected_features: list[dict] | None = None,
     ) -> Reply:
         """Outlines, in document units, of the reference's dark areas (or
         those near *colour*) in a region."""
@@ -1172,6 +1174,11 @@ class Agent:
             else 6
         )
         traced = agent_look.trace_areas(mask, box, min_pixels=min_pixels)
+        features = agent_look.protect_trace(
+            traced["shapes"],
+            protected_features or [],
+            max(box[2] / size[0], box[3] / size[1]),
+        )
         data = {
             **self._where(),
             "region": list(box),
@@ -1180,6 +1187,8 @@ class Agent:
             if rgb is None
             else f"within {limit} of {agent_look.hex_colour(rgb)}",
             **traced,
+            "protected_features": features,
+            "diagnostics": {"protected_feature_violations": []},
             "next": "Each shape's d is closed path data in document units, holes "
             "included: compare it with points(id, region=...) and move nodes "
             "with set_points, or draw it with add_path(d).",
@@ -1292,6 +1301,8 @@ class Agent:
                         item["local"] = values
                 if node.pinned:
                     item["pinned"] = True
+                if node.feature is not None:
+                    item["protected_feature"] = node.feature
                 row.setdefault("nodes", []).append(item)
             if page == 0 and nodes:
                 # Contours crossing the region with no node inside it.
@@ -1392,6 +1403,18 @@ class Agent:
             )
 
     # Editing ------------------------------------------------------------
+
+    def tool_protect_features(
+        self, seen: Any, points: Any, kind: str = "corner"
+    ) -> Reply:
+        pairs = _points(points)
+
+        def protect() -> None:
+            self.session.editor.protect_features(
+                ((p[0], p[1]) for p in pairs), None if kind == "none" else kind
+            )
+
+        return self._edit(seen, [protect], "Protect features")
 
     def tool_linked_outline(
         self,
