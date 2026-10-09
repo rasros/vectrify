@@ -262,9 +262,19 @@ class BandPlans:
             self.diagnostics["bounded"] += 1
 
     def proposals(
-        self, state, proposal, work, *, isolated=False, source_fit=False, attached=False
+        self,
+        state,
+        proposal,
+        work,
+        *,
+        isolated=False,
+        source_fit=False,
+        attached=False,
+        port_extension=(0.0, 0.0),
     ):
         _check(work)
+        if not attached and any(port_extension):
+            raise ValueError("Removal port extensions require an attached source chain")
         old, part = state.partition, proposal.partition
         if (
             old is None
@@ -385,6 +395,7 @@ class BandPlans:
                     observations[index],
                     work,
                     tolerance=self.tolerance or 0.75,
+                    port_extension=port_extension,
                 )
                 if attached
                 else separate(geometry, style["fill-rule"], work, index=index)
@@ -504,6 +515,7 @@ class BandPlans:
                     "removed": main.path_data(),
                     "retained": marks.path_data(),
                     "profile": index,
+                    "port_extension": list(port_extension),
                     "cut_quantization": cut_quantization,
                 }
                 if attached

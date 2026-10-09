@@ -30,9 +30,47 @@ from vectrify.refine.cel_plan.source_bands import MAX_EXTENT, MAX_POINTS
 
 MAX_COMPOUND_NODES = 1024
 MAX_SELECTED_SUBPATHS = 16
+MAX_PORT_EXTENSION = 2
 
 
-def source_slice(document, oid, observed, work, *, tolerance=0.75):
+def _extended_field(shape, extensions):
+    """Extend the removal domain, keeping the physical centerline untouched."""
+    sub = shape.subpaths[0]
+    nodes = sub.nodes
+    start, end = np.asarray(nodes[0].endpoint), np.asarray(nodes[-1].endpoint)
+    first = np.asarray(nodes[1].values[:2]) - start
+    last = end - np.asarray(
+        nodes[-1].values[-4:-2] if nodes[-1].command == "C" else nodes[-2].endpoint
+    )
+    for amount, tangent in zip(extensions, (first, last), strict=True):
+        if amount and np.linalg.norm(tangent) <= 1e-12:
+            return None
+    if extensions[0]:
+        nodes = (
+            replace(
+                nodes[0],
+                id="field-start",
+                values=tuple(start - extensions[0] * first / np.linalg.norm(first)),
+            ),
+            replace(nodes[0], command="L"),
+            *nodes[1:],
+        )
+    if extensions[1]:
+        nodes = (
+            *nodes,
+            replace(
+                nodes[-1],
+                id="field-end",
+                command="L",
+                values=tuple(end + extensions[1] * last / np.linalg.norm(last)),
+            ),
+        )
+    return replace(shape, subpaths=(replace(sub, nodes=nodes),))
+
+
+def source_slice(
+    document, oid, observed, work, *, tolerance=0.75, port_extension=(0.0, 0.0)
+):
     """A bounded complete nongap profile, never a fragment or a shade edge.
 
     The selected fill must be thin along the physical source chain. Broad
@@ -42,6 +80,14 @@ def source_slice(document, oid, observed, work, *, tolerance=0.75):
     _check(work)
     if not np.isfinite(tolerance) or not 0 < tolerance <= 3:
         raise ValueError("Source slicing requires a bounded fitting tolerance")
+    extensions = np.asarray(port_extension, dtype=float)
+    if (
+        extensions.shape != (2,)
+        or not np.isfinite(extensions).all()
+        or (extensions < 0).any()
+        or (extensions > MAX_PORT_EXTENSION).any()
+    ):
+        raise ValueError("Source slicing requires bounded port extensions")
     points = observed.anchors
     geometry = document.geometry_for(oid)
     if (
@@ -66,8 +112,29 @@ def source_slice(document, oid, observed, work, *, tolerance=0.75):
         )
     )
     old = curve_path(geometry)
-    selected = path_geometry(pathops.op(old, clip, pathops.PathOp.INTERSECTION))
-    remainder = pathops.op(old, clip, pathops.PathOp.DIFFERENCE)
+    selected_path = pathops.op(old, clip, pathops.PathOp.INTERSECTION)
+    if extensions.any():
+        extended = _extended_field(shape, extensions)
+        if extended is None:
+            return None
+        extended_clip = curve_path(
+            transformed_geometry(
+                footprint(extended, MAX_WIDTH, cap="butt"), inverse_matrix(frame)
+            )
+        )
+        extended_path = pathops.op(old, extended_clip, pathops.PathOp.INTERSECTION)
+        # Numerical intersections must never trim the original complete field.
+        if pathops.op(selected_path, extended_path, pathops.PathOp.DIFFERENCE).area:
+            extended_path = pathops.op(
+                selected_path, extended_path, pathops.PathOp.UNION
+            )
+        if pathops.op(selected_path, extended_path, pathops.PathOp.DIFFERENCE).area:
+            return None
+        selected_path = extended_path
+    selected = path_geometry(selected_path)
+    remainder = pathops.op(
+        old, selected_path if extensions.any() else clip, pathops.PathOp.DIFFERENCE
+    )
     _check(work)
     if (
         not 0 < len(selected.subpaths) <= MAX_SELECTED_SUBPATHS

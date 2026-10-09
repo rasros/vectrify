@@ -115,6 +115,76 @@ def test_real_gap_fragment_and_broad_shadow_are_not_sliced_into_fake_complete_li
         source_slice(document, "ink", observed, Work.start(0))
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_removal_port_extension_keeps_complete_field_and_physical_source_ports(reverse):
+    _, guard, document = fixture()
+    observed = guard.source_breaks(guard.original_profiles()[0])
+    assert observed is not None
+    assert observed.anchors is not None
+    original_anchors = observed.anchors.copy()
+    if reverse:
+        observed = replace(observed, anchors=observed.anchors[::-1])
+    plain = source_slice(document, "ink", observed, Work.start(10))
+    extended = source_slice(
+        document,
+        "ink",
+        observed,
+        Work.start(10),
+        port_extension=(0.5, 0) if reverse else (0, 0.5),
+    )
+    assert plain is not None
+    assert extended is not None
+    selected, retained = extended
+    old = document.geometry_for("ink")
+    # The domain can remove a little more of the attached fill; it cannot leave
+    # any part of the complete former outline behind or move the source ports.
+    assert (
+        pathops.op(
+            curve_path(plain[0]), curve_path(selected), pathops.PathOp.DIFFERENCE
+        ).area
+        == 0
+    )
+    assert curve_path(selected).bounds[2] == 76.75
+    assert curve_path(selected).area > curve_path(plain[0]).area
+    assert retained.subpaths[: len(old.subpaths)] == old.subpaths
+    assert (
+        pathops.op(
+            curve_path(retained), curve_path(selected), pathops.PathOp.INTERSECTION
+        ).area
+        == 0
+    )
+    assert (
+        pathops.op(
+            curve_path(retained),
+            pathops.op(
+                curve_path(old), curve_path(selected), pathops.PathOp.DIFFERENCE
+            ),
+            pathops.PathOp.XOR,
+        ).area
+        == 0
+    )
+    original_observation = guard.source_breaks(guard.original_profiles()[0])
+    assert original_observation is not None
+    assert original_observation.anchors is not None
+    assert np.array_equal(original_observation.anchors, original_anchors)
+
+
+@pytest.mark.parametrize("extension", [(-0.5, 0), (0, 2.01), (0, np.nan), (0,)])
+def test_removal_port_extension_is_bounded_and_does_not_override_source_gaps(extension):
+    _, guard, document = fixture()
+    observed = guard.source_breaks(guard.original_profiles()[0])
+    with pytest.raises(ValueError, match="port extensions"):
+        source_slice(
+            document, "ink", observed, Work.start(10), port_extension=extension
+        )
+    _, guard, document = fixture(gap=True)
+    observed = guard.source_breaks(guard.original_profiles()[0])
+    assert (
+        source_slice(document, "ink", observed, Work.start(10), port_extension=(0, 0.5))
+        is None
+    )
+
+
 def test_color_quantization_cannot_hide_alpha_or_more_than_one_premultiplied_byte():
     before = np.array([[[80, 90, 100, 255], [32, 32, 32, 10]]], np.uint8)
     outside = np.ones((1, 2), bool)
