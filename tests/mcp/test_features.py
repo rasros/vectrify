@@ -125,3 +125,10 @@ def test_tidy_reports_the_effective_tolerance_without_reference():
     ).data
     assert job["effective_settings"]["tolerance"] == 1.0
     agent.call("job", {"id": job["id"], "action": "stop"})
+
+
+def test_trace_refuses_conflicting_protected_points_on_one_vertex():
+    shapes = [{"d": "M0 10 C1 5 4 1 5 1 C6 1 9 5 10 10 Z"}]
+    with pytest.raises(DocumentError, match="conflict at one traced vertex"):
+        protect_trace(shapes, [{"x": 5, "y": 0}, {"x": 5, "y": 0.1}], 1)
+    assert shapes[0]["d"] == "M0 10 C1 5 4 1 5 1 C6 1 9 5 10 10 Z"
