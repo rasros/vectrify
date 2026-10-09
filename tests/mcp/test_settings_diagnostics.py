@@ -66,3 +66,13 @@ def test_transforms_are_geometry_effects_and_nullable_settings_match_schema():
         ]
         is None
     )
+
+
+def test_rectangle_transform_names_the_changed_object_without_claiming_paint():
+    agent, seen = fresh()
+    before = agent.session.editor.snapshot.document
+    agent.call("transform", {"seen": seen, "ids": ["sky"], "dx": 2})
+    diagnostics = edit_diagnostics(before, agent.session.editor.snapshot.document)
+    assert "sky" in diagnostics["changed_objects"]
+    assert {"object": "sky"} in diagnostics["effects"]["geometry_moved"]
+    assert not diagnostics["effects"]["paint_changed"]

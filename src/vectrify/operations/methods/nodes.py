@@ -120,6 +120,13 @@ SETTINGS = {
 }
 
 
+def effective_settings(request: OperationRequest) -> dict:
+    settings = read_settings(request.settings, SETTINGS, LABEL)
+    if request.reference is None and "tolerance" not in request.settings:
+        settings["tolerance"] = NO_REFERENCE
+    return settings
+
+
 def area(settings) -> list[tuple[float, float]] | None:
     """The polygon the *settings* confine Tidy to, or None for whole paths."""
     if settings["region"] is None:
@@ -844,9 +851,7 @@ class OptimizeNodes:
 
     @cached_rendering()
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        settings = read_settings(request.settings, SETTINGS, LABEL)
-        if request.reference is None and "tolerance" not in request.settings:
-            settings["tolerance"] = NO_REFERENCE
+        settings = effective_settings(request)
         rounds = request.budget.steps or DEFAULT_ROUNDS
         start = request.snapshot.document
         polygon = area(settings)

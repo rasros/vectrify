@@ -34,14 +34,17 @@ class Job:
 
         from vectrify.operations.settings import read_settings
 
-        schema = getattr(
-            importlib.import_module(type(method).__module__), "SETTINGS", None
-        )
+        module = importlib.import_module(type(method).__module__)
+        schema = getattr(module, "SETTINGS", None)
         self.effective_settings = (
             read_settings(request.settings, schema, method.name)
             if schema is not None
             else dict(request.settings)
         )
+        if callable(resolve := getattr(module, "effective_settings", None)):
+            resolved = resolve(request)
+            assert isinstance(resolved, dict)
+            self.effective_settings = resolved
         method.validate(request)
         self.method = method
         self.request = request

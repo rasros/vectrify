@@ -86,3 +86,16 @@ def test_compare_exposes_mapped_normal_and_close_crops():
     assert len(reply.images) == 8
     with pytest.raises(DocumentError, match="edge_threshold"):
         agent.call("compare", {"edge_aware": True, "edge_threshold": 0})
+
+
+def test_corner_checks_use_first_nonzero_tangent_when_handles_collapse():
+    from vectrify.document import import_svg
+
+    doc = import_svg(
+        '<svg><path id="tip" d="M0 10 C0 10 5 0 5 0 C5 0 10 10 10 10 Z"/></svg>'
+    )
+    node = doc.geometry_for("tip").subpaths[0].nodes[1]
+    result = feature_checks(
+        doc, [{"object": "tip", "node": node.id, "expected": [5, 0], "min_turn": 60}]
+    )[0]
+    assert result["corner_pass"]
