@@ -82,6 +82,17 @@ Physical source ports and supported corners remain fixed.
   diagnostic vectors are rejected drawings, not accepted strokes or a quality
   improvement. The observations do not prove that every possible vector is
   infeasible.
+- A separate-material diagnostic restores the removed field as a distinct paint
+  object using the neighboring material color. For profile 43, widths 0.8–1.2
+  reduce alpha discrepancies to 12 pixels and 15 total alpha bytes, but still
+  fail exact equality. It is an XML diagnostic without a published ownership
+  interpretation, not a supported production restoration mode.
+- A tightly bounded vector-clip diagnostic keeps the original owner outside the
+  removed field and the subtracted remainder inside it. With no box margin,
+  profiles 43 and 67 pass off-field alpha/color locality. Other profiles still
+  fail, and clipped material restoration changes alpha inside the field. No
+  production clip dependencies or clipped ownership proof are implemented.
+  Equivalent direct and even-odd cut representations do not repair locality.
 - Profile 43's complete subtraction also changes a remote alpha byte at native
   (397, 1722), from 10 to 11. Equivalent contour ordering, exact subdivision and
   cut representations have not repaired it. Restricting subtraction to opaque
@@ -92,9 +103,14 @@ Physical source ports and supported corners remain fixed.
 
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
 material-continuation and line-fidelity suite passes: 130 tests in 7.04 seconds.
-Ruff and the full source/test Pyrefly check passed before this documentation
-update. Draft CI is green at `71bfcea`; the restoration checkpoint requires its
-own CI gate.
+Ruff and the full source/test Pyrefly check pass at the restoration checkpoint
+(0 type errors, two suppressions and 70 warnings). The changed Python files pass
+formatting; the global formatter flags pre-existing blank lines in unchanged
+`tests/ui/test_server.py`. Draft CI is green at `8bf5367` (lint and test, 6m05s).
+The full bounded captured-proposal replay completes with 12 proposals, all
+native-valid and with complete ownership/component and save/reload checks. All
+12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
+suffix adds no candidate.
 
 ## Active goal
 
@@ -112,6 +128,14 @@ Completed ignored diagnostics:
   on fitted candidate 11, with the captured original ancestor and source ledger.
 - `.bench/cel-attached-alpha-residual-probe/`: source-only bounded search residuals
   and explicitly rejected project/SVG drawings; no human target.
+- `.bench/cel-attached-restoration-full-pool/`: completed 12-proposal replay with
+  byte-exact prefix verification.
+- `.bench/cel-attached-separate-material-probe/`: distinct field paint and bounded
+  width diagnostics, with a rejected left-handle stroke inspection.
+- `.bench/cel-attached-tight-clip-probe/` and
+  `.bench/cel-attached-cell-split-material-probe/`: off-field and inside-field
+  coverage diagnostics for clipped constructions. They are not production
+  clip support or accepted candidates.
 
 Each replay records its algorithm source hash and checks it at completion. Saved
 drivers and logs provide diagnostic provenance, not automated-operation release
