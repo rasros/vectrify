@@ -147,9 +147,21 @@ def feature_checks(document, checks: list[dict]) -> list[dict]:
         if sp.closed or 0 < index < len(sp.nodes) - 1:
             before = sp.nodes[(index - 1) % len(sp.nodes)]
             after = sp.nodes[(index + 1) % len(sp.nodes)]
-            incoming = node.values[2:4] if node.command == "C" else before.endpoint
-            outgoing = after.values[:2] if after.command == "C" else after.endpoint
-            a, b = mapped_point(incoming, matrix), mapped_point(outgoing, matrix)
+            incoming = (
+                [node.values[2:4], node.values[:2], before.endpoint]
+                if node.command == "C"
+                else [before.endpoint]
+            )
+            outgoing = (
+                [after.values[:2], after.values[2:4], after.endpoint]
+                if after.command == "C"
+                else [after.endpoint]
+            )
+
+            incoming = [mapped_point(p, matrix) for p in incoming]
+            outgoing = [mapped_point(p, matrix) for p in outgoing]
+            a = next((p for p in incoming if math.dist(p, point) > 1e-12), point)
+            b = next((p for p in outgoing if math.dist(p, point) > 1e-12), point)
             u, v = np.array(point) - a, np.array(b) - point
             length = np.linalg.norm(u) * np.linalg.norm(v)
             if length > 1e-12:

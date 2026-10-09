@@ -37,7 +37,10 @@ def create(agent, source: str, colour: str, width: float, layer: str) -> dict:
     parent = next((c for c in root.children if c.tag == "g" and c.name == layer), None)
     if parent is None:
         parent = Element(new_id("outlines"), "g", name=layer)
-    if parent.get("opacity", "1") != "1" or parent.get("clip-path", "none") != "none":
+    if (
+        float(parent.get("opacity", "1") or "1") != 1
+        or parent.get("clip-path", "none") != "none"
+    ):
         raise DocumentError(
             "The outline layer has opacity or clipping; choose another layer"
         )

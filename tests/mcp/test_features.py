@@ -113,3 +113,15 @@ def test_redraw_across_protected_corner_is_refused_without_live_change():
         )
     assert agent.session.editor.snapshot.document == before
     assert agent.session.editor.snapshot.revision == 1
+
+
+def test_tidy_reports_the_effective_tolerance_without_reference():
+    from tests.mcp.test_agent import fresh
+
+    agent, seen = fresh()
+    job = agent.call(
+        "tidy",
+        {"seen": seen, "ids": ["hill"], "settings": {"shape": False, "snap": False}},
+    ).data
+    assert job["effective_settings"]["tolerance"] == 1.0
+    agent.call("job", {"id": job["id"], "action": "stop"})

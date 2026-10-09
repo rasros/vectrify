@@ -33,8 +33,18 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
         for sp in after.geometry_for(e.id).subpaths
         for n in sp.nodes
     }
+    changed = []
     for oid in old.keys() & new.keys():
         a, b = old[oid], new[oid]
+        if a != b or (
+            a.geometry_id is not None
+            and b.geometry_id is not None
+            and before.geometry_for(oid) != after.geometry_for(oid)
+        ):
+            changed.append(oid)
+        old_matrix, new_matrix = object_matrix(before, oid), object_matrix(after, oid)
+        if old_matrix != new_matrix and oid not in changed:
+            changed.append(oid)
         if {k: v for k, v in a.attributes if k in PAINT} != {
             k: v for k, v in b.attributes if k in PAINT
         }:
@@ -42,6 +52,8 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
         if [c.id for c in a.children] != [c.id for c in b.children]:
             effects["stacking_changed"].append(oid)
         if a.geometry_id is None or b.geometry_id is None:
+            if old_matrix != new_matrix and a.tag not in {"svg", "g", "defs"}:
+                effects["geometry_moved"].append({"object": oid})
             continue
         ga, gb = before.geometry_for(oid), after.geometry_for(oid)
         na = {n.id: (sp.id, n) for sp in ga.subpaths for n in sp.nodes}
@@ -54,10 +66,10 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
                 else:
                     effects["nodes_removed"].append(ref)
             elif not all(
-                math.isclose(x, y, abs_tol=1e-9)
+                math.isclose(x, y, rel_tol=0, abs_tol=1e-9)
                 for x, y in zip(
-                    mapped_point(node.endpoint, object_matrix(before, oid)),
-                    mapped_point(nb[nid].endpoint, object_matrix(after, oid)),
+                    mapped_point(node.endpoint, old_matrix),
+                    mapped_point(nb[nid].endpoint, new_matrix),
                     strict=True,
                 )
             ):
@@ -89,6 +101,7 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
 
     effects["protected_feature_violations"].extend(violations(before, after))
     return {
+        "changed_objects": sorted(changed),
         "created": sorted(new.keys() - old.keys()),
         "removed": removed,
         "effects": effects,
