@@ -505,3 +505,21 @@ Proposal `diagnostics` are data, separate from tool guidance and pixel metrics.
 They list created/removed objects, node removal, straight-to-curve changes,
 endpoint movement, paint and stacking changes, detectable contour merge lineage,
 and pin violations. Node effects identify object, contour and node IDs.
+
+### Manual edit previews
+
+`edit_batch(edits=[{tool, args, as?}], region?, close_region?, label?)` stages up
+to 100 drawing edits without changing live state. Supported edits are object,
+paint, point, geometry and arrangement tools; history, reference and job calls
+are excluded. An optional `as` names an edit result, usable as `$name` in later
+arguments (for example `ids=["$new"]`). Each preview includes structured edit
+diagnostics and eight mapped views: before/after/reference/difference at normal
+size and close zoom. Specify `close_region` to inspect the intended feature;
+without it the central half is shown. Without a reference its view is white
+and `reference_available=false`.
+
+`edit_batch(action="apply", id=...)` commits one atomic undo entry after checking
+the staged document's affected fields, shared consumers, locks and coordinate
+frames. Unrelated changes merge; overlapping conflicts refuse the entire batch.
+`status` retrieves the preview and `discard` drops it. Up to 20 previews are
+retained per agent; opening another drawing expires them.

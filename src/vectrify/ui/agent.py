@@ -32,6 +32,7 @@ from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 from cairosvg.colors import color as css_colour
@@ -389,6 +390,7 @@ class Agent:
 
     def __init__(self, session):
         self.session = session
+        self._batches: OrderedDict[str, Any] = OrderedDict()
         self._renders: OrderedDict[tuple, Image.Image] = OrderedDict()
         self._index: tuple[tuple, HitIndex] | None = None
         self._svg: tuple[tuple, str] | None = None
@@ -432,8 +434,10 @@ class Agent:
         finally:
             self.last_time = time.monotonic()
         # A job's status only looks; its other actions change something.
-        looks = tool in LOOKS or (
-            tool == "job" and args.get("action", "status") == "status"
+        looks = (
+            tool in LOOKS
+            or (tool == "edit_batch" and args.get("action", "stage") != "apply")
+            or (tool == "job" and args.get("action", "status") == "status")
         )
         if not looks:
             self.changes += 1
@@ -2258,6 +2262,117 @@ class Agent:
         return self._history(seen, "redo", ids)
 
     # Operations ---------------------------------------------------------
+
+    def tool_edit_batch(
+        self,
+        seen: Any,
+        action: str = "stage",
+        edits: Any = None,
+        id: str | None = None,  # noqa: A002
+        region: Any = None,
+        close_region: Any = None,
+        label: str = "Edit batch",
+    ) -> Reply:
+        from vectrify.ui.agent_batches import Batch, resolve, views
+        from vectrify.ui.session import Session
+
+        session = self.session
+        with session.lock:
+            if action == "stage":
+                self._check_seen(seen)
+                if not isinstance(edits, list) or not 1 <= len(edits) <= 100:
+                    raise DocumentError("Give 1 to 100 edits with tool and args")
+                base = session.editor.snapshot_at(seen[1])
+                private = Session(base.document)
+                private.editor = session.editor.fork(seen[1], Selection())
+                private.reference = session.reference
+                planner = Agent(private)
+                aliases: dict[str, list[str]] = {}
+                results = []
+                allowed = set(EDITS) - {"undo", "redo", "set_reference"}
+                for edit in edits:
+                    if not isinstance(edit, dict) or edit.get("tool") not in allowed:
+                        raise DocumentError(
+                            "Batch edits must name a supported drawing edit"
+                        )
+                    args = resolve(edit.get("args", {}), aliases)
+                    if not isinstance(args, dict) or "seen" in args:
+                        raise DocumentError("Batch args must be an object without seen")
+                    reply = planner.call(
+                        edit["tool"],
+                        {
+                            **args,
+                            "seen": [private.epoch, private.editor.snapshot.revision],
+                        },
+                    )
+                    results.append(reply.data)
+                    if "as" in edit:
+                        alias = edit["as"]
+                        if not isinstance(alias, str) or alias in aliases:
+                            raise DocumentError("Give a unique string batch alias")
+                        aliases[alias] = reply.data.get("result", {}).get("objects", [])
+                after = private.editor.snapshot.document
+                summary, images = views(
+                    self, base.document, after, region, close_region
+                )
+                summary.update(
+                    edits=results, aliases=aliases, changed=after != base.document
+                )
+                key = uuid4().hex
+                self._batches[key] = Batch(
+                    session.epoch,
+                    base,
+                    after,
+                    str(label),
+                    session.reference,
+                    any(e["tool"] == "redraw_outline" for e in edits),
+                    summary,
+                    images,
+                )
+                while len(self._batches) > 20:
+                    self._batches.popitem(last=False)
+                return Reply(
+                    {**self._where(), "id": key, "status": "ready", **summary}, images
+                )
+            batch = self._batches.get(id or "")
+            if batch is None or batch.epoch != session.epoch:
+                raise DocumentError("This edit batch has expired")
+            if action == "status":
+                return Reply(
+                    {**self._where(), "id": id, "status": "ready", **batch.summary},
+                    batch.images,
+                )
+            if action == "discard":
+                del self._batches[id or ""]
+                return Reply({**self._where(), "discarded": True})
+            if action != "apply":
+                raise DocumentError("action is stage, status, apply or discard")
+            self._check_seen(seen)
+            if batch.uses_reference and batch.reference != session.reference:
+                raise DocumentError("The reference changed; stage the batch again")
+            if batch.after == batch.base.document:
+                raise DocumentError("This batch leaves the drawing unchanged")
+            with self._own_selection():
+                editor = session.editor
+                editor.author = "agent"
+                try:
+                    editor.merge(
+                        batch.base,
+                        batch.after,
+                        AGENT_PREFIX + batch.label,
+                        editor.snapshot.selection,
+                    )
+                finally:
+                    editor.author = "person"
+            del self._batches[id or ""]
+            return Reply(
+                {
+                    **self._where(),
+                    "changed": True,
+                    "edit_id": editor.undo_entries[-1].id,
+                    "diagnostics": batch.summary["diagnostics"],
+                }
+            )
 
     def _start(
         self,
