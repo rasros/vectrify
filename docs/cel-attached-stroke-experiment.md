@@ -68,6 +68,26 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
 
 ## Current evidence and limits
 
+- A later source-only construction passes every attached acceptance check on
+  profile 43. Extending only the removal domain half a native pixel beyond the
+  terminal preserves full-viewport alpha exactly, with byte-exact RGBA outside
+  the literal removed-field and actual-stroke support (167 pixels). The actual
+  two-node, 1.24556-pixel open stroke keeps both physical source ports. Independent
+  Boolean checks prove complete removal of the former field and no residual ink;
+  original shadow commands, material commands, paint and frames stay exact.
+  Original ownership/component replay passes with 64 cuts and 81 allocated
+  children; source-body gaps, painted source lines and native save/reload pass.
+  Editable-stroke missing samples fall from 2,287 to 2,191. No acceptance guard is
+  bypassed. This construction still supplies saved source-only material/stroke
+  fitting parameters: the automatic joint fitter remains unfinished.
+- The removal recipe is now available through explicit `port_extension` on the
+  attached proposal API. Each extension is bounded to two native pixels and
+  independently contains the complete original field. It extends only the cut,
+  never the physical source anchors or the stroke. The default remains zero;
+  automatic variant enumeration is not implemented. Forward/reversed synthetic
+  controls verify containment, untouched ports/shadow commands and rejection of
+  invalid bounds and real source gaps. Independent sword replay uses this
+  production cut recipe with all acceptance/ownership checks intact.
 - Synthetic controls publish two-node editable strokes for opaque, translucent
   and nested-group cases. Material holes beneath the former outline, including
   holes crossing a fractional terminal, require restoration rather than retained
@@ -166,12 +186,14 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   copy the human rendering's repaired handle connection.
 
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
-material-continuation and line-fidelity suite passes: 133 tests in 8.14 seconds.
-Ruff and the full source/test Pyrefly check pass at the source-gap retention checkpoint
+material-continuation and line-fidelity suite passes: 139 tests in 7.47 seconds
+at the bounded removal-extension checkpoint.
+Ruff and the full source/test Pyrefly check pass at this checkpoint
 (0 type errors, two suppressions and 70 warnings). The changed Python files pass
 formatting; the global formatter flags pre-existing blank lines in unchanged
 `tests/ui/test_server.py`. Draft CI is green at the source-gap retention commit
-`f378494` (lint and test, 6m13s). Subsequent changes need their own CI.
+`f378494` (lint and test, 6m13s), and documentation head `e847f0b` is also green
+(lint and test, 8m13s). Subsequent changes need their own CI.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
@@ -229,6 +251,26 @@ Completed ignored diagnostics:
   feasibility controls; the thinner fit loses source support and is rejected.
 - `.bench/cel-attached-masked-cell-material-probe/`: unsupported vector-mask
   diagnostic with one remaining remote alpha byte; no ownership or subset proof.
+- `.bench/cel-attached-remote-layer-probe/`: independent native layer isolation
+  attributes profile 43's remote alpha change to the retained shadow (3 to 4),
+  while the underlay remains unchanged at 7.
+- `.bench/cel-attached-source-port-field-probe/`: 81 bounded source-only removal
+  domains; four retain full native alpha with unchanged physical stroke ports.
+- `.bench/cel-attached-superset-owned-replay/`: one complete runtime construction
+  passes all original native, gap, locality, ownership/component and reload gates,
+  with independent literal-footprint and complete-field validation.
+- `.bench/cel-attached-production-cut-replay/`: the same construction through the
+  production `port_extension` API; saved offline material/stroke fit parameters
+  remain explicit. `validation.json` checks full-image alpha, byte-exact outside
+  RGBA, original controls/material, complete removal, source ports/gaps and reload.
+  `stroke-preview.png` shows the parent and actual editable stroke bodies. Cut and
+  independent validation use source hash
+  `cf0300a4a4bd4d8541af3b816a6491795d7318df3486e8eab277a83e7b6c39b2`;
+  the saved offline fit input retains its original `c1c4379…` source provenance.
+- `.bench/cel-attached-source-constrained-owned-fit-probe/`: profile 54's source-
+  feasible joint fit reduces alpha-byte discrepancy from 65 to 45. Independent
+  body/painted-source, material and reload checks pass, but alpha remains unequal;
+  that drawing is rejected.
 
 Each replay records its algorithm source hash and checks it at completion. Saved
 drivers and logs provide diagnostic provenance, not automated-operation release
@@ -245,9 +287,13 @@ revision; a current source hash does not retroactively validate an earlier input
    stroke and retained context. A positive underpaint cannot subtract that excess.
    Plan interacting source chains together when one field removes another chain;
    a nominal profile is not automatically an independent replacement.
-2. Preserve exact residual shadow controls and complete removed-field geometry.
-   The remote profile-43 alpha change and silhouette changes still require a
-   complete-parent proof.
+2. Port the successful source-only material/stroke fitting procedure into the
+   bounded generator, then enumerate removal-domain alternatives with unchanged
+   physical stroke ports. Profile 43 now has a fully validated construction; its
+   half-pixel terminal removal fixes the remote native discrepancy without an
+   alpha exception. Keep exact residual controls, complete removal and all final
+   locality/source/ownership gates. Do not substitute saved fitted parameters for
+   automatic generation evidence.
 3. Replay complete ownership, original ledgers, residual controls, native body
    gaps, save/reload and the exported editable stroke inventory, then show the
    actual strokes for visual feedback.
