@@ -211,6 +211,7 @@ def protect_trace(shapes: list[dict], features: list[dict], pixel: float) -> lis
 
     geometries = [parse_path(shape["d"]) for shape in shapes]
     diagnostics = []
+    attached: dict[tuple[int, int, int], tuple[float, float]] = {}
     for feature in features:
         if not isinstance(feature, dict) or set(feature) - {"x", "y", "kind", "reach"}:
             raise DocumentError("Trace features use x, y, kind and optional reach")
@@ -235,6 +236,13 @@ def protect_trace(shapes: list[dict], features: list[dict], pixel: float) -> lis
                 f"Protected {kind} at ({x}, {y}) has no traced vertex within reach"
             )
         distance, gi, si, ni = min(choices)
+        key = (gi, si, ni)
+        if key in attached and attached[key] != (x, y):
+            raise DocumentError(
+                "Protected points conflict at one traced vertex; "
+                "reduce reach or separate their positions"
+            )
+        attached[key] = (x, y)
         geometry = geometries[gi]
         contour = geometry.subpaths[si]
         nodes = list(contour.nodes)
