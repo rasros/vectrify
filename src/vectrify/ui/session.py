@@ -1498,7 +1498,7 @@ class Session:
             start.subpath_id,
             (start.node_id, start.t),
             (end.node_id, end.t),
-            [("M", (0, 0)), ("L", (0, 0))],
+            [("L", (0, 0))],
             matrix=object_matrix(document, oid),
             long_way=bool(payload.get("long_way")),
         )
