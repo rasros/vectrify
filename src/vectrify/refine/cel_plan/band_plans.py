@@ -859,6 +859,7 @@ class BandPlans:
             seed,
             work,
             width_fixed=self.width_fixed or self.evidence.filled_line_width > 0,
+            preserve_alpha=attached,
         )
         if result is None:
             return None

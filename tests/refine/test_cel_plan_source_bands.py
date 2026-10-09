@@ -314,6 +314,100 @@ def test_fit_cache_reuses_only_identical_native_context_and_rechecks_complete_re
     assert result[1]["evaluations"] > 0
 
 
+def test_alpha_constrained_fit_does_not_reuse_an_infeasible_appearance_fit():
+    from vectrify.document import Editor, Selection
+    from vectrify.document.svg import parse_path
+
+    evidence, guard, document, main, marks = fixture()
+    work = Work.start(20)
+    seed = required(
+        SourceBands(evidence, guard).seed(document, "ink", main, "nonzero", work)
+    )
+    # The existing fill contributes to the silhouette above this underpaint.
+    # A thinner stroke matches the source color but loses native coverage there.
+    editor = Editor(document, selection=Selection(whole_document=True))
+    with editor.transaction("Partial underpaint") as tx:
+        tx.replace_geometry("bg", parse_path("M0 29H96V96H0Z"))
+    document = editor.snapshot.document
+    assembled = BandPlans.document(
+        document,
+        "ink",
+        "ink-marks",
+        seed.band,
+        marks,
+        {"fill": seed.paint, "fill-opacity": "1"},
+    )
+    fitter = BandFit(evidence, guard)
+    appearance, _ = required(
+        fitter.fit(document, assembled, "ink", seed, work, width_fixed=True)
+    )
+    assert not np.array_equal(
+        render(export_svg(document), evidence.source_size)[..., 3],
+        render(export_svg(appearance), evidence.source_size)[..., 3],
+    )
+    saved = save_project(assembled)
+    assert (
+        fitter.fit(
+            document,
+            assembled,
+            "ink",
+            seed,
+            work,
+            width_fixed=True,
+            preserve_alpha=True,
+        )
+        is None
+    )
+    assert save_project(assembled) == saved
+
+
+def test_alpha_constrained_fit_retains_a_feasible_width_over_a_thinner_source_match(
+    monkeypatch,
+):
+    from vectrify.document import Editor, Selection
+    from vectrify.document.svg import parse_path
+
+    evidence, guard, document, main, marks = fixture()
+    work = Work.start(20)
+    seed = required(
+        SourceBands(evidence, guard).seed(
+            document, "ink", main, "nonzero", work, width=3
+        )
+    )
+    editor = Editor(document, selection=Selection(whole_document=True))
+    with editor.transaction("Partially exposed outline") as tx:
+        tx.replace_geometry("bg", parse_path("M0 0H21V29H76V0H96V96H0Z"))
+        tx.replace_geometry(
+            "ink", parse_path("M20.25 26.46875H76.25V30H20.25Z M70 70H72V72H70Z")
+        )
+    document = editor.snapshot.document
+    assembled = BandPlans.document(
+        document,
+        "ink",
+        "ink-marks",
+        seed.band,
+        marks,
+        {"fill": seed.paint, "fill-opacity": "1"},
+    )
+
+    def candidates(score, values, **_kwargs):
+        score(np.array([3.6]))
+        score(values)
+
+    monkeypatch.setattr(band_fit, "minimize", candidates)
+    candidate, details = required(
+        BandFit(evidence, guard).fit(
+            document, assembled, "ink", seed, work, preserve_alpha=True
+        )
+    )
+    assert details["width"] == 3.6
+    assert details["native_alpha_exact"]
+    np.testing.assert_array_equal(
+        render(export_svg(document), evidence.source_size)[..., 3],
+        render(export_svg(candidate), evidence.source_size)[..., 3],
+    )
+
+
 def test_bounds_and_interruption_discard_seed_and_fit_without_mutating_input(
     monkeypatch,
 ):
