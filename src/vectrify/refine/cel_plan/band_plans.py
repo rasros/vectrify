@@ -464,9 +464,10 @@ class BandPlans:
                     _native_raster(root, self.evidence.source_size).root[..., 3] > 0
                 )
                 cut_quantization = color_quantization(native_before, after, ~allowed)
-                if cut_quantization is None:
-                    self.diagnostics["source_exclusions"] += 1
-                    continue
+                # This incomplete subtraction is a construction diagnostic.
+                # Material continuation and the actual stroke are co-planned
+                # atomically; only their complete result may be published, and
+                # attached_locality must prove it against the actual parent.
             if guard is None:
                 try:
                     guard = self.guard(work)
@@ -561,6 +562,22 @@ class BandPlans:
                             work,
                             attached=attached,
                         )
+                        if fitted is None and attached:
+                            fitted = self.source_document(
+                                proposal,
+                                surface.id,
+                                newid,
+                                main,
+                                marks,
+                                style,
+                                source_seed,
+                                source_own,
+                                labels,
+                                guard,
+                                work,
+                                attached=True,
+                                native_restoration=True,
+                            )
                         if fitted is None:
                             self.diagnostics["source_exclusions"] += 1
                             continue
@@ -604,7 +621,13 @@ class BandPlans:
                     if not comparison["qualified_samples"] or comparison["rejections"]:
                         self.diagnostics["source_exclusions"] += 1
                         continue
-                    bodyalpha = raster(variant.geometry, variant.width)
+                    bodyalpha = raster(
+                        variant.geometry,
+                        variant.width,
+                        cap=path_style(document, document.element(surface.id))[
+                            "stroke-linecap"
+                        ],
+                    )
                     if cached is None:
                         cached = self.partition(
                             state,
@@ -784,6 +807,7 @@ class BandPlans:
         work,
         *,
         attached=False,
+        native_restoration=False,
     ):
         """Assemble source caps and adjacent material before bounded fitting."""
         frame = root_matrix(proposal.document, oid)
@@ -841,15 +865,42 @@ class BandPlans:
         continuation: dict[str, Any] | None = None
         if votes:
             target = max(votes, key=lambda k: (votes[k], k))
-            core = opaque_core(document, oid, main, self.evidence.source_size, work)
+            # The removed fill may supply the parent's opaque coverage itself.
+            # Bound restoration by that original coverage, rather than the
+            # incomplete assembled drawing with the replacement stroke hidden.
+            # Complete native alpha and locality still independently decide
+            # whether the restored material and fitted stroke are publishable.
+            core = opaque_core(
+                proposal.document if attached else document,
+                oid,
+                main,
+                self.evidence.source_size,
+                work,
+                footprint_cells=native_restoration,
+            )
             if core is None:
                 return None
             result = PaintContinuation().extend(
-                document, oid, main, target, work, core=core, rule=style["fill-rule"]
+                document,
+                oid,
+                core if native_restoration else main,
+                target,
+                work,
+                core=core,
+                rule=style["fill-rule"],
             )
             if result is not None:
                 document, continuation = result
+                if native_restoration:
+                    continuation = {
+                        **continuation,
+                        "scope": "opaque-native-removed-field-cells",
+                    }
                 ids.append(target)
+            elif native_restoration:
+                return None
+        elif native_restoration:
+            return None
         if self._source_fitter is None:
             self._source_fitter = BandFit(self.evidence, guard)
         result = self._source_fitter.fit(
@@ -886,7 +937,9 @@ class BandPlans:
             assert isinstance(order[0], int)
             # Independently remove only the proposed paint/order change while
             # retaining the fitted ink and recovered caps. Added material must
-            # neither change alpha nor paint outside old fill / actual body.
+            # not paint outside old fill / actual body. Attached replacements
+            # may restore coverage supplied by the removed fill; their final
+            # alpha must match the actual parent, checked below independently.
             editor = Editor(document, selection=Selection(whole_document=True))
             with editor.transaction("Check exact continuation complement") as tx:
                 tx.replace_geometry(target, proposal.document.geometry_for(target))
@@ -899,7 +952,8 @@ class BandPlans:
                 ET.fromstring(export_svg(editor.snapshot.document)),
                 self.evidence.source_size,
             ).root
-            if not np.array_equal(native[..., 3], complement[..., 3]):
+            complement_alpha_exact = np.array_equal(native[..., 3], complement[..., 3])
+            if not attached and not complement_alpha_exact:
                 return None
             root = ET.Element(
                 "{http://www.w3.org/2000/svg}svg",
@@ -930,8 +984,8 @@ class BandPlans:
                     "fill": "none",
                     "stroke": "white",
                     "stroke-width": ink_style["stroke-width"],
-                    "stroke-linecap": "butt",
-                    "stroke-linejoin": "round",
+                    "stroke-linecap": ink_style["stroke-linecap"],
+                    "stroke-linejoin": ink_style["stroke-linejoin"],
                 },
             )
             allowed |= _native_raster(root, self.evidence.source_size).root[..., 3] > 0
@@ -940,11 +994,12 @@ class BandPlans:
             quantization = (
                 color_quantization(native, complement, ~allowed) if attached else None
             )
-            if changed_outside and (not attached or quantization is None):
+            if changed_outside and not attached:
                 return None
             continuation = {
                 **continuation,
-                "native_alpha_exact": True,
+                "native_alpha_exact": bool(complement_alpha_exact),
+                "native_alpha_scope": "continuation-vs-complement",
                 "native_footprint_exact": not bool(changed_outside),
                 **({"color_quantization": quantization} if attached else {}),
             }

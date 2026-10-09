@@ -18,56 +18,83 @@ parents, replaying the original ancestor's source classes within the existing
 ledger limits. Prior fitting witnesses remain available to the replay audit.
 The original proposal prefix remains available when an attached route fails.
 
-The prototype distinguishes exact alpha from premultiplied-color quantization:
-`color_quantization` permits at most one premultiplied color byte outside the
-selected field, with alpha unchanged exactly. This is explicitly weaker than
-byte-exact RGBA locality. Its intended use depends on exact geometric subtraction
-and unchanged original controls/paint. A complete-candidate check now compares the final fitted drawing with its actual
-material parent, bounding changes by the removed field and old/new affected
-stroke bodies. Retained shadow bounds do not authorize unrelated changes.
-Global native alpha equality is mandatory. Off-field color quantization remains
-reported separately from byte-exact locality and is not a release policy.
-Attached fitting now retains only parameter vectors with exact parent alpha in
-the independent native fitting crop, then rechecks the complete drawing. Alpha
+## Atomic construction and acceptance
+
+An attached subtraction temporarily removes coverage that the new material and
+stroke may restore. Its raw-cut locality and continuation-versus-complement
+checks are construction diagnostics, including explicit `null` quantization
+results when they fail. Neither intermediate drawing can be published. Ordinary
+source routes retain their earlier continuation-complement requirements.
+
+For attached routes, restoration uses the original filled parent's fully covered
+native pixels. The removed fill can supply that coverage itself. The native
+opacity bound is measured through the same ordered group-opacity stack, rather
+than using an unrounded analytic product.
+
+The geometric removed-field domain is tried first. If that complete attempt
+fails, a second bounded attempt can continue material into whole opaque parent
+pixel cells touched by the removed field, including its antialias fringe. The
+result is ordinary vector contours under the existing material paint and frame;
+it embeds no raster, clip or mask. The residual shadow still subtracts the whole
+original selected field. This fallback addresses internal coverage seams; it
+cannot restore partially covered silhouette cells.
+
+The final complete drawing is compared with its actual material parent. Global
+native alpha equality is mandatory. Changes are bounded by the removed field and
+old/new affected stroke bodies; retained shadow bounds do not authorize unrelated
+changes. `color_quantization` permits at most one premultiplied color byte outside
+that support, with alpha unchanged exactly. This is explicitly weaker than
+byte-exact RGBA locality, is reported separately and is not a release policy.
+
+Attached fitting retains only parameter vectors with exact parent alpha in the
+independent native fitting crop, then rechecks the complete drawing. Alpha
 penalties guide the search but cannot make an infeasible vector publishable. The
-constraint is part of the fit-cache key; an appearance fit cannot bypass it.
+constraint and actual butt/round cap are part of the fit-cache key. White-body
+source-gap checks and ownership coverage use the actual stroke cap as well.
+Physical source ports and supported corners remain fixed.
 
 ## Current evidence and limits
 
-- Eight synthetic controls pass. Opaque, translucent and nested-group cases
-  publish a two-node editable stroke, remove its old filled field, retain shadow
-  commands/values, replay a saturated ancestor ledger and round-trip rendering.
+- Synthetic controls publish two-node editable strokes for opaque, translucent
+  and nested-group cases. Material holes beneath the former outline, including
+  holes crossing a fractional terminal, require restoration rather than retained
+  old ink. The terminal cases exercise the native-cell fallback. Original shadow
+  commands/values, saturated ancestor ledgers and native project round trips
+  remain exact. Independent Boolean checks verify the published residual has no
+  intersection with the removed field.
+- A control permits failed intermediate locality diagnostics but requires the
+  final complete-parent proof. Rejecting that final proof excludes the candidate.
   Background paint changes, changed group alpha and displaced retained shadows
-  fail the complete-candidate locality check.
-- The previous partial-opacity exclusion was caused by comparing a native alpha
-  byte with an unrounded opacity product. `opaque_core` now measures a fully
-  covered pixel through the same group-opacity stack in the native renderer.
-  This bounds construction; it does not relax the final alpha equality check.
-- A source-only direct replay on the previously accepted fitted sword parent
-  still publishes **no attached-band candidate**. Profile 54 passes subtraction,
-  seed selection, material continuation and bounded fitting. Its continuation
-  complement differs at one alpha pixel; the final drawing differs from its
-  material parent at 61 alpha pixels and fails the complete-parent check as well.
-  A successful fit alone does not prove an acceptable replacement.
-- The alpha-constrained replay also publishes no attached candidate, without
-  interruption. Profile 54 now fails during fitting because none of its bounded
-  parameter vectors preserve alpha. Inspection locates the earlier 61 changes
-  along the right silhouette at native x=397–398, y=1624–1656; the proposed stroke
-  extends beyond the material parent's coverage.
-- Profile 43's complete subtraction changes one remote alpha byte at native
-  (397, 1722), from 10 to 11. Smaller/larger field widths, contour ordering,
-  reversal and equivalent closed-contour starts do not remove that change.
-  Restricting subtraction to opaque pixel cells avoids it, but leaves part of
-  the removed field behind; this diagnostic is not an accepted complete cut.
+  also fail the final locality check.
+- Straight and rotated support controls verify that native-cell restoration uses
+  exactly the opaque cells touched by the removed field in the original frame.
+  Butt and round fitting controls verify the actual cap, source ports, native
+  fitting context and round trip.
+- The source-only direct sword replay on accepted fitted candidate 11 still
+  publishes **no attached-band candidate**, without interruption. Five of 13
+  eligible profiles reach both bounded fitting attempts; no exactly feasible
+  native-alpha vector is found. Round caps alone also yielded no candidate in an
+  exploratory runtime-only replay; there is no production round-cap generator.
+- A residual diagnostic records the least alpha discrepancy observed during each
+  bounded search. Profile 43 loses coverage at 44 partial silhouette pixels on
+  the left handle. Profile 54 differs at 34 pixels, including right-side spill.
+  Pommel profiles 67, 85 and 97 also change partial silhouette coverage. These
+  diagnostic vectors are rejected drawings, not accepted strokes or a quality
+  improvement. The observations do not prove that every possible vector is
+  infeasible.
+- Profile 43's complete subtraction also changes a remote alpha byte at native
+  (397, 1722), from 10 to 11. Equivalent contour ordering, exact subdivision and
+  cut representations have not repaired it. Restricting subtraction to opaque
+  cells leaves part of the old field behind and is not an accepted complete cut.
 - Broad shadow interiors, internal source gaps, ambiguous chains, unsupported
   winding and bounded/interrupted work remain excluded. Source observations never
   copy the human rendering's repaired handle connection.
 
-Ruff, formatting and the full source/test Pyrefly check pass locally. The 90
-source-slice, band-plan, source-band, source-junction, cap and material-continuation
-tests pass in 4.93 seconds. Two additional regressions reject a cached alpha-changing appearance fit and
-retain an exactly feasible width over a thinner source match. Draft CI was green at
-`2be5075`; the alpha-constrained fitting changes require their own CI gate.
+The focused source-slice, band-plan, source-band, source-junction, source-cap,
+material-continuation and line-fidelity suite passes: 130 tests in 7.04 seconds.
+Ruff and the full source/test Pyrefly check passed before this documentation
+update. Draft CI is green at `71bfcea`; the restoration checkpoint requires its
+own CI gate.
 
 ## Active goal
 
@@ -79,23 +106,25 @@ ownership ledgers and save/reload. Demonstrate a visible sword improvement with
 focused synthetic controls, then present a stroke preview for review. Learned
 ranking and broader reference collection remain deferred.
 
-The current direct diagnostic is in the ignored
-`.bench/cel-attached-complete-locality-probe/` directory. It uses the captured
-material ancestor and fitted candidate 11, receives no human target and records
-the completed rejection stages. Its rejected project is a diagnostic, not an
-accepted candidate or a new quality result.
-The completed constrained replay is in `.bench/cel-attached-alpha-fit-probe/`;
-equivalent-cut construction probes are in
-`.bench/cel-attached-cut-representation-probe/`.
+Completed ignored diagnostics:
+
+- `.bench/cel-attached-native-cells-probe/`: geometric and native-cell restoration
+  on fitted candidate 11, with the captured original ancestor and source ledger.
+- `.bench/cel-attached-alpha-residual-probe/`: source-only bounded search residuals
+  and explicitly rejected project/SVG drawings; no human target.
+
+Each replay records its algorithm source hash and checks it at completion. Saved
+drivers and logs provide diagnostic provenance, not automated-operation release
+or reference-corpus evidence.
 
 ## Resume here
 
-1. Construct a complete removable field that preserves remote native alpha,
-   then fit the stroke and material together within the silhouette. Neither the
-   one-byte remote profile-43 change nor the 61-pixel profile-54 spill is waived.
-2. Preserve exact residual shadow controls and removed-field geometry. Any
-   accepted replacement must pass the complete-parent locality check, including
-   real gaps, caps and source-supported junctions.
+1. Co-plan the continued material's partial silhouette and editable stroke. The
+   opaque interior restoration is insufficient at these edges. Preserve physical
+   source ports and real gaps; do not waive final alpha to obtain a candidate.
+2. Preserve exact residual shadow controls and complete removed-field geometry.
+   The remote profile-43 alpha change and silhouette changes still require a
+   complete-parent proof.
 3. Replay complete ownership, original ledgers, residual controls, native body
    gaps, save/reload and the exported editable stroke inventory, then show the
    actual strokes for visual feedback.

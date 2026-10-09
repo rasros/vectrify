@@ -127,8 +127,9 @@ def test_gap_ambiguity_and_short_fragment_do_not_define_a_complete_stroke():
 
 @pytest.mark.parametrize("diagonal", [False, True])
 @pytest.mark.parametrize("fixed", [False, True])
+@pytest.mark.parametrize("cap", ["butt", "round"])
 def test_atomic_fit_preserves_materials_ports_explicit_width_and_native_crop(
-    fixed, diagonal
+    fixed, diagonal, cap
 ):
     evidence, guard, document, main, marks = fixture(alpha=0.6, diagonal=diagonal)
     work = Work.start(20)
@@ -149,12 +150,19 @@ def test_atomic_fit_preserves_materials_ports_explicit_width_and_native_crop(
         marks,
         {"fill": seed.paint, "fill-opacity": "1"},
     )
+    from vectrify.document import Editor, Selection
+
+    editor = Editor(assembled, selection=Selection(whole_document=True))
+    with editor.transaction("Actual fitted stroke cap") as tx:
+        tx.set_attributes("ink", {"stroke-linecap": cap})
+    assembled = editor.snapshot.document
     fitted = BandFit(evidence, guard).fit(
         document, assembled, "ink", seed, work, width_fixed=fixed
     )
     assert fitted is not None
     candidate, details = fitted
     assert details["native_body_absence"]
+    assert details["linecap"] == cap
     assert details["evaluations"] <= band_fit.MAX_EVALUATIONS
     assert details["fitted_loss"] <= details["initial_loss"]
     if fixed:
@@ -214,6 +222,42 @@ def test_core_removes_the_replacement_stroke_and_respects_parent_opacity():
     core = opaque_core(assembled, "ink", main, evidence.source_size, work)
     assert core is not None
     assert core.subpaths
+
+
+@pytest.mark.parametrize("diagonal", [False, True])
+def test_parent_field_cells_have_exact_native_support_in_the_original_frame(diagonal):
+    from xml.etree import ElementTree as ET
+
+    evidence, _, document, main, _ = fixture(alpha=0.6, diagonal=diagonal)
+    core = required(
+        opaque_core(
+            document,
+            "ink",
+            main,
+            evidence.source_size,
+            Work.start(10),
+            footprint_cells=True,
+        )
+    )
+    frame = root_matrix(document, "ink")
+
+    def mask(shape):
+        root = ET.Element("svg", {"width": "96", "height": "96"})
+        ET.SubElement(
+            root,
+            "path",
+            {
+                "d": shape.path_data(),
+                "fill": "white",
+                "transform": "matrix(" + " ".join(map(str, frame)) + ")",
+            },
+        )
+        return _native_raster(root, (96, 96)).root[..., 3]
+
+    # The original opaque background supplies the common parent's coverage.
+    # Every returned cell is fully covered and belongs to the old field's native
+    # support; no axis change or expanded geometry bounds authorize extra cells.
+    np.testing.assert_array_equal(mask(core), (mask(main) > 0).astype(np.uint8) * 255)
 
 
 def test_nonzero_native_crop_preserves_fractional_frame_and_viewport():

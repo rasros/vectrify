@@ -18,6 +18,7 @@ from vectrify.document import (
 from vectrify.document.join import curve_path, path_style
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import atoms as atom_module
+from vectrify.refine.cel_plan import band_plans as band_module
 from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.band_plans import (
     BandPlans,
@@ -132,12 +133,37 @@ def test_color_quantization_cannot_hide_alpha_or_more_than_one_premultiplied_byt
 
 
 @pytest.mark.parametrize(
-    ("alpha", "group_alpha"), [(1, 1), (0.75, 1), (0.5, 1), (0.75, 0.6)]
+    ("alpha", "group_alpha", "hole", "proof_mode"),
+    [
+        (1, 1, False, "normal"),
+        (0.75, 1, False, "normal"),
+        (0.5, 1, False, "normal"),
+        (0.75, 0.6, False, "normal"),
+        (1, 1, True, "normal"),
+        (0.75, 1, True, "normal"),
+        (0.5, 1, True, "normal"),
+        (1, 1, "terminal", "normal"),
+        (0.75, 1, "terminal", "normal"),
+        (0.5, 1, "terminal", "normal"),
+        (1, 1, True, "deferred"),
+        (1, 1, True, "reject_final"),
+    ],
 )
 def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
-    alpha, group_alpha, monkeypatch
+    alpha, group_alpha, hole, proof_mode, monkeypatch
 ):
     e, guard, document = fixture(alpha=alpha, group_alpha=group_alpha)
+    if hole:
+        # The old filled outline supplies all coverage in this material hole.
+        # Replacing it by the thinner source stroke must restore that original
+        # opaque coverage with material, rather than retain filled old ink.
+        editor = Editor(document, selection=Selection(whole_document=True))
+        with editor.transaction("Material hole beneath old outline") as tx:
+            right = 79 if hole == "terminal" else 74
+            tx.replace_geometry(
+                "bg", parse_path(f"M0 0H96V96H0Z M22 26V30H{right}V26H22Z")
+            )
+        document = editor.snapshot.document
     labels = np.zeros(e.labels.shape, np.int32)
     labels[e.target.max(axis=-1) < e.target[0, 0].max() - 25] = 1
     e = replace(e, labels=labels)
@@ -173,10 +199,27 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
         ),
     )
     monkeypatch.setattr(atom_module, "MAX_CUTS", 1)
+    proof_calls = []
+    if proof_mode != "normal":
+
+        def pending(before, after, outside):
+            proof_calls.append(None)
+            # Neither incomplete construction is a publication proof. A missing
+            # complete-parent proof must still exclude the whole candidate.
+            if len(proof_calls) <= 2 or proof_mode == "reject_final":
+                return None
+            return color_quantization(before, after, outside)
+
+        monkeypatch.setattr(band_module, "color_quantization", pending)
     planner = BandPlans(e, graph, graph, guard=lambda _work: guard)
     alternatives = list(
         planner.proposals(state, edit, Work.start(20), source_fit=True, attached=True)
     )
+    if proof_mode != "normal":
+        assert len(proof_calls) >= 3
+    if proof_mode == "reject_final":
+        assert alternatives == []
+        return
     assert len(alternatives) == 1, planner.diagnostics
     candidate = alternatives[0]
     assert candidate.partition.follows(old)
@@ -202,11 +245,25 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
     assert record["attached"]
     assert record["source_line_comparison"]["rejections"] == []
     assert record["source_fit"]["fit"]["native_body_absence"]
-    assert record["cut_quantization"]["alpha_exact"]
+    assert record["source_fit"]["fit"]["native_alpha_exact"]
+    if proof_mode == "deferred":
+        assert record["cut_quantization"] is None
+        assert record["source_fit"]["continuation"]["color_quantization"] is None
+    else:
+        assert record["cut_quantization"]["alpha_exact"]
     proof = record["source_fit"]["native_locality"]
     assert proof["scope"] == "complete-final-candidate-vs-material-parent"
     assert proof["native_alpha_exact"]
     assert proof["native_footprint_exact"]
+    if hole:
+        continuation = record["source_fit"]["continuation"]
+        assert continuation["material"] == "bg"
+        assert continuation["patch_nodes"] > 0
+        assert not continuation["native_alpha_exact"]
+        assert continuation["native_alpha_scope"] == "continuation-vs-complement"
+        if hole == "terminal":
+            assert continuation["scope"] == "opaque-native-removed-field-cells"
+        assert candidate.document.geometry_for("bg") != document.geometry_for("bg")
     removed = parse_path(record["removed"])
     mutations: tuple[tuple[str, dict[str, str | None]], ...] = (
         ("bg", {"fill": "#ffffff"}),
@@ -231,8 +288,19 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
         )
     actual = render(export_svg(candidate.document), (96, 96))
     np.testing.assert_array_equal(actual[..., 3], render(svg, (96, 96))[..., 3])
+    assert policy.evaluate(export_svg(candidate.document)).valid
     residual = candidate.document.geometry_for(record["marks"])
     original = document.geometry_for("ink")
+    difference = pathops.op(
+        curve_path(original), curve_path(removed), pathops.PathOp.DIFFERENCE
+    )
+    assert pathops.op(curve_path(residual), difference, pathops.PathOp.XOR).area == 0
+    assert (
+        pathops.op(
+            curve_path(residual), curve_path(removed), pathops.PathOp.INTERSECTION
+        ).area
+        == 0
+    )
     # Published residuals receive fresh editing ids; commands and controls
     # must still retain the original shadow geometry exactly.
     assert (
