@@ -114,10 +114,27 @@ changes are confined to the removed fill and actual stroke body. The result has
 2,924 nodes / 415 contours / 33 stroke contours and human MSE 522.686750, still
 worse than the preserved material parent's 508.055591. `PaintContinuation`
 constructs this bounded competitor; callers must prove complete source ownership,
-native paint/alpha/gaps and locality. Next integrate source-profile selection,
-bounded joint fitting, cap alternatives and that restoration as one owned
-candidate; do not publish an isolated fill removal or relax the source contracts.
-These offline feasibility results pass no additional release gate.
+native paint/alpha/gaps and locality.
+
+The explicit co-planner now selects a complete original source profile and
+automatically fits the assembled handle stroke, cap alternatives and adjacent
+material as one owned candidate. It preserves original physical endpoints and
+source corners, applies bounded transverse fitting, and uses the final native
+viewport. Complete painted-line/body, exact alpha/locality and same-ancestor
+ownership checks remain mandatory. Four new alternatives preserve the preceding
+eight artifact sets exactly and export a four-node handle stroke with 29 exact
+residual contours. The complete drawing has 2,920 nodes / 415 contours / 33
+stroke contours. The top endpoint shares an existing stroke endpoint; complete
+lower-junction coverage remains unproved. No human repair supplies a connection.
+
+Post-generation MSE for the matching bundle improves from 524.897535 to
+521.989863; the preserved material parent's 508.055591 remains better. The
+unchanged objective still selects the preceding alternatives at the sampled
+slider settings. The final twelve-candidate replay takes 157.15 seconds and
+705,344 KiB peak RSS, so this is not automatic-operation latency or memory
+evidence. Next complete supported junction composition, representation-aware
+selection and reliable operation delivery within the existing budgets. These
+offline results pass no additional release gate.
 
 Those captured-proposal results are offline candidate/selection evidence, not a
 completed outline release. The co-planned alternative is available through the

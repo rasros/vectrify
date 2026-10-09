@@ -30,25 +30,37 @@ def _check(work):
 
 
 class SourceAbsence:
-    def __init__(self, evidence, profiles, work, *, intervals=False):
+    def __init__(self, evidence, profiles, work, *, intervals=False, guard=None):
         _check(work)
         h, w = evidence.rgba.shape[:2]
         if h * w > MAX_NATIVE_PIXELS or evidence.source_size != (w, h):
             raise ValueError("Source absence exceeds the native frame bound")
-        for profile in profiles:
+        if guard is not None and guard.shape != evidence.rgba.shape:
+            raise ValueError("Source absence guard must match the native frame")
+        for profile in (
+            guard.original_profiles(work=work) if guard is not None else profiles
+        ):
             _check(work)
             samples = (
-                1
-                + np.maximum(
-                    1,
-                    np.ceil(
-                        2 * np.linalg.norm(np.diff(profile.points, axis=0), axis=1)
-                    ),
-                ).sum()
+                len(guard.source_breaks(profile, work=work).points)
+                if guard is not None
+                else (
+                    1
+                    + np.maximum(
+                        1,
+                        np.ceil(
+                            2 * np.linalg.norm(np.diff(profile.points, axis=0), axis=1)
+                        ),
+                    ).sum()
+                )
             )
             if samples > MAX_PROFILE_SAMPLES:
                 raise ValueError("Source absence exceeds the per-profile sample bound")
-        guard = SourceLineGuard(evidence.rgba, profiles, work=work)
+        guard = (
+            guard
+            if guard is not None
+            else SourceLineGuard(evidence.rgba, profiles, work=work)
+        )
         self.source_breaks = guard.source_breaks if intervals else None
         self.points = guard.gap_centres(limit=MAX_POINTS, work=work)
         self.size = (w, h)

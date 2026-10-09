@@ -10,20 +10,24 @@ comparison must still preserve measured source support and individual gaps.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
+from xml.etree import ElementTree as ET
 
 import numpy as np
 import pathops
-from scipy.ndimage import distance_transform_edt, label
+from scipy.ndimage import binary_dilation, distance_transform_edt, label
 
 from vectrify.document import Editor, Selection, export_svg
-from vectrify.document.join import curve_path, transformed_geometry
+from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
+from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.atoms import (
     CHUNK_PIXELS,
     MAX_PARTS,
     AtomLimitError,
     Atoms,
 )
+from vectrify.refine.cel_plan.band_fit import BandFit, opaque_core
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.filled_bands import (
     MAX_NATIVE_PIXELS,
@@ -35,10 +39,13 @@ from vectrify.refine.cel_plan.filled_bands import (
     supported_style,
 )
 from vectrify.refine.cel_plan.ink_replace import identified
-from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
+from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box, _native_raster
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.ownership import Partition, Surface
+from vectrify.refine.cel_plan.paint_continuation import PaintContinuation
 from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.source_bands import SourceBands
+from vectrify.refine.cel_plan.source_caps import SourceCaps
 
 TOLERANCES = (0.25, 0.15, 0.1)
 MAX_SUBPATHS = 16
@@ -106,7 +113,17 @@ def mark_components(own, main, marks, scale, work):
 class BandPlans:
     """One compound band with bounded width alternatives per material proposal."""
 
-    def __init__(self, evidence, graph, original, *, guard, width_fixed=False):
+    def __init__(
+        self,
+        evidence,
+        graph,
+        original,
+        *,
+        guard,
+        width_fixed=False,
+        width=0,
+        tolerance=0,
+    ):
         self.evidence, self.graph, self.original, self.guard = (
             evidence,
             graph,
@@ -114,6 +131,8 @@ class BandPlans:
             guard,
         )
         self.width_fixed = width_fixed
+        self.width, self.tolerance = width, tolerance
+        self._source_fitter = None
         self.diagnostics = dict.fromkeys(
             ("eligible", "source_exclusions", "bounded", "ambiguous", "proposals"), 0
         )
@@ -128,14 +147,24 @@ class BandPlans:
             # Preserve every existing width alternative before offering a
             # complete sibling with another isolated band. Replaying from the
             # same ancestor avoids splitting a finished, saturated ledger.
+            extended = []
             for candidate in parents:
-                yield from self.proposals(state, candidate, work, isolated=True)
+                for sibling in self.proposals(state, candidate, work, isolated=True):
+                    yield sibling
+                    if len(extended) < MAX_EXTENSIONS:
+                        extended.append(sibling)
+            # Keep the entire preceding intrinsic-band prefix before complete
+            # source-fitted siblings. Every ledger replays the same ancestor.
+            for candidate in extended:
+                yield from self.proposals(
+                    state, candidate, work, isolated=True, source_fit=True
+                )
         except StageInterruptedError:
             return
         except (AtomLimitError, pathops.PathOpsError):
             self.diagnostics["bounded"] += 1
 
-    def proposals(self, state, proposal, work, *, isolated=False):
+    def proposals(self, state, proposal, work, *, isolated=False, source_fit=False):
         _check(work)
         old, part = state.partition, proposal.partition
         if (
@@ -242,9 +271,32 @@ class BandPlans:
                 )
             cached = None
             published = 0
-            for tolerance in TOLERANCES:
+            source_seed = None
+            if source_fit:
+                source_seed = SourceBands(self.evidence, guard).seed(
+                    proposal.document,
+                    surface.id,
+                    main,
+                    style["fill-rule"],
+                    work,
+                    tolerance=self.tolerance or 0.75,
+                    width=self.evidence.filled_line_width or self.width,
+                )
+                if source_seed is None:
+                    continue
+            for tolerance in (self.tolerance or 0.75,) if source_fit else TOLERANCES:
                 _check(work)
-                model = invert(main, style["fill-rule"], work, tolerance=tolerance)
+                model = (
+                    replace(
+                        source_seed.band,
+                        geometry=transformed_geometry(
+                            source_seed.band.geometry,
+                            inverse_matrix(root_matrix(proposal.document, surface.id)),
+                        ),
+                    )
+                    if source_seed is not None
+                    else invert(main, style["fill-rule"], work, tolerance=tolerance)
+                )
                 if model is None:
                     break
                 if len(model.geometry.subpaths[0].nodes) >= len(main.subpaths[0].nodes):
@@ -255,7 +307,9 @@ class BandPlans:
                 delta = min(0.25, model.width * 0.1)
                 widths = (
                     (model.width,)
-                    if self.width_fixed or self.evidence.filled_line_width > 0
+                    if source_fit
+                    or self.width_fixed
+                    or self.evidence.filled_line_width > 0
                     else tuple(
                         model.width + delta * amount
                         for amount in (0, -1, -0.5, 0.5, 1)
@@ -265,9 +319,40 @@ class BandPlans:
                 for width in widths:
                     _check(work)
                     variant = replace(model, width=width)
-                    document = self.document(
-                        proposal.document, surface.id, newid, variant, marks, style
-                    )
+                    extra_ids, source_details = (), None
+                    if source_seed is not None:
+                        source_own = np.zeros_like(own)
+                        source_own[box.slices] = own[box.slices] & (mainalpha > 0.05)
+                        fitted = self.source_document(
+                            proposal,
+                            surface.id,
+                            newid,
+                            main,
+                            marks,
+                            style,
+                            source_seed,
+                            source_own,
+                            labels,
+                            guard,
+                            work,
+                        )
+                        if fitted is None:
+                            self.diagnostics["source_exclusions"] += 1
+                            continue
+                        document, extra_ids, source_details = fitted
+                        variant = replace(
+                            model,
+                            geometry=document.geometry_for(surface.id),
+                            width=float(
+                                path_style(document, document.element(surface.id))[
+                                    "stroke-width"
+                                ]
+                            ),
+                        )
+                    else:
+                        document = self.document(
+                            proposal.document, surface.id, newid, variant, marks, style
+                        )
                     comparison = guard.compare_observed(
                         before,
                         render(export_svg(document), self.evidence.source_size),
@@ -297,7 +382,31 @@ class BandPlans:
                     active = set(map(int, np.unique(newlabels))) - self.original.hidden
                     surfaces = []
                     for record in partition.surfaces:
-                        if record.id == surface.id:
+                        if record.id == surface.id or record.id in extra_ids:
+                            view, painted = box, bodyalpha
+                            if record.id != surface.id:
+                                record_style = path_style(
+                                    document, document.element(record.id)
+                                )
+                                coverage = self.coverage(
+                                    document,
+                                    record.id,
+                                    document.geometry_for(record.id),
+                                    np.isin(newlabels, record.members),
+                                    record_style["fill-rule"],
+                                    work,
+                                )
+                                if coverage is None:
+                                    self.diagnostics["bounded"] += 1
+                                    return
+                                view, rasterize = coverage
+                                painted = rasterize(
+                                    document.geometry_for(record.id),
+                                    float(record_style["stroke-width"])
+                                    if record_style["stroke"] != "none"
+                                    else None,
+                                    cap=record_style["stroke-linecap"],
+                                )
                             covered = tuple(
                                 sorted(
                                     (
@@ -305,8 +414,8 @@ class BandPlans:
                                             map(
                                                 int,
                                                 np.unique(
-                                                    newlabels[box.slices][
-                                                        bodyalpha > 1 / 255
+                                                    newlabels[view.slices][
+                                                        painted > 1 / 255
                                                     ]
                                                 ),
                                             )
@@ -322,7 +431,7 @@ class BandPlans:
                     # Import locally: proposals imports this optional generator.
                     from vectrify.refine.cel_plan.proposals import bounds
 
-                    ids = (*proposal.ids, newid)
+                    ids = tuple(dict.fromkeys((*proposal.ids, newid, *extra_ids)))
                     bb = bounds(state.document, document, ids)
                     proposal.component.validate(
                         state.document, document, old, partition, ids, bb, work
@@ -342,15 +451,27 @@ class BandPlans:
                         estimate=proposal.estimate
                         + len(model.geometry.subpaths[0].nodes)
                         + sum(len(s.nodes) for s in marks.subpaths)
-                        - old_nodes,
+                        - old_nodes
+                        + sum(
+                            sum(
+                                len(s.nodes)
+                                for s in document.geometry_for(oid).subpaths
+                            )
+                            - sum(
+                                len(s.nodes)
+                                for s in proposal.document.geometry_for(oid).subpaths
+                            )
+                            for oid in extra_ids
+                        ),
                         details={
                             **details,
                             "geometry_constraints": sorted(
                                 set(details.get("geometry_constraints", ()))
-                                | {surface.id, newid}
+                                | {surface.id, newid, *extra_ids}
                             ),
                             "chain_constraints": discard(
-                                details.get("chain_constraints"), (surface.id,)
+                                details.get("chain_constraints"),
+                                (surface.id, *extra_ids),
                             ),
                             "planned_band_stroke": {
                                 "id": surface.id,
@@ -358,12 +479,21 @@ class BandPlans:
                                 **({"contour": index} if isolated else {}),
                                 "tolerance": tolerance,
                                 "width": variant.width,
-                                "intrinsic_width": model.width,
+                                **(
+                                    {"intrinsic_width": model.width}
+                                    if source_seed is None
+                                    else {"source_width": source_seed.band.width}
+                                ),
                                 "stroke_nodes": len(model.geometry.subpaths[0].nodes),
                                 "exact_mark_contours": len(marks.subpaths),
                                 "inherited_unrepresented_source_pixels": inherited,
                                 "source_line_comparison": comparison,
                                 "ownership": "co-planned-from-material-ancestor",
+                                **(
+                                    {"source_fit": source_details}
+                                    if source_details is not None
+                                    else {}
+                                ),
                             },
                             **(
                                 {
@@ -394,6 +524,163 @@ class BandPlans:
                 if published:
                     return
 
+    def source_document(
+        self, proposal, oid, newid, main, marks, style, seed, own, labels, guard, work
+    ):
+        """Assemble source caps and adjacent material before bounded fitting."""
+        frame = root_matrix(proposal.document, oid)
+        linear = np.asarray(frame[:4]).reshape(2, 2).T
+        scale = float(np.linalg.norm(linear[:, 0]))
+        if scale <= 1e-12 or not np.allclose(
+            linear.T @ linear, np.eye(2) * scale**2, rtol=1e-8, atol=1e-10
+        ):
+            return None
+        model = replace(
+            seed.band,
+            geometry=transformed_geometry(seed.band.geometry, inverse_matrix(frame)),
+            width=seed.band.width / scale,
+        )
+        document = self.document(
+            proposal.document, oid, newid, model, marks, {**style, "fill": seed.paint}
+        )
+        nb = curve_path(transformed_geometry(main, frame)).bounds
+        parent = document.ancestry(oid)[-2].id
+        result = SourceCaps(guard).extend(
+            document,
+            (
+                s.id
+                for s in proposal.partition.surfaces
+                if s.id != oid and document.ancestry(s.id)[-2].id == parent
+            ),
+            nb,
+            work,
+        )
+        witnesses = ()
+        if result is not None:
+            document, witnesses = result
+        ids = [w["id"] for w in witnesses]
+        eligible = {
+            s.id: s
+            for s in proposal.partition.surfaces
+            if s.id != oid
+            and s.role != "underlay"
+            and document.ancestry(s.id)[-2].id == parent
+            and path_style(document, document.element(s.id))["stroke"] == "none"
+        }
+        lookup = {i: s.id for s in eligible.values() for i in s.members}
+        neighborhood = (
+            binary_dilation(own, iterations=4)
+            & ~own
+            & ~self.evidence.drawn
+            & ~self.evidence.empty
+        )
+        values, counts = np.unique(labels[neighborhood], return_counts=True)
+        votes = {}
+        for value, count in zip(values, counts, strict=True):
+            if int(value) in lookup:
+                target = lookup[int(value)]
+                votes[target] = votes.get(target, 0) + int(count)
+        continuation: dict[str, Any] | None = None
+        if votes:
+            target = max(votes, key=lambda k: (votes[k], k))
+            core = opaque_core(document, oid, main, self.evidence.source_size, work)
+            if core is None:
+                return None
+            result = PaintContinuation().extend(
+                document, oid, main, target, work, core=core, rule=style["fill-rule"]
+            )
+            if result is not None:
+                document, continuation = result
+                ids.append(target)
+        if self._source_fitter is None:
+            self._source_fitter = BandFit(self.evidence, guard)
+        result = self._source_fitter.fit(
+            proposal.document,
+            document,
+            oid,
+            seed,
+            work,
+            width_fixed=self.width_fixed or self.evidence.filled_line_width > 0,
+        )
+        if result is None:
+            return None
+        document, fit = result
+        if continuation is not None:
+            target = continuation["material"]
+            assert isinstance(target, str)
+            order = continuation["stroke_order"]
+            assert isinstance(order, tuple)
+            assert isinstance(order[0], int)
+            # Independently remove only the proposed paint/order change while
+            # retaining the fitted ink and recovered caps. Added material must
+            # neither change alpha nor paint outside old fill / actual body.
+            editor = Editor(document, selection=Selection(whole_document=True))
+            with editor.transaction("Check exact continuation complement") as tx:
+                tx.replace_geometry(target, proposal.document.geometry_for(target))
+                tx.reorder_object(oid, order[0])
+            _check(work)
+            native = _native_raster(
+                ET.fromstring(export_svg(document)), self.evidence.source_size
+            ).root
+            complement = _native_raster(
+                ET.fromstring(export_svg(editor.snapshot.document)),
+                self.evidence.source_size,
+            ).root
+            if not np.array_equal(native[..., 3], complement[..., 3]):
+                return None
+            root = ET.Element(
+                "{http://www.w3.org/2000/svg}svg",
+                {
+                    "width": str(self.evidence.source_size[0]),
+                    "height": str(self.evidence.source_size[1]),
+                },
+            )
+            oldfill = ET.SubElement(
+                root,
+                "{http://www.w3.org/2000/svg}path",
+                {
+                    "d": main.path_data(),
+                    "transform": "matrix(" + " ".join(map(str, frame)) + ")",
+                    "fill": "white",
+                    "fill-rule": style["fill-rule"],
+                },
+            )
+            allowed = _native_raster(root, self.evidence.source_size).root[..., 3] > 0
+            root.remove(oldfill)
+            ink_style = path_style(document, document.element(oid))
+            ET.SubElement(
+                root,
+                "{http://www.w3.org/2000/svg}path",
+                {
+                    "d": document.geometry_for(oid).path_data(),
+                    "transform": "matrix(" + " ".join(map(str, frame)) + ")",
+                    "fill": "none",
+                    "stroke": "white",
+                    "stroke-width": ink_style["stroke-width"],
+                    "stroke-linecap": "butt",
+                    "stroke-linejoin": "round",
+                },
+            )
+            allowed |= _native_raster(root, self.evidence.source_size).root[..., 3] > 0
+            _check(work)
+            if (np.any(native != complement, axis=-1) & ~allowed).any():
+                return None
+            continuation = {
+                **continuation,
+                "native_alpha_exact": True,
+                "native_footprint_exact": True,
+            }
+        return (
+            document,
+            tuple(dict.fromkeys(ids)),
+            {
+                "fit": fit,
+                "caps": witnesses,
+                "continuation": continuation,
+                "material_votes": votes,
+            },
+        )
+
     def coverage(self, document, oid, geometry, own, rule, work):
         e = self.evidence
         matrix = root_matrix(document, oid)
@@ -420,13 +707,13 @@ class BandPlans:
         ox, oy = e.offset
         frame = " ".join(str(v) for v in matrix)
 
-        def raster(shape, width=None):
+        def raster(shape, width=None, *, cap="butt"):
             _check(work)
             style = (
                 f'fill="white" fill-rule="{rule}"'
                 if width is None
                 else f'fill="none" stroke="white" stroke-width="{width}" '
-                'stroke-linecap="butt" stroke-linejoin="round"'
+                f'stroke-linecap="{cap}" stroke-linejoin="round"'
             )
             svg = (
                 f'<svg width="{box.right - box.x}" height="{box.bottom - box.y}" '

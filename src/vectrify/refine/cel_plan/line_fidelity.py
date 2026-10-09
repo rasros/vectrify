@@ -7,7 +7,7 @@ criteria. No geometry is generated or repaired by this module.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from scipy.ndimage import map_coordinates
@@ -40,6 +40,7 @@ class SourceBreaks:
     points: np.ndarray
     qualified: np.ndarray
     gaps: np.ndarray
+    anchors: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -332,6 +333,52 @@ def _endpoint_gap(a, b, end_a, end_b):
     return SourceProfile.at(np.array((first, last)), (width_a + width_b) / 2).dense()
 
 
+class FittingLines:
+    """Crop penalties for proposal fitting, never complete acceptance evidence."""
+
+    def __init__(self, prepared, bounds):
+        self._profiles, self.bounds = prepared, bounds
+        self._authority = object()
+        self.shape = (bounds[3] - bounds[1], bounds[2] - bounds[0], 4)
+
+    def observe(self, actual, *, work=None):
+        if (
+            actual.shape != self.shape
+            or not np.isfinite(actual).all()
+            or np.any((actual < 0) | (actual > 1))
+        ):
+            raise ValueError("Line fitting raster must match its finite native crop")
+        visible = actual[..., 3] > VISIBLE
+        errors, gaps = [], []
+        for record in self._profiles:
+            _check(work)
+            errors.append(_error(record, actual, visible))
+            gaps.append(_readonly(_gap_state(record, actual, visible)))
+        _check(work)
+        return LineObservation(self._authority, tuple(errors), tuple(gaps))
+
+    def penalty(self, before, after, *, work=None):
+        if (
+            not isinstance(before, LineObservation)
+            or before.authority is not self._authority
+        ):
+            raise ValueError("Line fitting observation belongs to another crop")
+        current = self.observe(after, work=work)
+        value = 0.0
+        for old, now, a, b in zip(
+            before.profiles, current.profiles, before.gaps, current.gaps, strict=True
+        ):
+            _check(work)
+            value += 1000 * max(
+                0, now.missing - old.missing - max(1, round(now.samples * 0.02))
+            )
+            value += 1000 * max(
+                0, now.maximum_missing_span - old.maximum_missing_span - 2
+            )
+            value += 10000 * int((b & ~a).sum())
+        return float(value)
+
+
 class SourceLineGuard:
     """Immutable source supports and one fixed, per-chain baseline allowance.
 
@@ -358,7 +405,15 @@ class SourceLineGuard:
             if measured is not None:
                 prepared.append(measured)
                 source.append(
-                    (raw, SourceBreaks(profile.points, measured[3], measured[4]))
+                    (
+                        raw,
+                        SourceBreaks(
+                            profile.points,
+                            measured[3],
+                            measured[4],
+                            _readonly(raw.points),
+                        ),
+                    )
                 )
         original = tuple(prepared)
         self.gap_profiles = 0
@@ -447,6 +502,45 @@ class SourceLineGuard:
         """
         _check(work)
         return tuple(original for original, _observed in self._source)
+
+    def fitting_crop(self, bounds, *, work=None):
+        """A bounded optimization hint using the unchanged original observations.
+
+        Qualification and negative evidence are copied, never remeasured against
+        a cropped source. This cannot accept an edit: publication still requires
+        complete native comparison against this original guard.
+        """
+        _check(work)
+        bounds = np.asarray(bounds)
+        if (
+            bounds.shape != (4,)
+            or not np.isfinite(bounds).all()
+            or not np.array_equal(bounds, np.floor(bounds))
+            or np.any(bounds[:2] < 0)
+            or np.any(bounds[2:] > self.shape[1::-1])
+            or np.any(bounds[2:] <= bounds[:2])
+        ):
+            raise ValueError("Line fitting requires an integer native crop")
+        prepared, count = [], 0
+        for record in self._profiles:
+            _check(work)
+            profile = record[0]
+            inside = (
+                (profile.points >= bounds[:2]) & (profile.points < bounds[2:])
+            ).all(axis=1)
+            if not inside.any():
+                continue
+            count += len(profile.points)
+            if count > 16_384 or len(prepared) >= 32:
+                return None
+            prepared.append(
+                (
+                    replace(profile, points=_readonly(profile.points - bounds[:2])),
+                    *record[1:],
+                )
+            )
+        _check(work)
+        return FittingLines(tuple(prepared), tuple(map(int, bounds)))
 
     def gap_centres(self, *, limit=MAX_SAMPLES, work=None):
         """Copy inspected raw absence positions for a bounded body constraint.

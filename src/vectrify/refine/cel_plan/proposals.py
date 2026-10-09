@@ -114,6 +114,8 @@ class Operators:
                 self._root.graph,
                 guard=self._root.band_guard,
                 width_fixed=options.line_width > 0,
+                width=options.line_width,
+                tolerance=options.tolerance,
             )
         self.opacity_fields = OpacityFields(evidence, graph)
         self.replacements = InkReplacement(evidence, graph, options)

@@ -21,6 +21,8 @@ from PIL import Image
 
 from scripts.bench_cel_planned import DATA, MANIFEST, source_hash
 from vectrify.document import export_svg, load_project, save_project
+from vectrify.document.join import transformed_geometry
+from vectrify.document.redraw import root_matrix
 from vectrify.project_file import decode_source
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.evidence import collect
@@ -119,6 +121,12 @@ def run(case, captured, output, *, seconds=180):
             "planned_band_strokes", [proposed.details["planned_band_stroke"]]
         )
         changed_ids = {item["id"] for item in converted}
+        fitted = proposed.details["planned_band_stroke"].get("source_fit", {})
+        caps = fitted.get("caps", ())
+        continuation = fitted.get("continuation")
+        changed_ids.update(witness["id"] for witness in caps)
+        if continuation is not None:
+            changed_ids.add(continuation["material"])
         for element in planned.elements():
             if (
                 element.tag == "path"
@@ -130,8 +138,15 @@ def run(case, captured, output, *, seconds=180):
                 )
             ):
                 raise ValueError("Co-planning changed independent material geometry")
+        # A later split can convert an earlier split's exact residual path.
+        # Reconstruct each residual from its own parent, in declaration order.
+        residuals = {
+            element.id: planned.geometry_for(element.id)
+            for element in planned.elements()
+            if element.tag == "path"
+        }
         for item in converted:
-            original = planned.geometry_for(item["id"])
+            original = residuals[item["id"]]
             contour_index = item.get(
                 "contour",
                 max(
@@ -139,17 +154,63 @@ def run(case, captured, output, *, seconds=180):
                     key=lambda i: len(original.subpaths[i].nodes),
                 ),
             )
-            remaining = proposed.document.geometry_for(item["marks"])
+            residuals[item["marks"]] = replace(
+                original,
+                subpaths=tuple(
+                    s for i, s in enumerate(original.subpaths) if i != contour_index
+                ),
+            )
+        for item in converted:
+            if item["marks"] in changed_ids:
+                continue
             if (
-                remaining.path_data()
-                != replace(
-                    original,
-                    subpaths=tuple(
-                        s for i, s in enumerate(original.subpaths) if i != contour_index
-                    ),
-                ).path_data()
+                proposed.document.geometry_for(item["marks"]).path_data()
+                != residuals[item["marks"]].path_data()
             ):
                 raise ValueError("Co-planning changed residual shade or mark geometry")
+        for oid in {witness["id"] for witness in caps}:
+            original = planned.geometry_for(oid)
+            actual_geometry = proposed.document.geometry_for(oid)
+            subs = list(actual_geometry.subpaths)
+            native_geometry = transformed_geometry(
+                actual_geometry, root_matrix(proposed.document, oid)
+            )
+            for witness in (w for w in caps if w["id"] == oid):
+                i = witness["contour"]
+                at = 0 if witness["end"] == "start" else -1
+                if not np.allclose(
+                    native_geometry.subpaths[i].nodes[at].endpoint,
+                    witness["to"],
+                    rtol=0,
+                    atol=1e-8,
+                ):
+                    raise ValueError("Recovered cap disagrees with its source witness")
+                nodes = list(subs[i].nodes)
+                nodes[at] = replace(
+                    nodes[at],
+                    values=(
+                        *nodes[at].values[:-2],
+                        *original.subpaths[i].nodes[at].endpoint,
+                    ),
+                )
+                subs[i] = replace(subs[i], nodes=tuple(nodes))
+            if replace(
+                actual_geometry, subpaths=tuple(subs)
+            ) != original or proposed.document.element(oid) != planned.element(oid):
+                raise ValueError("Cap recovery changed unrelated nodes or stroke style")
+        if continuation is not None:
+            oid = continuation["material"]
+            original = planned.geometry_for(oid)
+            actual_geometry = proposed.document.geometry_for(oid)
+            if (
+                actual_geometry.subpaths[: len(original.subpaths)] != original.subpaths
+                or proposed.document.element(oid) != planned.element(oid)
+                or not continuation["native_alpha_exact"]
+                or not continuation["native_footprint_exact"]
+            ):
+                raise ValueError(
+                    "Continuation changed original material or native alpha"
+                )
         name = f"candidate-{index}"
         frontier.add(svg, name, proposed.details)
         (output / f"{name}.svg").write_text(svg)
@@ -173,6 +234,7 @@ def run(case, captured, output, *, seconds=180):
                 "complete_component_validated": True,
                 "project_roundtrip_equal": True,
                 "all_other_paths_exact": True,
+                "source_fit": fitted,
                 "objective_delta": {
                     str(c): native.objective(c, frontier.normalizer)
                     - baseline.objective(c, frontier.normalizer)

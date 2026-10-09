@@ -19,6 +19,12 @@ connected strokes. Preserve this material candidate while improving source-only
 ink extraction, complete-chain coverage and continuity; the human raster repair
 still supplies no connections.
 
+The owner subsequently emphasized continuing on strokes rather than wrapping up
+on an error-score comparison. Actual editable centerlines, supported endpoint
+connections and removal of former filled outlines are the primary acceptance
+criteria for the next work. Raster-error measurements remain secondary
+diagnostics. Preserve the inspected shadows throughout that work.
+
 ### Owner feedback: preserve materials and fix stroke representation
 
 The owner inspected the actual fitted Detailed image and identified a large
@@ -58,6 +64,83 @@ junction continuity and real-gap preservation alongside native renders. Do not
 copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
+
+### Automatic source-profile fitting in the explicit band co-planner
+
+`SourceBands` now selects a unique complete original physical source profile
+for a separated ink contour. It uses copied source anchors and the original
+qualification/gap bank. Short fragments, ambiguous matches, observed internal
+gaps, unsupported frames and work bounds exclude the interpretation. Neither
+artwork identifiers nor the human redraw select its profile, paint or material.
+
+The explicit `Operators(filled_bands=True)` route assembles the stroke, exact
+residual marks, source-supported neighboring caps and adjacent-material
+continuation before fitting. `BandFit` moves at most 24 transverse parameters
+within two native pixels, retains physical endpoints and source corners, and
+keeps explicit width settings fixed. At most 600 evaluations share the caller's
+deadline/cancellation signal. Interrupted fitting publishes nothing. Complete
+original native painted-line and actual stroke-body checks precede owned ancestor
+replay. Material continuation independently proves exact composite alpha against
+its complement and confines pixel changes to removed fill / actual stroke body.
+
+The fitting renderer retains the full native viewport while culling only
+independent distant paths. A cropped viewport had changed 13 native pixels by
+up to 26/255 in a diagnostic; that version was rejected. Final fitting crops
+must equal independent full native renders exactly. One bounded parameter-vector
+cache reuses only identical source/painted contexts; complete native/body proofs
+run again for each sibling. Original line-bank observations remain frozen and
+are not remeasured from fitting crops or mutable identity records.
+
+The terminal replay at `.bench/cel-source-fitted-band-plans-final` preserves all
+eight preceding SVG/PNG/project/partition artifact sets byte-for-byte and emits
+four additional complete blade/guard/handle candidates. The handle is an actual
+four-node `fill="none"` stroke at native width 1.678925366437946. Its 29 residual
+shadow/mark contours, all original material curves/paint servers, and unrelated
+strokes remain exact. Two neighboring caps move within their own source
+intervals; ten exclusive material nodes continue the source-selected gradient
+under the removed fill. The complete drawing has 2,920 nodes / 415 contours /
+33 stroke contours / representation cost 5,696, with zero self-crossings.
+
+All twelve drawings pass native hard validity, original-graph ownership,
+component validation, 64-entry same-ancestor replay, exact local/native RGBA,
+score agreement (maximum 6.943e-10) and exact project reload. The new candidates
+retain 13,145 qualified / 1,628 missing inspected samples with zero newly
+completed painted gaps. A separate full-native white-body audit validates all
+404 original gap queries for the new handle. Its original endpoints remain
+exact; the top endpoint literally shares an existing stroke endpoint, while
+the lower endpoint has no literal neighbor. Complete supported junction
+coverage is not established, and the human's repaired connection stays absent.
+
+Only after terminal source-only generation, human evaluation measures the
+matching new/old bundle at MSE 521.989863 / 524.897535. The preserved filled
+material parent remains better at 508.055591. Across all twelve alternatives,
+the new bundles measure 510.696238 / 497.476653 / 502.187965 / 521.989863; these
+human measurements do not fit or select candidates. The unchanged common
+objective still selects the preceding blade/guard bundle at complexity 0/25
+and blade-only at 50/75/100. Representation-aware selection remains unfinished.
+
+Source/benchmark SHA-256 is
+`e12fef190f649df834c2dcf8080ff28f28ca1b7531abb94445bcd5e7aa7cbaf8`;
+independent audit driver SHA-256 is
+`dffa489c93fb764958b4faba1a34469394ace4473be4c285738d970b6f71c8f4`.
+Source raster and evaluation mask hashes remain
+`fdfc4bf6d6621f79994e82b113c7e726928d58508324208871b08528b0d6413f` and
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The final offline replay takes 157.15 seconds and peaks at 705,344 KiB RSS;
+an earlier replay takes 112.38 seconds with all twelve artifact sets byte-exact.
+Neither demonstrates the 60-second operation or process-memory release limits.
+The 233 relevant tests, Ruff/format checks and Pyrefly (zero errors, 63 warnings)
+pass. Tests cover frozen identity observations, ambiguity, rotation, partial
+opacity, fixed width, fractional native crop phase, cache invalidation, and
+cancellation inside the optimizer, in addition to existing ownership controls.
+
+This completes generic source-profile selection and automatic fitting within
+the explicit candidate constructor. Ordinary experimental High still leaves the
+flag off. Next improve supported junction composition and complete-chain
+coverage, then representation-aware selection and reliable operation scheduling
+within the existing budgets. Preserve the useful materials and original source
+gaps. New references and learned ranking remain deferred; every release gate
+and the full implementation goal remain open.
 
 ### Material continuation beneath the editable handle stroke
 
