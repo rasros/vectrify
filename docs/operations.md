@@ -151,6 +151,11 @@ refused only when shape is the sole step chosen. In the dialog, Add detail is
 on and Simplify is off when a reference is present; API callers retain the
 earlier defaults unless they explicitly set `detail=True, simplify=False`.
 Without a reference the dialog enables Simplify alone.
+The dialog uses backend defaults for all advanced values unless **Override
+advanced defaults** is on. Switching it off restores the displayed values and
+omits custom movement, tolerances, acceptance thresholds, time limits and
+shared-edge settings from the request. The chosen steps and view region still
+define what is tidied.
 
 During a gradient fit, Add detail subdivides long spans exactly, longest
 first, towards four reference pixels per span. It keeps every original point
