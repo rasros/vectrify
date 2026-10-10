@@ -30,6 +30,21 @@ class Job:
     def __init__(
         self, method: Method, request: OperationRequest, context_key: Any = None
     ):
+        import importlib
+
+        from vectrify.operations.settings import read_settings
+
+        module = importlib.import_module(type(method).__module__)
+        schema = getattr(module, "SETTINGS", None)
+        self.effective_settings = (
+            read_settings(request.settings, schema, method.name)
+            if schema is not None
+            else dict(request.settings)
+        )
+        if callable(resolve := getattr(module, "effective_settings", None)):
+            resolved = resolve(request)
+            assert isinstance(resolved, dict)
+            self.effective_settings = resolved
         method.validate(request)
         self.method = method
         self.request = request
@@ -112,6 +127,7 @@ class Job:
         with self._lock:
             state: dict[str, Any] = {
                 "id": self.id,
+                "effective_settings": self.effective_settings,
                 "action": self.method.action,
                 "method": self.method.name,
                 "status": self.status,

@@ -490,3 +490,129 @@ the agent reads them with `describe()` and never sets them.
 - `trace_reference` traces the reference at its own resolution there, at
   least 256 and at most 1024 pixels on the long side; finer detail needs a
   smaller region.
+
+### Job settings and diagnostics
+
+Call `settings_schema(action, method)` for the operation's JSON schema:
+`generate/cel`, `generate/colour-regions`, `generate/cel-planned`,
+`improve/nodes` (tidy), `improve/colours`, `improve/path-fit`, `snap/edges`
+and `simplify/cleanup`. The schema lists types, defaults, ranges, enums and
+interactions, with `additionalProperties=false`. Existing settings dictionaries
+remain supported; unknown keys and invalid values are rejected before starting
+work. Defaults are reported as `effective_settings` in every job reply.
+
+Proposal `diagnostics` are data, separate from tool guidance and pixel metrics.
+They list created/removed objects, node removal, straight-to-curve changes,
+endpoint movement, paint and stacking changes, detectable contour merge lineage,
+and pin violations. Node effects identify object, contour and node IDs.
+
+### Manual edit previews
+
+`edit_batch(edits=[{tool, args, as?}], region?, close_region?, label?)` stages up
+to 100 drawing edits without changing live state. Supported edits are object,
+paint, point, geometry and arrangement tools; history, reference and job calls
+are excluded. An optional `as` names an edit result, usable as `$name` in later
+arguments (for example `ids=["$new"]`). Each preview includes structured edit
+diagnostics and eight mapped views: before/after/reference/difference at normal
+size and close zoom. Specify `close_region` to inspect the intended feature;
+without it the central half is shown. Without a reference its view is white
+and `reference_available=false`.
+
+`edit_batch(action="apply", id=...)` commits one atomic undo entry after checking
+the staged document's affected fields, shared consumers, locks and coordinate
+frames. Unrelated changes merge; overlapping conflicts refuse the entire batch.
+`status` retrieves the preview and `discard` drops it. Up to 20 previews are
+retained per agent; opening another drawing expires them.
+
+### Linked outlines
+
+`linked_outline(id, colour="#000000", width=1, layer="Outlines")` creates or
+updates a stroke-only path sharing the source fill's geometry. A named root
+layer is placed above fills and shading. The source's effective transform is
+copied and width is in its local units. Node edits through either linked path
+include its geometry consumers and honor their locks; painting the fill keeps
+the outline and highlight strokes independent. `points` lists geometry users;
+`describe` lists `outline_source`, parents and document order. Existing
+`properties`, `arrange`, `convert(to="path")` and `delete` manage the outline;
+call `linked_outline` again to refresh its transform or move its named layer.
+Clipped sources are refused because relocating their clip would change paint.
+Shared geometry survives project save/reload. Use `edit_batch` to preview it.
+
+### Protected tips, corners and junctions
+
+`protect_features(points=[[object,node], ...], kind="tip"|"corner"|"junction")`
+marks explicit feature nodes. Protection keeps their position, identity and
+incoming/outgoing geometry, conservatively freezing neighboring nodes during
+Tidy. `kind="position"` fixes only the endpoint. A positional `pinned=true`
+still permits handle adjustment; feature protection is independent. Use
+`kind="none"` to release it, and save a project to retain it across reloads.
+
+Tidy rejects candidate steps violating protection and reports them in `skipped`;
+other unprotected curves may simplify. Redraw and other transactions refuse
+unsatisfiable feature changes with node IDs before committing. Batch diagnostics
+show rounded/moved/removed geometry and protected-feature violations. To redraw
+around a protected tip, use stretches ending before and starting after it.
+
+`trace_reference(protected_features=[{x,y,kind,reach?}, ...])` preserves explicit
+reference points in document coordinates. A tip/corner/junction attaches to a
+traced vertex within `reach` (default three inspection pixels), replaces it
+with the exact point and makes adjacent segments straight to preserve a cusp.
+It reports trace displacement and contour/node indices, or refuses unmatched
+points. Inspect the preview before adding the resulting paths and mark their
+corresponding nodes with `protect_features` for subsequent operations.
+
+### Edge comparison
+
+`compare(edge_aware=true, edge_threshold=0.05, edge_tolerance=1, close_region?)`
+keeps MSE separate from boundary displacement and edge precision/recall. Edges
+are nonmaximum-suppressed strongest RGB-channel Sobel gradients after 0.7 pixel
+Gaussian smoothing. The threshold is normalized gradient magnitude (0,1];
+edge tolerance is a document distance, independent of the crop's pixel scale.
+Metrics report inspection pixels and units per pixel; use the same region and
+resolution when comparing results. Precision/recall measure edge pixels within
+tolerance of the other image. Empty predicted/reference sets have precision/
+recall 1 respectively; displacement is null when a direction has no samples.
+Directional means, symmetric mean and p95 displacement are in document units.
+
+The annotated difference marks missing reference edges red, unmatched drawing
+edges orange, matches green, and duplicated components blue. A duplicate is a
+separate connected drawing edge component with at least 50% of its nearest
+reference support already covered by an earlier component; this is an explicit
+inspection heuristic, not a combined quality score. Reference and drawing PNGs
+accompany it. `close_region` adds the same views at up to 1024 pixels.
+
+`feature_checks=[{object,node,expected:[x,y],max_displacement:0,min_turn:30}]`
+checks explicit tips/corners against document coordinates and the turn between
+incoming/outgoing tangents in degrees. Position and corner pass results are
+separate; degenerate tangents or open endpoints have no corner turn. Protection
+metadata is reported alongside the checks.
+
+### Guided feature isolation
+
+Start with `isolate_feature(region=[x,y,w,h])` or `seed=[x,y], radius=12`.
+The annotated preview numbers candidate contours across objects and exposes
+source/contour IDs, effective paint, shared consumers, candidate fragment path
+data and boundary cuts. Membership is never inferred: stage with
+`members=[{object,contours:[id,...],role,include:true|false}]`. Roles are fill,
+shading, highlight, shadow and outline. Set a feature `name` and use
+`action="stage"` to return a normal/close batch preview; `edit_batch` applies or
+discards it atomically. The lower-level `isolate_components` performs the same
+explicit extraction directly and is also available inside a manual edit batch.
+
+Only the named contours are extracted. `cut=false` requires complete contours;
+`cut=true` permits crossing contours and reports their region boundary. Neighbors
+and excluded contours retain their geometry. Shared geometry requires explicit
+`detach=true`. The named group records a mapping to source objects/contours in
+inspection, SVG metadata and saved projects. Effective inherited paint and
+transforms are carried by the existing editor commands; component order is
+preserved. Grouping refuses crossing unrelated overlapping paint, group opacity
+or clipping that cannot be carried, and verifies identical rendering before and
+after gathering at two scales. Expand the region to include complete features or
+narrow membership when a refusal identifies an incompatible neighbor.
+
+Isolation diagnostics distinguish transferred nodes from removed nodes. Transform
+changes report movement in document coordinates; metadata changes do not count
+as paint edits. For complete contours, isolation also verifies unchanged paint
+before extraction, including compound fill/hole behavior. An existing transformed
+outline layer keeps the source alignment; layers with opacity or clipping require
+a different layer name.

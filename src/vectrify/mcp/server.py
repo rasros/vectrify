@@ -299,7 +299,132 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
             },
         )
 
+    @look
+    def isolate_feature(
+        action: Literal["inspect", "stage"] = "inspect",
+        region: Area | None = None,
+        seed: list[float] | None = None,
+        radius: float = 12,
+        members: list[dict[str, Any]] | None = None,
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> CallToolResult:
+        """Inspect multi-object feature candidates, explicitly choose membership, stage.
+
+        Begin with a region or seed point/radius. Candidates show contour IDs,
+        fragment paths, paint and boundary cuts. Each member must explicitly name
+        object, contours, role (fill/shading/highlight/shadow/outline), include.
+        Stage returns a batch preview and source mapping; edit_batch applies it.
+        cut=true permits boundary fragments; detach=true authorizes shared copies.
+        """
+        return state.call(
+            "isolate_feature",
+            {
+                "action": action,
+                "region": region,
+                "seed": seed,
+                "radius": radius,
+                "members": members,
+                "name": name,
+                "cut": cut,
+                "detach": detach,
+            },
+        )
+
+    @tool(structured_output=False)
+    def isolate_components(
+        region: Area,
+        members: list[dict[str, Any]],
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> CallToolResult:
+        """Extract explicit feature members as one named group. Prefer isolate_feature
+        with action=stage to inspect the result before applying. Refuses regrouping
+        that would change unrelated overlapping paint or stacking."""
+        return state.call(
+            "isolate_components",
+            {
+                "region": region,
+                "members": members,
+                "name": name,
+                "cut": cut,
+                "detach": detach,
+            },
+        )
+
+    @tool(structured_output=False)
+    def protect_features(
+        points: Points,
+        kind: Literal["position", "tip", "corner", "junction", "none"] = "corner",
+    ) -> CallToolResult:
+        """Protect explicit nodes from movement/removal and preserve corner geometry.
+
+        position fixes an endpoint; tip/corner/junction also freeze its incoming
+        and outgoing geometry. Positional pins still allow handle edits. none
+        explicitly releases feature protection. Save a project to preserve it.
+        """
+        return state.call("protect_features", {"points": points, "kind": kind})
+
+    @tool(structured_output=False)
+    def linked_outline(
+        id: str,  # noqa: A002
+        colour: str = "#000000",
+        width: float = 1.0,
+        layer: str = "Outlines",
+    ) -> CallToolResult:
+        """Create or update a stroke-only outline sharing a filled path's geometry.
+
+        The named top-level layer is placed above fills/shading. Width is in
+        source-local units; the source's effective transform is copied. Node
+        edits update both; describe/points report source and geometry users.
+        Call again to refresh placement/transform or configure colour/width.
+        """
+        return state.call(
+            "linked_outline",
+            {"id": id, "colour": colour, "width": width, "layer": layer},
+        )
+
+    @tool(structured_output=False)
+    def edit_batch(
+        action: Literal["stage", "status", "apply", "discard"] = "stage",
+        edits: list[dict[str, Any]] | None = None,
+        id: str | None = None,  # noqa: A002
+        region: Region | None = None,
+        close_region: Region | None = None,
+        label: str = "Edit batch",
+    ) -> CallToolResult:
+        """Stage drawing edits privately, inspect eight normal/close views, apply once.
+
+        edits=[{tool: 'properties', args: {ids: ['path'], fill: 'green'}}].
+        Each supported drawing edit can be staged; history/reference/job calls cannot.
+        An edit's optional `as` names its result; later arguments use '$name'.
+        Apply merges against the staged revision and refuses conflicts atomically.
+        """
+        return state.call(
+            "edit_batch",
+            {
+                "action": action,
+                "edits": edits,
+                "id": id,
+                "region": region,
+                "close_region": close_region,
+                "label": label,
+            },
+        )
+
     # Looking -----------------------------------------------------------
+
+    @look
+    def settings_schema(action: str, method: str) -> CallToolResult:
+        """Discover a job's JSON settings schema, defaults, ranges and interactions.
+
+        Use generate/cel, generate/colour-regions, generate/cel-planned,
+        improve/nodes (tidy), improve/colours, improve/path-fit,
+        snap/edges or simplify/cleanup. Unknown settings are refused before work.
+        """
+        return state.call("settings_schema", {"action": action, "method": method})
 
     @look
     def describe(
@@ -365,14 +490,35 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         region: Region | View | None = None,
         max_side: int | None = None,
         grid: bool = False,
+        edge_aware: bool = False,
+        edge_threshold: float = 0.05,
+        edge_tolerance: float = 1.0,
+        feature_checks: list[dict[str, Any]] | None = None,
+        close_region: Region | None = None,
     ) -> CallToolResult:
         """How far the drawing is from the reference, over region or all.
+
+        edge_aware adds separate boundary displacement, edge precision/recall,
+        missing/extra/duplicated edge annotation and reference/drawing crops.
+        edge_tolerance is in document units; edge_threshold is normalized RGB
+        gradient magnitude. feature_checks use object/node/expected [x,y],
+        max_displacement and min_turn (degrees). close_region adds a 1024px crop.
 
         Gives the mean squared error (0 is identical), the worst cells of a
         4 x 4 grid as regions to look at next, and a heat map (black agrees).
         """
         return state.call(
-            "compare", {"region": region, "max_side": max_side, "grid": grid}
+            "compare",
+            {
+                "region": region,
+                "max_side": max_side,
+                "grid": grid,
+                "edge_aware": edge_aware,
+                "edge_threshold": edge_threshold,
+                "edge_tolerance": edge_tolerance,
+                "feature_checks": feature_checks,
+                "close_region": close_region,
+            },
         )
 
     @look
@@ -392,6 +538,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         dark: bool = True,
         tolerance: float | None = None,
         min_area: float | None = None,
+        protected_features: list[dict[str, Any]] | None = None,
     ) -> CallToolResult:
         """Outlines of the reference's dark areas in region (luminance at
         most tolerance, default 0.35), or of the areas near colour (RGB
@@ -407,6 +554,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "dark": dark,
                 "tolerance": tolerance,
                 "min_area": min_area,
+                "protected_features": protected_features,
             },
         )
 

@@ -25,6 +25,7 @@ import base64
 import contextlib
 import io
 import itertools
+import json
 import math
 import time
 import xml.etree.ElementTree as ET
@@ -32,6 +33,7 @@ from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 from cairosvg.colors import color as css_colour
@@ -108,6 +110,9 @@ CONTOURS = 30
 # choosing its own targets for the session's checks; the agent keeps no
 # selection between calls, so there is no select tool.
 EDITS: dict[str, tuple[str, ...]] = {
+    "linked_outline": (),
+    "protect_features": (),
+    "isolate_components": (),
     "properties": ("paint", "rename", "locks"),
     "transform": ("resize", "move"),
     "arrange": ("reorder", "move_objects"),
@@ -158,6 +163,8 @@ LEFT_OUT = {
 LOOKS = frozenset(
     {
         "hello",
+        "settings_schema",
+        "isolate_feature",
         "describe",
         "render",
         "compare",
@@ -388,6 +395,7 @@ class Agent:
 
     def __init__(self, session):
         self.session = session
+        self._batches: OrderedDict[str, Any] = OrderedDict()
         self._renders: OrderedDict[tuple, Image.Image] = OrderedDict()
         self._index: tuple[tuple, HitIndex] | None = None
         self._svg: tuple[tuple, str] | None = None
@@ -431,8 +439,10 @@ class Agent:
         finally:
             self.last_time = time.monotonic()
         # A job's status only looks; its other actions change something.
-        looks = tool in LOOKS or (
-            tool == "job" and args.get("action", "status") == "status"
+        looks = (
+            tool in LOOKS
+            or (tool == "edit_batch" and args.get("action", "stage") != "apply")
+            or (tool == "job" and args.get("action", "status") == "status")
         )
         if not looks:
             self.changes += 1
@@ -609,11 +619,15 @@ class Agent:
         """The step selecting *ids*, the call's own targets."""
         return {"command": "select", "objects": ids}
 
-    @staticmethod
-    def _select_points(points: list[list[str]]) -> dict:
+    def _geometry_targets(self, ids: list[str]) -> list[str]:
+        from vectrify.ui.agent_outlines import linked_targets
+
+        return linked_targets(self.session.editor.snapshot.document, ids)
+
+    def _select_points(self, points: list[list[str]]) -> dict:
         return {
             "command": "select",
-            "objects": sorted({o for o, _ in points}),
+            "objects": self._geometry_targets(sorted({o for o, _ in points})),
             "nodes": sorted({n for _, n in points}),
         }
 
@@ -728,6 +742,18 @@ class Agent:
             max_side if max_side is not None else default
         )
 
+    def tool_settings_schema(self, _seen: Any, action: str, method: str) -> Reply:
+        from vectrify.operations.settings import settings_schema
+
+        return Reply(
+            {
+                **self._where(),
+                "action": action,
+                "method": method,
+                "schema": settings_schema(action, method),
+            }
+        )
+
     def tool_hello(self, _seen: Any) -> Reply:
         return Reply({**self._where(), "name": self.session.name})
 
@@ -761,6 +787,15 @@ class Agent:
         for key in ("locks", "inherited_locks"):
             if row[key]:
                 item[key] = row[key]
+        if attributes.get("data-vectrify-feature-sources"):
+            try:
+                item["feature_sources"] = json.loads(
+                    attributes["data-vectrify-feature-sources"]
+                )
+            except ValueError:
+                item["feature_sources"] = attributes["data-vectrify-feature-sources"]
+        if attributes.get("data-vectrify-outline-source"):
+            item["outline_source"] = attributes["data-vectrify-outline-source"]
         if row["shared"]:
             item["shared_geometry"] = True
         if row["resource"]:
@@ -1038,6 +1073,11 @@ class Agent:
         region: Any = None,
         max_side: int | None = None,
         grid: bool = False,
+        edge_aware: bool = False,
+        edge_threshold: float = 0.05,
+        edge_tolerance: float = 1.0,
+        feature_checks: list[dict] | None = None,
+        close_region: Any = None,
     ) -> Reply:
         """The mean squared error against the reference, a heat map of where
         they differ, and the worst cells of a 4 by 4 grid over the region."""
@@ -1074,16 +1114,47 @@ class Agent:
         heat = heat_map(np.sqrt(per_pixel))
         if grid:
             heat = agent_look.draw_grid(heat, box)
-        return Reply(
-            {
-                **self._where(),
-                "region": list(box),
-                "mse": round(float(per_pixel.mean()), 6),
-                "worst_cells": cells[:4],
-                "mapping": agent_look.mapping(box, size),
-            },
-            [("difference", _png(heat))],
-        )
+        data = {
+            **self._where(),
+            "region": list(box),
+            "mse": round(float(per_pixel.mean()), 6),
+            "worst_cells": cells[:4],
+            "mapping": agent_look.mapping(box, size),
+        }
+        images = [("difference", _png(heat))]
+        if edge_aware or feature_checks:
+            from vectrify.ui.agent_edges import compare_edges
+            from vectrify.ui.agent_edges import feature_checks as check_features
+
+            drawn = self._cached("drawing", box, size)
+            ref = self._cached("reference", box, size)
+            data["edges"], annotated = compare_edges(
+                drawn,
+                ref,
+                box,
+                _finite(edge_threshold, "edge_threshold"),
+                _finite(edge_tolerance, "edge_tolerance"),
+            )
+            data["feature_checks"] = check_features(
+                self.session.editor.snapshot.document, feature_checks or []
+            )
+            images += [
+                ("drawing", _png(drawn)),
+                ("reference", _png(ref)),
+                ("edge_difference", _png(annotated)),
+            ]
+        if close_region is not None:
+            close = self.tool_compare(
+                None,
+                region=close_region,
+                max_side=1024,
+                edge_aware=True,
+                edge_threshold=edge_threshold,
+                edge_tolerance=edge_tolerance,
+            )
+            data["close"] = close.data
+            images += [("close_" + name, png) for name, png in close.images]
+        return Reply(data, images)
 
     def _colours(self, at: tuple[float, float], reach: float) -> dict[str, Any]:
         """The drawing's and the reference's mean colour within *reach* of
@@ -1112,6 +1183,7 @@ class Agent:
         dark: bool = True,
         tolerance: float | None = None,
         min_area: float | None = None,
+        protected_features: list[dict] | None = None,
     ) -> Reply:
         """Outlines, in document units, of the reference's dark areas (or
         those near *colour*) in a region."""
@@ -1148,6 +1220,11 @@ class Agent:
             else 6
         )
         traced = agent_look.trace_areas(mask, box, min_pixels=min_pixels)
+        features = agent_look.protect_trace(
+            traced["shapes"],
+            protected_features or [],
+            max(box[2] / size[0], box[3] / size[1]),
+        )
         data = {
             **self._where(),
             "region": list(box),
@@ -1156,6 +1233,8 @@ class Agent:
             if rgb is None
             else f"within {limit} of {agent_look.hex_colour(rgb)}",
             **traced,
+            "protected_features": features,
+            "diagnostics": {"protected_feature_violations": []},
             "next": "Each shape's d is closed path data in document units, holes "
             "included: compare it with points(id, region=...) and move nodes "
             "with set_points, or draw it with add_path(d).",
@@ -1268,6 +1347,8 @@ class Agent:
                         item["local"] = values
                 if node.pinned:
                     item["pinned"] = True
+                if node.feature is not None:
+                    item["protected_feature"] = node.feature
                 row.setdefault("nodes", []).append(item)
             if page == 0 and nodes:
                 # Contours crossing the region with no node inside it.
@@ -1368,6 +1449,131 @@ class Agent:
             )
 
     # Editing ------------------------------------------------------------
+
+    def tool_isolate_feature(
+        self,
+        seen: Any,
+        action: str = "inspect",
+        region: Any = None,
+        seed: Any = None,
+        radius: float = 12,
+        members: Any = None,
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> Reply:
+        from vectrify.ui.agent_features import ROLES, inspect
+
+        if region is None:
+            if not isinstance(seed, list) or len(seed) != 2:
+                raise DocumentError("Start with a region or seed=[x,y]")
+            radius = _finite(radius, "radius")
+            if radius <= 0:
+                raise DocumentError("Seed radius must be positive")
+            x, y = (_finite(v, "seed coordinate") for v in seed)
+            region = [x - radius, y - radius, 2 * radius, 2 * radius]
+        polygon = region_polygon(region)
+        with self.session.lock:
+            if action == "inspect":
+                candidates, preview = inspect(self, polygon, cut)
+                return Reply(
+                    {
+                        **self._where(),
+                        "region": region,
+                        "candidates": candidates[:200],
+                        "more": max(0, len(candidates) - 200),
+                        "roles": sorted(ROLES),
+                        "membership_required": True,
+                    },
+                    [("candidate_contours", preview)],
+                )
+            if action != "stage":
+                raise DocumentError(
+                    "action is inspect or stage; use edit_batch to apply"
+                )
+            reply = self.tool_edit_batch(
+                seen,
+                edits=[
+                    {
+                        "tool": "isolate_components",
+                        "args": {
+                            "region": region,
+                            "members": members,
+                            "name": name,
+                            "cut": cut,
+                            "detach": detach,
+                        },
+                    }
+                ],
+                region=region,
+                close_region=region,
+                label=f"Isolate {name}",
+            )
+            reply.data["feature"] = reply.data["edits"][0]["feature"]
+            return reply
+
+    def tool_isolate_components(
+        self,
+        seen: Any,
+        region: Any,
+        members: Any,
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> Reply:
+        from vectrify.ui.agent_features import isolate
+
+        polygon = region_polygon(region)
+        feature = {}
+
+        def edit() -> None:
+            feature.update(isolate(self, polygon, members, name, cut, detach))
+
+        reply = self._edit(seen, [edit], f"Isolate {name}")
+        reply.data["feature"] = feature
+        return reply
+
+    def tool_protect_features(
+        self, seen: Any, points: Any, kind: str = "corner"
+    ) -> Reply:
+        pairs = _points(points)
+
+        def protect() -> None:
+            self.session.editor.protect_features(
+                ((p[0], p[1]) for p in pairs), None if kind == "none" else kind
+            )
+
+        return self._edit(
+            seen, [self._select_points(pairs), protect], "Protect features"
+        )
+
+    def tool_linked_outline(
+        self,
+        seen: Any,
+        id: str,  # noqa: A002
+        colour: str = "#000000",
+        width: float = 1.0,
+        layer: str = "Outlines",
+    ) -> Reply:
+        from vectrify.ui.agent_outlines import create
+
+        width = _finite(width, "width")
+        if width <= 0:
+            raise DocumentError("Outline width must be positive")
+        try:
+            css_colour(colour)
+        except Exception:
+            raise DocumentError("Give a CSS outline colour") from None
+        if not isinstance(layer, str) or not layer.strip():
+            raise DocumentError("Give a nonempty outline layer name")
+        relationship = {}
+
+        def edit() -> None:
+            relationship.update(create(self, id, colour, width, layer))
+
+        reply = self._edit(seen, [edit], "Linked outline")
+        reply.data["relationship"] = relationship
+        return reply
 
     def tool_properties(
         self,
@@ -2187,7 +2393,7 @@ class Agent:
         return self._edit(
             seen,
             [
-                self._select([id]),
+                lambda: self._select(self._geometry_targets([id])),
                 {
                     "command": "redraw_outline",
                     "object": id,
@@ -2246,6 +2452,117 @@ class Agent:
 
     # Operations ---------------------------------------------------------
 
+    def tool_edit_batch(
+        self,
+        seen: Any,
+        action: str = "stage",
+        edits: Any = None,
+        id: str | None = None,  # noqa: A002
+        region: Any = None,
+        close_region: Any = None,
+        label: str = "Edit batch",
+    ) -> Reply:
+        from vectrify.ui.agent_batches import Batch, resolve, views
+        from vectrify.ui.session import Session
+
+        session = self.session
+        with session.lock:
+            if action == "stage":
+                self._check_seen(seen)
+                if not isinstance(edits, list) or not 1 <= len(edits) <= 100:
+                    raise DocumentError("Give 1 to 100 edits with tool and args")
+                base = session.editor.snapshot_at(seen[1])
+                private = Session(base.document)
+                private.editor = session.editor.fork(seen[1], Selection())
+                private.reference = session.reference
+                planner = Agent(private)
+                aliases: dict[str, list[str]] = {}
+                results = []
+                allowed = set(EDITS) - {"undo", "redo", "set_reference"}
+                for edit in edits:
+                    if not isinstance(edit, dict) or edit.get("tool") not in allowed:
+                        raise DocumentError(
+                            "Batch edits must name a supported drawing edit"
+                        )
+                    args = resolve(edit.get("args", {}), aliases)
+                    if not isinstance(args, dict) or "seen" in args:
+                        raise DocumentError("Batch args must be an object without seen")
+                    reply = planner.call(
+                        edit["tool"],
+                        {
+                            **args,
+                            "seen": [private.epoch, private.editor.snapshot.revision],
+                        },
+                    )
+                    results.append(reply.data)
+                    if "as" in edit:
+                        alias = edit["as"]
+                        if not isinstance(alias, str) or alias in aliases:
+                            raise DocumentError("Give a unique string batch alias")
+                        aliases[alias] = reply.data.get("result", {}).get("objects", [])
+                after = private.editor.snapshot.document
+                summary, images = views(
+                    self, base.document, after, region, close_region
+                )
+                summary.update(
+                    edits=results, aliases=aliases, changed=after != base.document
+                )
+                key = uuid4().hex
+                self._batches[key] = Batch(
+                    session.epoch,
+                    base,
+                    after,
+                    str(label),
+                    session.reference,
+                    any(e["tool"] == "redraw_outline" for e in edits),
+                    summary,
+                    images,
+                )
+                while len(self._batches) > 20:
+                    self._batches.popitem(last=False)
+                return Reply(
+                    {**self._where(), "id": key, "status": "ready", **summary}, images
+                )
+            batch = self._batches.get(id or "")
+            if batch is None or batch.epoch != session.epoch:
+                raise DocumentError("This edit batch has expired")
+            if action == "status":
+                return Reply(
+                    {**self._where(), "id": id, "status": "ready", **batch.summary},
+                    batch.images,
+                )
+            if action == "discard":
+                del self._batches[id or ""]
+                return Reply({**self._where(), "discarded": True})
+            if action != "apply":
+                raise DocumentError("action is stage, status, apply or discard")
+            self._check_seen(seen)
+            if batch.uses_reference and batch.reference != session.reference:
+                raise DocumentError("The reference changed; stage the batch again")
+            if batch.after == batch.base.document:
+                raise DocumentError("This batch leaves the drawing unchanged")
+            with self._own_selection():
+                editor = session.editor
+                editor.author = "agent"
+                try:
+                    editor.merge(
+                        batch.base,
+                        batch.after,
+                        AGENT_PREFIX + batch.label,
+                        editor.snapshot.selection,
+                    )
+                finally:
+                    editor.author = "person"
+            del self._batches[id or ""]
+            return Reply(
+                {
+                    **self._where(),
+                    "changed": True,
+                    "edit_id": editor.undo_entries[-1].id,
+                    "diagnostics": batch.summary["diagnostics"],
+                }
+            )
+
     def _start(
         self,
         seen: Any,
@@ -2265,7 +2582,16 @@ class Agent:
             self._check_seen(seen)
             # The job works on the selection it starts with: the agent's own,
             # of its targets, which the person's then replaces again.
-            session.action({**self._select(ids), **self._where()})
+            session.action(
+                {
+                    **self._select(
+                        self._geometry_targets(ids)
+                        if permissions.get("geometry")
+                        else ids
+                    ),
+                    **self._where(),
+                }
+            )
             payload: dict[str, Any] = {
                 "command": "start",
                 **self._where(),
@@ -2355,6 +2681,8 @@ class Agent:
             settings["region"] = [
                 list(p) if isinstance(p, list | tuple) else p for p in region
             ]
+        if chosen["detail"] and not chosen["snap"]:
+            raise DocumentError("detail requires snap=true")
         structure = bool((chosen["snap"] and chosen["detail"]) or chosen["simplify"])
         return self._start(
             seen,
