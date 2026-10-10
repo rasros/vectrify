@@ -4,11 +4,45 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from itertools import pairwise
 
 import numpy as np
 
-from vectrify.document import Geometry
+from vectrify.document import Geometry, PathNode
+from vectrify.refine.crossings import bezier
 from vectrify.refine.snap import _Frame
+
+
+def _sample(nodes: tuple[PathNode, ...] | list[PathNode], frame: _Frame):
+    """Sample each segment at quarters, with arc distances in reference pixels."""
+    points, tangents = [], []
+    for previous, node in pairwise(nodes):
+        control = np.vstack((previous.endpoint, np.asarray(node.values).reshape(-1, 2)))
+        p, v = bezier(control, np.linspace(0, 1, 5))
+        points.extend(p[:-1])
+        tangents.extend(v[:-1])
+    last = nodes[-1]
+    endpoint = np.asarray(last.endpoint)
+    points.append(endpoint)
+    tangents.append(
+        3 * (endpoint - last.values[2:4])
+        if last.command == "C"
+        else endpoint - nodes[-2].endpoint
+    )
+    points = np.asarray(points)
+    pixels = frame.pixels(tuple(points.ravel()))
+    arc = np.r_[0, np.cumsum(np.linalg.norm(np.diff(pixels, axis=0), axis=1))]
+    return points, np.asarray(tangents), arc
+
+
+def _fitted(points: np.ndarray, target: np.ndarray, arc: np.ndarray):
+    """Fit a cubic to the observed edge, fixing the span's two endpoints."""
+    t = (arc / max(arc[-1], 1e-9))[:, None]
+    u = 1 - t
+    basis = np.hstack((3 * u * u * t, 3 * u * t * t))
+    fixed = u**3 * points[0] + t**3 * points[-1]
+    controls, *_ = np.linalg.lstsq(basis, target - fixed, rcond=None)
+    return controls, fixed + basis @ controls
 
 
 def cleaned(
@@ -19,6 +53,8 @@ def cleaned(
     held: frozenset[str],
     accept: Callable[[Geometry], bool],
     stopped: Callable[[], bool],
+    *,
+    guide: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
 ) -> Geometry:
     """Bridge short noisy spans without deleting their knots or changing IDs.
 
@@ -34,6 +70,10 @@ def cleaned(
         nodes = subpath.nodes
         endpoints = frame.pixels(tuple(v for n in nodes for v in n.endpoint))
         walked = np.r_[0, np.cumsum(np.linalg.norm(np.diff(endpoints, axis=0), axis=1))]
+        reference_samples = None
+        if guide is not None and len(nodes) > 1:
+            samples, tangents, arc = _sample(nodes, frame)
+            reference_samples = samples, guide(samples, tangents), arc
         last_start = -float("inf")
         for start in range(len(nodes) - 1):
             if stopped():
@@ -73,6 +113,20 @@ def cleaned(
                 if deviation > 0.15:
                     hull = float(np.linalg.norm(np.diff(pixels, axis=0), axis=1).sum())
                     priority = deviation * max(0.1, (hull - length) / max(length, 0.5))
+                    if reference_samples is not None:
+                        # Prefer spans that a smooth reference fit can repair.
+                        # A large, genuine bend must not consume the budget
+                        # simply because it has the largest control hull.
+                        samples, targets, arc = reference_samples
+                        section = slice(4 * start, 4 * end + 1)
+                        p, target = samples[section], targets[section]
+                        walked_section = arc[section] - arc[4 * start]
+                        _, fitted = _fitted(p, target, walked_section)
+                        gain = (
+                            np.square(p - target).sum()
+                            - np.square(fitted - target).sum()
+                        )
+                        priority = max(0, float(gain))
                     spans.append((-priority, si, start, end))
 
     for _, si, start, end in sorted(spans)[:128]:
@@ -110,12 +164,19 @@ def cleaned(
                 else chord / 3
             )
 
-        # Try a curve with the outside tangents first, then a straight bridge.
-        # Subdivide it at every retained knot instead of deleting those knots.
-        for c1, c2 in (
+        # Fit the reference first; the outside tangents and straight bridge
+        # remain alternatives. Subdivide at every retained knot.
+        models = [
             (a + arm(incoming), b - arm(outgoing)),
             (a + chord / 3, b - chord / 3),
-        ):
+        ]
+        if guide is not None:
+            samples, tangents, arc = _sample(nodes[start : end + 1], frame)
+            target = guide(samples, tangents)
+            fitted, _ = _fitted(samples, target, arc)
+            fractions = arc[::4] / max(arc[-1], 1e-9)
+            models.insert(0, tuple(fitted))
+        for c1, c2 in models:
 
             def at(t, a=a, b=b, c1=c1, c2=c2):
                 u = 1 - t

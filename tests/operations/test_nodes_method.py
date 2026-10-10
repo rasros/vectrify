@@ -166,8 +166,8 @@ def test_tidy_cleans_unsupported_dents_even_when_gradient_fitting_stalls(monkeyp
     old = document.geometry_for("p").subpaths[0].nodes
     new = ed.snapshot.document.geometry_for("p").subpaths[0].nodes
     assert [n.id for n in new] == [n.id for n in old]
-    assert new[2].endpoint == (18, 16)
-    assert new[8].endpoint == (44, 16)
+    assert new[2].endpoint == pytest.approx((18, 16), abs=1e-9)
+    assert new[8].endpoint == pytest.approx((44, 16), abs=1e-9)
     assert new[5].endpoint == (32, 20)
 
 
