@@ -628,6 +628,11 @@ def search(
                         structure,
                         visible_ids=visible_ids,
                         work=local_work,
+                        **(
+                            {"document": proposal.document, "partition": partition}
+                            if frontier.policy.editable_ink is not None
+                            else {}
+                        ),
                     )
                 except StageInterruptedError:
                     decision["rejections"] = ["local-search-interrupted"]
@@ -745,18 +750,30 @@ def search(
         ):
             continue
         began = time.monotonic()
-        frontier.checkpoint(
-            state.svg,
-            "Local structural search",
-            {
-                **state.details,
-                "local_edits": list(state.edits),
-                "local_search": True,
-                "local_revision": state.key,
-            },
-            state.snapshot.evaluation,
-            raster=state.snapshot.canvas,
-        )
+        try:
+            frontier.checkpoint(
+                state.svg,
+                "Local structural search",
+                {
+                    **state.details,
+                    "local_edits": list(state.edits),
+                    "local_search": True,
+                    "local_revision": state.key,
+                },
+                state.snapshot.evaluation,
+                raster=state.snapshot.canvas,
+                **(
+                    {
+                        "document": state.document,
+                        "partition": state.partition,
+                        "work": validation_work,
+                    }
+                    if frontier.policy.editable_ink is not None
+                    else {}
+                ),
+            )
+        except StageInterruptedError:
+            break
         validation_seconds += time.monotonic() - began
         checkpoints += 1
         if frontier.decisions[-1].get("rejections") in (

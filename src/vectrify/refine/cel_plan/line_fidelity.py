@@ -7,6 +7,7 @@ criteria. No geometry is generated or repaired by this module.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -441,6 +442,9 @@ class SourceLineGuard:
     def __init__(self, truth, profiles, *, work=None):
         self.shape = truth.shape
         self._validate(truth)
+        self._source_digest = hashlib.sha256(
+            np.ascontiguousarray(truth, dtype=np.float32).tobytes()
+        ).hexdigest()
         prepared = []
         source, body_windows = [], []
         count = 0
@@ -563,6 +567,10 @@ class SourceLineGuard:
         """
         _check(work)
         return tuple(original for original, _observed in self._source)
+
+    @property
+    def source_digest(self):
+        return self._source_digest
 
     def fitting_body(self, profile, bounds, *, work=None):
         """Copy a bounded stroke-only contract from this original source bank."""

@@ -8,7 +8,9 @@ and release tolerances remain separate benchmark artifacts.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 from PIL import Image
@@ -33,6 +35,12 @@ from vectrify.refine.cel_plan.score import (
     render,
     svg_metrics,
 )
+
+if TYPE_CHECKING:
+    from vectrify.document import Document
+    from vectrify.refine.cel_plan.editable_ink import EditableInk
+    from vectrify.refine.cel_plan.model import Work
+    from vectrify.refine.cel_plan.ownership import Partition
 
 
 @dataclass(frozen=True)
@@ -200,6 +208,7 @@ class Policy:
         ink: np.ndarray | None = None,
         texture: np.ndarray | None = None,
         weights: Weights | None = None,
+        editable_ink: EditableInk | None = None,
     ):
         if truth.ndim != 3 or truth.shape[2] != 4 or not np.isfinite(truth).all():
             raise ValueError("Score evidence must be finite RGBA")
@@ -208,6 +217,13 @@ class Policy:
         self.truth = np.array(truth, dtype=np.float32, copy=True)
         self.truth.flags.writeable = False
         self.weights = weights or Weights()
+        if editable_ink is not None and (
+            editable_ink.guard.shape != truth.shape
+            or editable_ink.guard.source_digest
+            != hashlib.sha256(self.truth.tobytes()).hexdigest()
+        ):
+            raise ValueError("Editable ink requires the original native source frame")
+        self.editable_ink = editable_ink
         self.alpha = truth[..., 3] > VISIBLE
         self.mask = foreground_mask(truth) | binary_dilation(self.alpha, iterations=4)
         self.area = max(1, int(self.alpha.sum()))
@@ -299,6 +315,7 @@ class Policy:
         graph: Graph,
         *,
         weights: Weights | None = None,
+        editable_ink: EditableInk | None = None,
     ) -> Policy:
         return cls(
             evidence.rgba,
@@ -306,6 +323,7 @@ class Policy:
             ink=source_field(evidence.drawn.astype(float), evidence) >= 0.5,
             texture=np.clip(source_field(evidence.texture, evidence), 0, 1),
             weights=weights,
+            editable_ink=editable_ink,
         )
 
     def _terms(self, actual: np.ndarray) -> dict[str, float]:
@@ -385,7 +403,55 @@ class Policy:
             "visual": visual,
         }
 
-    def evaluate(self, svg: str, *, pixels: np.ndarray | None = None) -> Evaluation:
+    def editable(
+        self,
+        svg: str,
+        evaluation: Evaluation,
+        *,
+        document: Document | None = None,
+        partition: Partition | None = None,
+        work: Work | None = None,
+    ) -> Evaluation:
+        """Apply the explicit experimental criterion, never alter cost or queries."""
+        if self.editable_ink is None:
+            return evaluation
+        from vectrify.document import export_svg, import_svg
+
+        if document is None:
+            if partition is not None and partition.families:
+                raise ValueError("Editable family scoring requires its native document")
+            document = import_svg(svg)
+        elif export_svg(document) != svg:
+            raise ValueError("Editable ink document does not match the scored SVG")
+        observed = self.editable_ink.observe(document, partition, work)
+        terms = dict(evaluation.terms)
+        raster = (
+            self.weights.color * terms["color"]
+            + self.weights.alpha * terms["alpha"]
+            + self.weights.edges * terms["edges"]
+            + self.weights.features * terms["features"]
+        )
+        terms["raster_visual"] = raster
+        terms["editable_ink_version"] = observed["version"]
+        terms["editable_ink_missing_fraction"] = observed["missing_fraction"]
+        terms["editable_ink_qualified_samples"] = observed["qualified_samples"]
+        terms["editable_ink_missing_samples"] = observed["missing_samples"]
+        terms["visual"] = raster + self.weights.detail * observed["missing_fraction"]
+        return Evaluation(
+            terms,
+            evaluation.structure,
+            (*evaluation.rejections, *observed["rejections"]),
+        )
+
+    def evaluate(
+        self,
+        svg: str,
+        *,
+        pixels: np.ndarray | None = None,
+        document: Document | None = None,
+        partition: Partition | None = None,
+        work: Work | None = None,
+    ) -> Evaluation:
         # svg_metrics imports and validates once before measurement/rendering.
         structure = svg_metrics(svg, include_crossings=True)
         actual = (
@@ -444,7 +510,13 @@ class Policy:
             ):
                 rejected.append("translucent-component-opacity-excess")
                 break
-        return Evaluation(terms, structure, tuple(rejected))
+        return self.editable(
+            svg,
+            Evaluation(terms, structure, tuple(rejected)),
+            document=document,
+            partition=partition,
+            work=work,
+        )
 
     def establish(self, evaluation: Evaluation) -> None:
         if self.baseline is not None:

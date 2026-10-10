@@ -373,6 +373,8 @@ class LocalPolicy:
         *,
         visible_ids: frozenset[str] | None = None,
         work: Work | None = None,
+        document=None,
+        partition=None,
     ) -> Snapshot:
         shape = self.policy.truth.shape
         changed = changed.expand(0, shape)
@@ -422,6 +424,17 @@ class LocalPolicy:
                 values.flags.writeable = False
                 patches.append(Patch(own, values))
             check()
+        if self.policy.editable_ink is not None:
+            stats = replace(
+                stats,
+                evaluation=self.policy.editable(
+                    svg,
+                    stats.evaluation,
+                    document=document,
+                    partition=partition,
+                    work=work,
+                ),
+            )
         return replace(
             stats,
             canvas=Canvas(before.canvas.root, (*before.canvas.patches, *patches)),
