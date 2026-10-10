@@ -244,6 +244,19 @@ def test_overlapping_opaque_genuine_strokes_keep_visible_quality_credit():
     assert quality.observe(before)["missing_samples"] == 0
 
 
+@pytest.mark.parametrize("paint", ["#eeeeee", "#dddddd", "rgba(0,0,0,0.04)"])
+def test_faint_paint_cannot_amplify_native_rounding_into_body_support(paint):
+    _, _, guard = bank(line())
+    opacity = "1" if paint.startswith("rgba") else "0.04"
+    before = import_svg(
+        '<svg width="96" height="96"><path d="M0 0H96V96H0Z" fill="white"/>'
+        f'<path id="ink" d="M16.5 32.5H80.5" fill="none" stroke="{paint}" '
+        f'stroke-width="2" stroke-opacity="{opacity}"/></svg>'
+    )
+    quality = EditableInk(guard, before, None)
+    assert quality.observe(before)["missing_samples"] == quality.qualified
+
+
 def fitted():
     state, _, evidence, options, guard, operator = attached_setup()
     assert state.partition is not None

@@ -170,8 +170,8 @@ class EditableInk:
     def _visible_body(self, document, ids, actual, work):
         """Measure each stroke through the full paint stack before pooling.
 
-        Whitening one solid stroke changes native luminance by its visible
-        alpha times its distance from white. That stroke alone must also darken
+        Black/white probes of one stroke measure its visible alpha directly,
+        without amplifying rounding for nearly white paint. It must also darken
         the non-ink backdrop: another stroke cannot lend it darkening, and
         duplicate ink does not lose credit merely because it covers more ink.
         Every probe retains non-ink paint and the complete opacity hierarchy.
@@ -189,14 +189,15 @@ class EditableInk:
             _check(work)
             style = path_style(document, document.element(oid))
             rgba = color(style["stroke"])
-            contrast = 1 - np.asarray(rgba[:3]) @ (0.2126, 0.7152, 0.0722)
-            if contrast <= 1 / 255:
+            if all(v == 1 for v in rgba[:3]):
                 continue
             root = ET.fromstring(svg)
             stroke = next(e for e in root.iter() if e.get("id") == oid)
             stroke.set("stroke", "white")
             stroke.set("stroke-opacity", repr(float(style["stroke-opacity"]) * rgba[3]))
             white = _native_raster(root, self.size).root
+            stroke.set("stroke", "black")
+            black = _native_raster(root, self.size).root
             original = paints[oid]
             if original is None:
                 strokes[oid].attrib.pop("stroke")
@@ -207,8 +208,7 @@ class EditableInk:
             for y in range(0, self.size[1], rows):
                 _check(work)
                 sl = slice(y, y + rows)
-                lum = _luminance(actual[sl])
-                body = np.clip((_luminance(white[sl]) - lum) / contrast, 0, 1)
+                body = np.clip(_luminance(white[sl]) - _luminance(black[sl]), 0, 1)
                 visible[sl] += body * (
                     _luminance(alone[sl]) < _luminance(background[sl])
                 )
