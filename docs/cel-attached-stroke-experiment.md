@@ -41,6 +41,16 @@ geometry remains excluded from attached-field conversion, which must not detach
 a linked fill/outline pair. The combined branch passes 186 focused MCP, editable
 ink, attached-proposal and source-family tests, Ruff and Pyrefly.
 
+The combined-main review also reproduces a protected-feature compatibility
+defect: giving the conversion owner a protected `position` node makes attached
+fitting raise `DocumentError` when it replaces the owner geometry. The generator
+does not catch that exception, so planning aborts instead of declining an
+unsupported interpretation. Protected owners must be rejected before fitting or
+their protected node identities must be preserved atomically. The reproduction
+and report are `protected-feature-repro.py` and `protected-feature-report.json`
+in the same review artifact directory. The previous sword candidate still passes
+its complete native/source/ownership/reload audit on the integrated branch.
+
 ## Complete construction
 
 `AttachedSpans` discovers complete opposing source fields, genuine sibling
