@@ -2925,7 +2925,7 @@ const NODE_STEPS = ['shape', 'detail', 'simplify'];
 const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
 const nodeSteps = () => {
   const steps = Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
-  return {...steps, snap:steps.shape};
+  return {...steps, detail:steps.shape && steps.detail, snap:steps.shape};
 };
 function syncNodeSteps() {
   const steps = nodeSteps();
@@ -2956,7 +2956,7 @@ const nodesDialog = jobDialog('nodes', {
         allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
         shared:$('nodes-shared').checked,
         seconds:Number($('nodes-seconds').value), ...(region ? {region} : {})},
-      budget:{steps:customRun ? Number($('nodes-rounds').value) : 1}};
+      budget:customRun ? {steps:Number($('nodes-rounds').value)} : {}};
   },
   describe: ({changed, metrics}) => {
     if (!changed) return 'No step improved the paths within these settings. They are unchanged.';
@@ -2984,7 +2984,11 @@ async function openTidy() {
   if (!targets) $('nodes-in-view').checked = true;
   $('nodes-in-view').disabled = !targets;
   // Fitting comes back on when a reference is added.
-  if (reference && $('nodes-shape').disabled) $('nodes-shape').checked = true;
+  if (reference && $('nodes-shape').disabled) {
+    $('nodes-shape').checked = true;
+    $('nodes-detail').checked = true;
+    $('nodes-simplify').checked = false;
+  }
   $('nodes-shape').disabled = !reference;
   if (!reference) $('nodes-shape').checked = false;
   if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }

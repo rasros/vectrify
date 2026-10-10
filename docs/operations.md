@@ -127,12 +127,12 @@ unless `contours=True` (used by cleanup) turns it into
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
 no other object shares. Its settings are the steps to use (`snap`,
-`simplify` and `shape`, on by default, and `detail` to allow adding points,
-each of which has to fix `detail_gain` reference pixels), Simplify's error
+`simplify` and `shape`, on by default for API callers, and `detail` to allow
+adding points), Simplify's error
 `budget` in percent (1 by default) and its `tolerance`, the most it may move
 an outline, in reference pixels (3 by default; without a reference, where
-no budget judges it, 1 unless set), each path fit's `steps` (20), `movement`
-(SVG units), `resolution` (384) and `stall` (0.5: the share in percent of
+no budget judges it, 1 unless set), each path fit's `steps` (60), `movement`
+(SVG units), `resolution` (384) and `stall` (0.1: the share in percent of
 its match a check, every tenth step, has to improve by for the fit to go
 on), `workers` (1 by default), the `gain` in percent of the local
 difference a step must fix (1 by default), the `allowance` in percent by
@@ -140,14 +140,26 @@ which the match where the run acted may be worse than at its start (1 by
 default), `seconds`, the run's time limit
 (10 by default), and the `margin` in percent of the selection's size that the
 reference region extends past it; the budget's `steps` is the most rounds (4
-by default).
+by default, including in the Tidy dialog).
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
 When `shape` and `snap` are both enabled, edge-seeking is part of the shape
 step rather than a competing round result. The dialog exposes this as
 **Fit path**. API callers can still request `shape=False, snap=True` for
 edge-seeking alone. Without PyTorch `shape` is left out and `snap` remains,
-refused only when shape is the sole step chosen. Add detail stays off by default.
+refused only when shape is the sole step chosen. In the dialog, Add detail is
+on and Simplify is off when a reference is present; API callers retain the
+earlier defaults unless they explicitly set `detail=True, simplify=False`.
+Without a reference the dialog enables Simplify alone.
+
+During a gradient fit, Add detail subdivides long spans exactly, longest
+first, towards four reference pixels per span. It keeps every original point
+and ID; a fit grows by at most its starting point count or sixteen points,
+with a ceiling of 512 (larger inputs are never truncated). Held and pinned
+spans stay untouched. New points are kept only with an improving fit, and
+their curves are retained rather than independently straightened. Snap-only
+and the fallback without PyTorch still propose missing features; each added
+feature point must fix `detail_gain` reference pixels.
 
 With `shared` (on by default) a selected path's edges that another path draws
 too move together (`refine.shared`): a cel trace draws the edge between two
@@ -174,6 +186,23 @@ curves are straightened where appropriate and shared neighbours follow before
 the result is rendered and judged against the reference. A path fit that no
 longer improves this actual result is discarded independently, preserving
 earlier improvements and giving the next fit the updated surrounding artwork.
+Repeated coincident knots and explicit closing endpoints move together during
+fitting, so zero-length segments cannot open into wedges. Curve handles are
+bounded relative to their segment's chord as well as by `movement`; short
+segments cannot grow long hooks. Existing overhanging arcs retain their original
+range, and concave outlines remain supported. These constraints also apply to
+joint fitting and the fixed-topology edge proposal inside a path fit.
+Smooth cubic joins retain one tangent and their original handle-length ratio.
+The knot, direction and length can move within the bounds; original line
+junctions and sharp corners remain free to develop their own tangents. A
+small bending penalty discourages handle wiggles from fitting isolated noisy
+pixels. Bounds and crossing rollbacks keep tied controls together, and an
+offending short span backs off locally rather than stalling the whole path.
+When an interior fill lies inside an opaque stroked sibling underneath it,
+the single-path fit protects the existing exterior and ink in its loss and
+exact-render score, preventing reference blur from rewarding overpainted
+borders. This relation is inferred in working pixels, including transforms
+and holes; translucent, clipped and ambiguous enclosures are skipped.
 
 `region` ([x, y, w, h] or a polygon [[x, y], ...] in document units) confines
 a run to an area: it acts on the selected paths, or with nothing selected on

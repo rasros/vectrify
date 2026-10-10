@@ -443,6 +443,7 @@ def fit_selected_path(
     *,
     stop: Event | None = None,
     progress: Callable[[int, str], None] | None = None,
+    corners: frozenset[str] = frozenset(),
 ) -> FitResult:
     """Expose the path-fit mutator's filled-path optimizer for an explicit selection."""
     problem = fit_problem()
@@ -524,6 +525,7 @@ def fit_selected_path(
         movable,
         options.displacement,
         stroke_only=context.stroke_only,
+        corners=corners,
     )
     counts = parameters.counts
     controls_from_local = parameters.controls_from_local
@@ -559,11 +561,47 @@ def fit_selected_path(
     )
 
     def score(image):
-        error = (context.array(image) - context.array(context.target)) ** 2
+        pixels = context.array(image)
+        error = (pixels - context.array(context.target)) ** 2
+        if protected is not None:
+            error += (
+                8
+                * protected[..., None]
+                * (pixels - context.array(context.before_image)) ** 2
+            )
         if context.alpha:
             # Mean RGB error and opacity error each contribute half the score.
             return float(np.mean((error[:, :, :3].sum(-1) + 3 * error[:, :, 3]) / 6))
         return float(np.mean(error))
+
+    from vectrify.refine.enclosure import protected_pixels
+    from vectrify.refine.snap import _Frame
+
+    protected = protected_pixels(
+        document,
+        context.oid,
+        context.geometry,
+        _Frame(
+            context.linear * context.scale[:, None],
+            (context.offset - context.crop[:2]) * context.scale,
+        ),
+        context.size,
+    )
+    loss_transform = None
+    if protected is not None:
+        held_pixels = original.new_tensor(protected)[..., None].bool()
+        weights = torch.where(held_pixels, 3.0, 1.0)
+        previous_pixels = None
+
+        def loss_transform(rendered, goal, _step):
+            nonlocal previous_pixels
+            if previous_pixels is None:
+                # Keep the renderer's own starting coverage. Comparing its
+                # soft antialiasing to Cairo here would bias a stationary edge.
+                previous_pixels = rendered.detach().clone()
+            return rendered * weights, torch.where(
+                held_pixels, previous_pixels, goal
+            ) * weights
 
     before = best = checked = score(context.before_image)
     best_values, best_fill, best_image = {}, None, context.before_image
@@ -574,6 +612,7 @@ def fit_selected_path(
     owners = np.repeat(
         np.arange(len(context.nodes)), [len(n.values) // 2 for n in context.nodes]
     )
+    coupled = parameters.coupled.cpu().numpy()
     # Where the outline last stood without crossing itself more than at first.
     unfolded = context.local
 
@@ -586,6 +625,8 @@ def fit_selected_path(
             if count <= folds:
                 break
             back = np.isin(owners, [node_index[i] for i in crossed])
+            # A rollback must keep a smooth knot and both arms together too.
+            back = np.isin(coupled, coupled[back])
             if attempt > HALVINGS:
                 back[:] = True
             share = 0.5 if attempt < HALVINGS else 1.0
@@ -598,7 +639,9 @@ def fit_selected_path(
     # from the original geometry so a poor heuristic cannot trap it in a worse
     # basin; exact rendering chooses between both approaches.
     if seed is not original:
-        coordinates = context.local + (seed - original).cpu().numpy()
+        with torch.no_grad():
+            bounded_seed = local_from_controls([controls_from_local(seed)])
+        coordinates = context.local + (bounded_seed - original).cpu().numpy()
         _, values, geometry = unfold(coordinates)
         paint = color(
             context.style["stroke"] if context.stroke_only else context.style["fill"]
@@ -759,6 +802,13 @@ def fit_selected_path(
         monolithic=True,
         fit_context=(context.base, context.delta, context.transmission),
         project_controls=project,
+        control_transform=lambda paths: [
+            controls_from_local(local_from_controls(paths))
+        ],
+        control_loss=(lambda paths: 0.001 * parameters.bending_loss(paths[0]))
+        if not context.stroke_only
+        else None,
+        loss_transform=loss_transform,
         observe=observe,
         coverage_transform=include_stroke
         if context.style["stroke"] != "none"
