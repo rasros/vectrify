@@ -51,6 +51,15 @@ and report are `protected-feature-repro.py` and `protected-feature-report.json`
 in the same review artifact directory. The previous sword candidate still passes
 its complete native/source/ownership/reload audit on the integrated branch.
 
+Merged [PR #329](https://github.com/rasros/vectrify/pull/329), the requested
+integration target, is now included from `main`. Its detail subdivision,
+coupled smooth tangents, bounded handles and enclosure protection integrate
+without conflicts. The combined branch passes 290 focused tests (20 skipped),
+Ruff and Pyrefly. The saved sword compatibility audit again proves native
+alpha/locality, original ownership, source body/gaps and exact native/metadata
+reload. This is compatibility validation of the existing candidate, not fresh
+generation; both independent-review findings above remain open.
+
 ## Complete construction
 
 `AttachedSpans` discovers complete opposing source fields, genuine sibling
