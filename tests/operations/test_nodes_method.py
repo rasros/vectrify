@@ -141,6 +141,36 @@ def test_tidy_fits_repeated_closing_knots_without_opening_spikes():
     assert crossings(geometry) == 0
 
 
+def test_tidy_cleans_unsupported_dents_even_when_gradient_fitting_stalls(monkeypatch):
+    pytest.importorskip("torch")
+    source = (
+        '<svg width="64" height="64"><rect width="64" height="64" fill="white"/>'
+        '<path id="p" fill="black" d="M8 16 L16 16 L18 18 L20 16 L28 16 '
+        'L32 20 L36 16 L42 16 L44 18 L46 16 L56 16 L56 56 L8 56 Z"/></svg>'
+    )
+    target = source.replace("L18 18", "L18 16").replace("L44 18", "L44 16")
+    document = import_svg(source)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
+    monkeypatch.setattr(
+        "vectrify.refine.paths.fit_filled_svg", lambda svg, *_args, **_kwargs: svg
+    )
+    req = replace(
+        request(ed, steps=1),
+        reference=render_image(target, (0, 0, 64, 64), (64, 64)),
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    result = job.state()["result"]
+    assert result["changed"]
+    job.apply()
+    old = document.geometry_for("p").subpaths[0].nodes
+    new = ed.snapshot.document.geometry_for("p").subpaths[0].nodes
+    assert [n.id for n in new] == [n.id for n in old]
+    assert new[2].endpoint == (18, 16)
+    assert new[8].endpoint == (44, 16)
+    assert new[5].endpoint == (32, 20)
+
+
 def test_simplify_without_a_reference_removes_points_and_keeps_the_look():
     ed = editor("p")
     job = Job(

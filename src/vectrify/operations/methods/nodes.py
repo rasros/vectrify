@@ -648,6 +648,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         resolution=settings["resolution"],
         stall=settings["stall"] / 100,
         snap=settings["snap"],
+        cleanup=True,
     )
     skipped: dict[str, str] = {}
     from vectrify.refine.lines import is_line

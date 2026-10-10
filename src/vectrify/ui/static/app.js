@@ -2922,6 +2922,7 @@ const operation = (command, body) => request('/api/operation', {command, ...body
 // Tidy combines edge-seeking and gradient fitting in Fit path, alongside
 // Simplify (the operation's method is still called nodes).
 const NODE_STEPS = ['shape', 'detail', 'simplify'];
+const NODE_OVERRIDES = ['tolerance', 'movement', 'detail-gain', 'margin', 'budget', 'rounds', 'workers', 'steps', 'gain', 'seconds', 'allowance'];
 const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
 const nodeSteps = () => {
   const steps = Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
@@ -2929,16 +2930,17 @@ const nodeSteps = () => {
 };
 function syncNodeSteps() {
   const steps = nodeSteps();
+  const customRun = $('nodes-custom-run').checked;
+  for (const setting of NODE_OVERRIDES) $('nodes-'+setting).disabled = !customRun;
+  $('nodes-shared').disabled = !customRun;
   $('nodes-detail').disabled = !steps.shape || !state.reference;
-  $('nodes-detail-gain').disabled = !steps.shape || !steps.detail;
   // A step that is off keeps its options visible but dimmed.
   for (const card of document.querySelectorAll('#nodes-settings .step-card[data-step]')) {
     const on = steps[card.dataset.step];
     card.classList.toggle('off', !on);
-    for (const input of card.querySelectorAll('.two-fields input')) if (input.id !== 'nodes-detail' && input.id !== 'nodes-detail-gain') input.disabled = !on;
+    for (const input of card.querySelectorAll('.two-fields input')) if (input.id !== 'nodes-detail') input.disabled = !customRun || !on;
   }
-  const customRun = $('nodes-custom-run').checked;
-  for (const id of ['nodes-rounds', 'nodes-workers']) $(id).disabled = !customRun;
+  $('nodes-detail-gain').disabled = !customRun || !steps.shape || !steps.detail;
   $('nodes-steps').disabled = !customRun || !steps.shape;
   $('nodes-apply').hidden = true; $('nodes-previews').hidden = true;
 }
@@ -2949,13 +2951,13 @@ const nodesDialog = jobDialog('nodes', {
     const region = $('nodes-in-view').checked ? viewReport()?.region : null;
     return {action:'improve', method:'nodes', scope:'selection',
       permissions:{geometry:true, structure:(steps.shape && steps.detail) || steps.simplify, paint:true},
-      settings:{...steps, tolerance:Number($('nodes-tolerance').value),
+      settings:{...steps, ...(customRun ? {tolerance:Number($('nodes-tolerance').value),
         movement:Number($('nodes-movement').value),
-        ...(customRun ? {steps:Number($('nodes-steps').value), workers:Number($('nodes-workers').value)} : {}),
+        steps:Number($('nodes-steps').value), workers:Number($('nodes-workers').value),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
         allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
         shared:$('nodes-shared').checked,
-        seconds:Number($('nodes-seconds').value), ...(region ? {region} : {})},
+        seconds:Number($('nodes-seconds').value)} : {}), ...(region ? {region} : {})},
       budget:customRun ? {steps:Number($('nodes-rounds').value)} : {}};
   },
   describe: ({changed, metrics}) => {
@@ -2972,7 +2974,16 @@ const nodesDialog = jobDialog('nodes', {
   applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
-$('nodes-custom-run').addEventListener('change', syncNodeSteps);
+$('nodes-custom-run').addEventListener('change', () => {
+  if (!$('nodes-custom-run').checked) {
+    for (const setting of NODE_OVERRIDES) {
+      const input = $('nodes-'+setting);
+      input.value = setting === 'tolerance' && !state.reference ? '1' : input.defaultValue;
+    }
+    $('nodes-shared').checked = $('nodes-shared').defaultChecked;
+  }
+  syncNodeSteps();
+});
 for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 // Whether paths, or groups that may hold them, are selected for Tidy.
 const tidyTargets = () => state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag));

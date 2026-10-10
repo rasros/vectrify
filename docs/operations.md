@@ -151,6 +151,11 @@ refused only when shape is the sole step chosen. In the dialog, Add detail is
 on and Simplify is off when a reference is present; API callers retain the
 earlier defaults unless they explicitly set `detail=True, simplify=False`.
 Without a reference the dialog enables Simplify alone.
+The dialog uses backend defaults for all advanced values unless **Override
+advanced defaults** is on. Switching it off restores the displayed values and
+omits custom movement, tolerances, acceptance thresholds, time limits and
+shared-edge settings from the request. The chosen steps and view region still
+define what is tidied.
 
 During a gradient fit, Add detail subdivides long spans exactly, longest
 first, towards four reference pixels per span. It keeps every original point
@@ -198,6 +203,12 @@ junctions and sharp corners remain free to develop their own tangents. A
 small bending penalty discourages handle wiggles from fitting isolated noisy
 pixels. Bounds and crossing rollbacks keep tied controls together, and an
 offending short span backs off locally rather than stalling the whole path.
+Tidy's single-path fit then tests short local bridges against the exact
+reference render. These remove unsupported dents and handle wiggles without
+deleting points or changing their IDs. Each bridge must improve the match and
+cannot add crossings; pins, protected features, region holds and `movement`
+still apply. Real notches and tips are retained when bridging them would make
+the reference match worse. The pass shares the fit's time limit.
 When an interior fill lies inside an opaque stroked sibling underneath it,
 the single-path fit protects the existing exterior and ink in its loss and
 exact-render score, preventing reference blur from rewarding overpainted
@@ -256,7 +267,8 @@ Simplify gets. Without a reference Simplify is judged against the drawing itself
 only its tolerance bounds it. A
 step's result is not eligible when any path crosses itself more than before
 the step (`refine.crossings.crossings`: each contour drawn as a polyline,
-cubics at 8 points, every pair of non-neighbouring lines that properly cross
+cubics sampled to bound chord approximation error rather than at a fixed
+eight points, every pair of non-neighbouring lines that properly cross
 counting once, so a bow-tie counts 1, a looped cubic 1 and a concave outline
 0); such steps are counted under `folded` in the metrics. With more than one
 worker, Snap and Simplify run in spawned processes while the path fit runs in

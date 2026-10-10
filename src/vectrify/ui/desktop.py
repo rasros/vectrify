@@ -102,9 +102,12 @@ class Api:
     def save(self, name: str, content: str, encoding: str | None = None) -> str | None:
         """Ask where to save *content*; the chosen path, or None if cancelled."""
         webview = importlib.import_module("webview")
-        chosen = self._window.create_file_dialog(
-            webview.SAVE_DIALOG, save_filename=name
+        file_dialog = getattr(webview, "FileDialog", None)
+        # pywebview 5 is still supported; only newer releases have the enum.
+        save_dialog = (
+            file_dialog.SAVE if file_dialog is not None else webview.SAVE_DIALOG
         )
+        chosen = self._window.create_file_dialog(save_dialog, save_filename=name)
         if not chosen:
             return None
         path = Path(chosen if isinstance(chosen, str) else chosen[0])

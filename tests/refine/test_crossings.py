@@ -51,6 +51,18 @@ def test_a_cubic_tied_into_a_loop_crosses_itself():
     assert crossings(geometry("M0 0 C5 30 15 30 20 0")) == 0
 
 
+def test_a_small_loop_is_detected_before_and_after_exact_subdivision():
+    from vectrify.refine.detail import densified
+    from vectrify.refine.snap import _Frame
+
+    loop = geometry("M0 0 C5.830528 3.348218 -18.164125 10.666568 10 0")
+    # Eight samples miss this loop near the beginning of the cubic.
+    assert crossings(loop, samples=8) == 0
+    assert crossings(loop) == 1
+    dense = densified(loop, _Frame(np.eye(2), np.zeros(2)), spacing=1)
+    assert crossings(dense) == 1
+
+
 def test_separate_contours_and_touching_lines_do_not_count():
     assert crossings(geometry(SQUARE + " M20 20 L60 20 L60 60 Z")) == 0
     # A U whose arms come close, and a line doubling back along itself.

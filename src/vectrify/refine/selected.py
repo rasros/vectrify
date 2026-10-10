@@ -57,11 +57,13 @@ class FitOptions:
     stall: float = 0.0
     # Compare a bounded edge-seeking proposal alongside gradient fitting.
     snap: bool = True
+    # Tidy additionally tests short bridges against the exact reference.
+    cleanup: bool = False
 
     def __post_init__(self):
         if any(
             type(v) is not bool
-            for v in (self.nodes, self.handles, self.color, self.snap)
+            for v in (self.nodes, self.handles, self.color, self.snap, self.cleanup)
         ):
             raise DocumentError("Edit permissions must be on or off")
         if not (self.nodes or self.handles or self.color):
@@ -815,6 +817,70 @@ def fit_selected_path(
         else None,
         device=device,
     )
+    if (
+        options.cleanup
+        and options.nodes
+        and options.handles
+        and not context.stroke_only
+    ):
+        from vectrify.refine.cleanup import cleaned
+        from vectrify.refine.snap import _Frame
+
+        held = frozenset(
+            n.id
+            for n in context.nodes
+            if (selection.node_ids and n.id not in selection.node_ids)
+            or n.pinned
+            or n.feature is not None
+        )
+        geometry = replace(
+            context.geometry,
+            subpaths=tuple(
+                replace(
+                    s,
+                    nodes=tuple(
+                        replace(n, values=best_values.get(n.id, n.values))
+                        for n in s.nodes
+                    ),
+                )
+                for s in context.geometry.subpaths
+            ),
+        )
+        paint = color(context.style["fill"])
+        bridge_folds = crossings(geometry)
+        original_values = {n.id: n.values for n in context.nodes}
+
+        def accept_bridge(candidate):
+            nonlocal best, best_values, best_image, bridge_folds
+            count = crossings(candidate)
+            if count > bridge_folds:
+                return False
+            rgb = color(best_fill)[:3] if best_fill is not None else paint[:3]
+            _, image = context.candidate(candidate, np.array(rgb), options)
+            actual = score(image)
+            if actual >= best:
+                return False
+            best, best_image = actual, image
+            bridge_folds = count
+            best_values = {
+                n.id: n.values
+                for s in candidate.subpaths
+                for n in s.nodes
+                if n.values != original_values[n.id]
+            }
+            return True
+
+        vx, vy, vw, vh = document.artboard()
+        pixels = np.diag([target.width / vw, target.height / vh])
+        cleaned(
+            geometry,
+            context.geometry,
+            _Frame(pixels @ context.linear, pixels @ (context.offset - [vx, vy])),
+            options.displacement,
+            held,
+            accept_bridge,
+            stop.is_set,
+        )
     return FitResult(
         context.oid,
         best_values,
