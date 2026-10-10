@@ -21,12 +21,12 @@ from vectrify.refine.cel_plan.attached_outlines import AttachedOutlines
 from vectrify.refine.cel_plan.editable_ink import EditableInk
 from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
-from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import StageInterruptedError, Work
+from vectrify.refine.cel_plan.local import Box, LocalPolicy
+from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.score import render, representation
-from vectrify.refine.cel_plan.search import identity, search
+from vectrify.refine.cel_plan.search import Proposal, identity, search
 
 
 def line(path="M16.5 32.5H80.5", *, opacity=1, extra=""):
@@ -163,6 +163,85 @@ def test_shared_group_opacity_is_counted_once():
     quality = EditableInk(guard, before, None)
     observed = quality.observe(before)
     assert observed["missing_samples"] == observed["qualified_samples"]
+
+
+@pytest.mark.parametrize("kind", ["hidden", "same-background", "white"])
+def test_invisible_stroke_cannot_borrow_a_faint_overlapping_strokes_visibility(kind):
+    truth, _, guard = bank(line())
+    paint = {"hidden": "#111111", "same-background": "#c2a46d", "white": "white"}[kind]
+    cover = (
+        '<path id="cover" d="M0 0H96V96H0Z" fill="#c2a46d"/>'
+        if kind == "hidden"
+        else ""
+    )
+    before = import_svg(
+        '<svg width="96" height="96">'
+        '<path id="bg" d="M0 0H96V96H0Z" fill="#c2a46d"/>'
+        f'<path id="ink" d="M16.5 64.5H80.5" fill="none" stroke="{paint}" '
+        'stroke-width="2"/>'
+        + cover
+        + '<path id="faint" d="M16.5 32.5H80.5" fill="none" '
+        'stroke="#111111" stroke-width="2" stroke-opacity="0.04"/></svg>'
+    )
+    after = change(before, path="M16.5 32.5H80.5")
+    if kind != "white":
+        np.testing.assert_array_equal(
+            render(export_svg(before), (96, 96)), render(export_svg(after), (96, 96))
+        )
+    quality = EditableInk(guard, before, None)
+    old, new = quality.observe(before), quality.observe(after)
+    assert old["missing_samples"] == new["missing_samples"] == quality.qualified
+    policy = Policy(truth, editable_ink=quality)
+    if kind == "white":
+        return
+    frontier = Frontier(policy)
+    assert frontier.add(export_svg(before), "Parent", document=before)
+    frontier.freeze_normalizer()
+
+    def candidate(current, _work):
+        if not current.edits:
+            yield Proposal(
+                "hidden-stroke-control",
+                ("ink",),
+                (),
+                current.key,
+                after,
+                Box(0, 0, 96, 96),
+            )
+
+    report = search(
+        frontier,
+        Options(quality="high"),
+        Work.start(30),
+        candidate,
+        seed_document=before,
+    )
+    assert report["accepted"] == report["checkpointed"] == 0
+    assert report["score_disagreements"] == 0
+    assert frontier.select(100).svg == export_svg(before)
+
+
+@pytest.mark.parametrize(("opacity", "supported"), [(0.96, False), (0.8, True)])
+def test_partial_occlusion_is_applied_before_the_body_support_threshold(
+    opacity, supported
+):
+    _, _, guard = bank(line())
+    before = line(
+        extra=f'<path id="cover" d="M0 0H96V96H0Z" fill="#c2a46d" opacity="{opacity}"/>'
+    )
+    quality = EditableInk(guard, before, None)
+    observed = quality.observe(before)
+    assert observed["missing_samples"] == (0 if supported else quality.qualified)
+
+
+def test_overlapping_opaque_genuine_strokes_keep_visible_quality_credit():
+    _, _, guard = bank(line())
+    before = line(
+        extra='<path id="copy" d="M16.5 32.5H80.5" fill="none" '
+        'stroke="#111111" stroke-width="2"/>'
+    )
+    quality = EditableInk(guard, before, None)
+    assert quality.observe(before)["missing_samples"] == 0
 
 
 def fitted():

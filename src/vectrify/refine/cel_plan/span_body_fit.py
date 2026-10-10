@@ -5,8 +5,8 @@ must satisfy every frozen qualified query of affected original profiles and the
 fresh whole-guide profile. Existing junction strokes can supply joint support,
 but backgrounds cannot. Crop fitting proposes parameters; complete alpha,
 locality, painted source and absence checks still decide whether to return them.
-Physical family binding and component acceptance remain separate. Search does
-not schedule this experimental fitter yet.
+Physical family binding and component acceptance remain separate. Only explicit
+experimental High schedules this fitter.
 """
 
 from dataclasses import dataclass, replace
@@ -31,6 +31,7 @@ from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, MAX_WIDTH, 
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.line_fidelity import MAX_PROFILES, FittingBody
 from vectrify.refine.cel_plan.local import HALO, Box, _native_raster
+from vectrify.refine.cel_plan.paint_continuation import _supported
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE, SourceAbsence
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT, MAX_PIXELS
@@ -144,7 +145,9 @@ class SpanBodyFit:
         size = self.evidence.source_size
         center = centerline.geometry
         if (
-            self.evidence.rgba.shape != (size[1], size[0], 4)
+            not _supported(before, oid)
+            or not _supported(floor.document, oid)
+            or self.evidence.rgba.shape != (size[1], size[0], 4)
             or self.guard.shape != self.evidence.rgba.shape
             or added_guard.shape != self.guard.shape
             or np.prod(size) > MAX_NATIVE_PIXELS

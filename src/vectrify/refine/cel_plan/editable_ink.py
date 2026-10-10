@@ -10,6 +10,7 @@ from dataclasses import replace
 from xml.etree import ElementTree as ET
 
 import numpy as np
+from cairosvg.colors import color
 from scipy.ndimage import map_coordinates
 
 from vectrify.document import export_svg
@@ -27,7 +28,7 @@ from vectrify.refine.cel_plan.source_family import _data
 from vectrify.refine.cel_plan.span_body_fit import _stroke_root
 from vectrify.refine.cel_plan.stroke_inventory import _style
 
-VERSION = 1
+VERSION = 2
 MAX_PAINTERS = MAX_SEED_OBJECTS
 MAX_STROKES = 256
 MAX_NODES = MAX_SEED_NODES
@@ -65,6 +66,14 @@ def _record(document, oid):
         if (server := paint_server(style[attr])) is not None
     )
     return hashlib.sha256(repr((ancestry, geometry, resources)).encode()).hexdigest()
+
+
+def _luminance(pixels):
+    """Premultiplied native luminance against the policy's white backdrop."""
+    rgba = pixels.astype(np.float32) / 255
+    return (rgba[..., :3] @ (0.2126, 0.7152, 0.0722)) * rgba[..., 3] + (
+        1 - rgba[..., 3]
+    )
 
 
 class EditableInk:
@@ -158,6 +167,53 @@ class EditableInk:
             cval=0,
         )
 
+    def _visible_body(self, document, ids, actual, work):
+        """Measure each stroke through the full paint stack before pooling.
+
+        Whitening one solid stroke changes native luminance by its visible
+        alpha times its distance from white. That stroke alone must also darken
+        the non-ink backdrop: another stroke cannot lend it darkening, and
+        duplicate ink does not lose credit merely because it covers more ink.
+        Every probe retains non-ink paint and the complete opacity hierarchy.
+        """
+        svg = export_svg(document)
+        visible = np.zeros(actual.shape[:2], dtype=np.float32)
+        rows = max(1, 65_536 // self.size[0])
+        backdrop = ET.fromstring(svg)
+        strokes = {e.get("id"): e for e in backdrop.iter() if e.get("id") in ids}
+        paints = {oid: e.get("stroke") for oid, e in strokes.items()}
+        for e in strokes.values():
+            e.set("stroke", "none")
+        background = _native_raster(backdrop, self.size).root
+        for oid in ids:
+            _check(work)
+            style = path_style(document, document.element(oid))
+            rgba = color(style["stroke"])
+            contrast = 1 - np.asarray(rgba[:3]) @ (0.2126, 0.7152, 0.0722)
+            if contrast <= 1 / 255:
+                continue
+            root = ET.fromstring(svg)
+            stroke = next(e for e in root.iter() if e.get("id") == oid)
+            stroke.set("stroke", "white")
+            stroke.set("stroke-opacity", repr(float(style["stroke-opacity"]) * rgba[3]))
+            white = _native_raster(root, self.size).root
+            original = paints[oid]
+            if original is None:
+                strokes[oid].attrib.pop("stroke")
+            else:
+                strokes[oid].set("stroke", original)
+            alone = _native_raster(backdrop, self.size).root
+            strokes[oid].set("stroke", "none")
+            for y in range(0, self.size[1], rows):
+                _check(work)
+                sl = slice(y, y + rows)
+                lum = _luminance(actual[sl])
+                body = np.clip((_luminance(white[sl]) - lum) / contrast, 0, 1)
+                visible[sl] += body * (
+                    _luminance(alone[sl]) < _luminance(background[sl])
+                )
+        return np.minimum(visible, 1)
+
     def observe(self, document, partition=None, work=None):
         work = work if work is not None else Work.start(float("inf"))
         _check(work)
@@ -241,30 +297,8 @@ class EditableInk:
         new_gaps = int(
             ((gaps > ALPHA_TOLERANCE) & (self._baseline_gaps <= ALPHA_TOLERANCE)).sum()
         )
-        root = _stroke_root(document, ids, self.size, work)
-        body = _native_raster(root, self.size).root[..., 3]
         actual = _native_raster(ET.fromstring(export_svg(document)), self.size).root
-        without = _native_raster(
-            _render_tree(export_svg(document), frozenset(painters) - eligible),
-            self.size,
-        ).root
-        visible = np.zeros(body.shape, dtype=np.float32)
-        # Chunk native premultiplied luminance against a white backdrop. Only
-        # actual darkening can support a frozen dark source-ink observation.
-        rows = max(1, 65_536 // self.size[0])
-        for y in range(0, self.size[1], rows):
-            _check(work)
-            a, b = (
-                actual[y : y + rows].astype(np.float32),
-                without[y : y + rows].astype(np.float32),
-            )
-            lum_a = (a[..., :3] @ (0.2126, 0.7152, 0.0722)) * a[..., 3] + 255 * (
-                255 - a[..., 3]
-            )
-            lum_b = (b[..., :3] @ (0.2126, 0.7152, 0.0722)) * b[..., 3] + 255 * (
-                255 - b[..., 3]
-            )
-            visible[y : y + rows] = body[y : y + rows] / 255 * (lum_a < lum_b)
+        visible = self._visible_body(document, ids, actual, work)
         observations = tuple(c.observe(visible, work=work) for c in self._contracts)
         missing = sum(r["missing_samples"] for r in observations)
         rejected = ["editable-ink-gap-completed"] if new_gaps else []

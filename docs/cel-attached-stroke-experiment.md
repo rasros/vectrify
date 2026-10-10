@@ -17,48 +17,29 @@ A fresh frontier must score all candidates under that same policy and retain the
 original detailed representation normalizer. Changing an existing frontier's
 policy would mix incompatible scores.
 
-## Independent review status
+## Independent review fixes
 
-The October 10 review found a blocking experimental-ranking defect. Isolated
-stroke alpha is pooled before a pooled visibility test. A fully occluded opaque
-stroke can therefore borrow the darkening of an overlapping 0.04-opacity visible
-stroke. Moving the hidden stroke underneath that faint line leaves every native
-RGBA byte unchanged but changes missing support from **117 to 0**, improves the
-visual score by **0.04**, and is accepted and selected by common search.
+The October 10 review reproduced two blockers; both now have regression tests
+and fixes. In the occlusion reproduction, moving a fully hidden opaque stroke
+under a visible 0.04-opacity line leaves all native RGBA bytes unchanged. It now
+also leaves missing support unchanged at **117**, gives **zero** score gain and
+is rejected by common search. Coverage is measured per stroke through the whole
+paint stack before pooling, so an overlapping stroke cannot lend it visibility.
+Controls also cover same-background and white strokes, partial occlusion,
+legitimate duplicate ink and shared group opacity.
 
-Actual visible ink contribution must be measured after complete paint occlusion
-before applying the body-support threshold. The existing hidden-stroke controls
-do not cover this overlapping case. The validated sword U below remains a valid
-physical conversion, but the quality criterion is not generally safe against
-hidden ink and the PR remains a draft. The minimal reproduction and report are
-in `.bench/pr-316-independent-review/hidden-ink-repro.py` and
-`hidden-ink-report.json`.
+Attached discovery excludes geometry with protected position, tip, corner or
+junction nodes. Direct fitting checks the original and restored owner before
+replacing geometry. A protected owner declines without constructing a proposal
+or aborting common search; a read-only protected junction remains valid and is
+preserved exactly. The original reproductions and updated reports remain in
+`.bench/pr-316-independent-review/`.
 
-Issue [#317](https://github.com/rasros/vectrify/issues/317) was implemented by
-merged [PR #325](https://github.com/rasros/vectrify/pull/325). Its linked-outline
-support and the subsequent merged changes are integrated from `main`. Shared
-geometry remains excluded from attached-field conversion, which must not detach
-a linked fill/outline pair. The combined branch passes 186 focused MCP, editable
-ink, attached-proposal and source-family tests, Ruff and Pyrefly.
-
-The combined-main review also reproduces a protected-feature compatibility
-defect: giving the conversion owner a protected `position` node makes attached
-fitting raise `DocumentError` when it replaces the owner geometry. The generator
-does not catch that exception, so planning aborts instead of declining an
-unsupported interpretation. Protected owners must be rejected before fitting or
-their protected node identities must be preserved atomically. The reproduction
-and report are `protected-feature-repro.py` and `protected-feature-report.json`
-in the same review artifact directory. The previous sword candidate still passes
-its complete native/source/ownership/reload audit on the integrated branch.
-
-Merged [PR #329](https://github.com/rasros/vectrify/pull/329), the requested
-integration target, is now included from `main`. Its detail subdivision,
-coupled smooth tangents, bounded handles and enclosure protection integrate
-without conflicts. The combined branch passes 290 focused tests (20 skipped),
-Ruff and Pyrefly. The saved sword compatibility audit again proves native
-alpha/locality, original ownership, source body/gaps and exact native/metadata
-reload. This is compatibility validation of the existing candidate, not fresh
-generation; both independent-review findings above remain open.
+The branch includes merged [PR #329](https://github.com/rasros/vectrify/pull/329)
+and subsequent `main` changes through `acb7a79`. Earlier linked outlines from
+[PR #325](https://github.com/rasros/vectrify/pull/325) remain supported: shared
+fill/outline geometry is excluded from conversion, preserving the linked pair.
+All **298 targeted tests**, Ruff and Pyrefly pass after the fixes.
 
 ## Complete construction
 
@@ -135,12 +116,16 @@ and unchanged genuine junction. Changed or added undeclared paint intersecting a
 new family's removal field excludes that new stroke from quality credit, so a
 clone of the old filled outline under the stroke cannot imitate complete removal.
 
-It renders actual isolated stroke alpha, the complete drawing and the drawing
-with eligible strokes removed. A query receives support only where actual stroke
-alpha visibly darkens the complete drawing. Filled paint, occluded strokes, white
-or bright overlays, and shared-group opacity counted twice cannot supply support.
-Opaque body checks also reject newly completed original source gaps; complete
-families retain the original painted-source preservation gate.
+Criterion version **2** measures each solid stroke independently. Whitening
+that stroke in the complete native drawing reveals its alpha after every later
+paint and ancestor opacity; a separate probe verifies that it darkens the
+non-ink backdrop without borrowing another eligible stroke's darkening. Visible
+contributions are pooled only after both checks. Filled paint, occluded strokes,
+white or same-background paint and double-counted group opacity cannot supply
+support. Duplicate genuine ink retains credit. Opaque body checks also reject
+newly completed original source gaps; complete families retain the original
+painted-source preservation gate. Version 1 scores must not be mixed into a
+version 2 frontier.
 
 The experimental visual score is the unchanged raster visual term plus the
 existing `Weights.detail` weight (0.04 by default) times the original qualified
@@ -184,7 +169,7 @@ Fresh automatic scheduling and common search accept and checkpoint the complete
 nine-node U at width **1.1625470830648519**. The actual frontier selects it at
 complexity **75 and 100** and retains the cheaper fitted parent at **0, 25 and
 50**. No rejection override or stroke cost exemption is used. Search completes
-in **191.12 seconds**, with one attempted/accepted/checkpointed proposal and zero
+in **200.04 seconds**, with one attempted/accepted/checkpointed proposal and zero
 score disagreements. Local/full term agreement is within **9.56e-10**.
 
 | Measure | Fitted parent | Selected attached stroke |
@@ -220,24 +205,26 @@ The independent selected-candidate audit proves:
 - Family/partition metadata reload validates. Reload gives exactly the same
   editable-ink query counts and full native score as the selected search result.
 
-Evidence is in `.bench/cel-attached-editable-ink-search/` and
-`.bench/cel-attached-editable-ink-search-independent-audit/`: native projects,
+Evidence is in `.bench/cel-attached-reviewed-search/` and
+`.bench/cel-attached-reviewed-audit/`: native projects,
 SVGs, partitions, complete reports, copied runtime/audit drivers and the preview
 `stroke-preview-automatic.png`. Generation and audit verify the unchanged
-algorithm SHA **7655aaa7f049f2acbf0dc7425fa242b8686a2a1899ce42240393499e2b4ba635**.
+algorithm SHA **f4eab0e621b98f2c37c1c8054bed656b93e49860b8e8844ebffe45afd8857d07**.
 Generation uses the actual fitted parent; the independent audit's older trace
 and field remain validation inputs only.
 
-All **1,694 CEL tests pass in 236.54 seconds**, including **22 editable-ink
-controls**. Ruff across source/tests/scripts and changed-file formatting pass;
-Pyrefly reports zero errors (two existing suppressions, 72 warnings). Validation
+All **298 targeted tests pass**, including the visibility, common-search,
+protected-feature, body-fit, discovery, restoration, ownership and latest-main
+integration controls. Ruff across source/tests/scripts and changed-file
+formatting pass; Pyrefly reports zero errors (two existing suppressions).
+Validation
 commands use `PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4` and the
 project virtual environment:
 
 ```sh
-python -m pytest tests/refine/test_cel* -q
+python -m pytest tests/refine/test_cel_plan_{editable_ink,attached_outlines,span_body_fit,paint_continuation,span_restoration,attached_spans,source_family,ink_replace}.py tests/mcp tests/refine/{test_crossings,test_cleanup}.py tests/ui/test_tidy_settings.py -q
 ruff check src tests scripts
-ruff format --check src/vectrify/refine/cel_plan/{editable_ink,line_fidelity,local,policy,frontier,search}.py tests/refine/test_cel_plan_editable_ink.py
+ruff format --check src/vectrify/refine/cel_plan/{editable_ink,paint_continuation,span_body_fit}.py tests/refine/test_cel_plan_{editable_ink,attached_outlines,span_body_fit}.py
 pyrefly check --python-interpreter-path /home/rasmus/Workspaces/vectrify/.venv/bin/python
 ```
 

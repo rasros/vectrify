@@ -117,6 +117,34 @@ def test_unsupported_or_interrupted_state_never_publishes_partial_family(kind):
     assert operator.diagnostics["proposals"] == 0
 
 
+@pytest.mark.parametrize("feature", ["position", "tip", "corner", "junction"])
+def test_protected_owner_declines_without_aborting_common_search(feature):
+    state, frontier, _, options, _, operator = setup()
+    geometry = state.document.geometry_for("ink")
+    node = geometry.subpaths[0].nodes[0]
+    protected = geometry.replace_node(replace(node, feature=feature))
+    document = state.document.replace_geometry(protected)
+    svg = export_svg(document)
+    assert svg == state.svg
+    state = replace(state, document=document)
+    assert list(operator(state, Work.start(10))) == []
+    report = search(frontier, options, Work.start(10), operator, seed_document=document)
+    assert report["attempted"] == report["accepted"] == report["checkpointed"] == 0
+    assert operator.diagnostics["attempts"] == operator.diagnostics["proposals"] == 0
+    assert document.geometry_for("ink") == protected
+
+
+def test_read_only_protected_junction_is_preserved_in_a_valid_family():
+    state, _, _, _, _, operator = setup()
+    geometry = state.document.geometry_for("bar")
+    node = geometry.subpaths[0].nodes[0]
+    protected = geometry.replace_node(replace(node, feature="junction"))
+    document = state.document.replace_geometry(protected)
+    state = replace(state, document=document)
+    proposal = next(operator(state, Work.start(30)))
+    assert proposal.document.geometry_for("bar") == protected
+
+
 def test_complete_operator_is_scheduled_only_in_explicit_experimental_high():
     _, _, evidence, options, _, _ = setup()
     graph = build(evidence)
