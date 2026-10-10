@@ -633,6 +633,89 @@ profiles 67 and 97 still regress despite the complete isolated-body support; the
 additional 449-sample painted profile passes. Both the visible material fringe
 and painted-source contracts need restoration/placement work before acceptance.
 
+## Adjoining original material face checkpoint
+
+`source_faces.discover` constructs a bounded partition of a complete primitive
+removal field using a complete shared edge of an original adjoining material.
+It copies original cubic controls and matches native edges in either direction.
+The base restoration keeps the complete field's command prefix and appends the
+selected contour with whichever sign proves exact geometric subtraction. Both
+fields are exclusive, and their union must equal the complete removal field.
+Material identities come from the original partition, within the same component;
+this constructor does not invent source observations, restoration ownership or
+painted coverage. It remains disabled in every production search.
+
+Eleven synthetic controls cover straight and curved shared boundaries, reversed
+original owners and removal winding, rotated/translucent components, nearby but
+unshared curves, material overlap, unsupported paint, actual source gaps,
+interruption, bounded inputs and deterministic alternatives.
+All 1,498 CEL tests pass in 199.67 seconds. Ruff passes across source, tests and
+scripts; the changed Python files pass formatting. Pyrefly reports zero errors
+with the two existing suppressions and 70 warnings.
+
+Cold checked-in constructor replay repeats all 31 whole-span alternatives,
+selects the complete U through full restored alpha and raw nongap support, then
+selects the adjoining face from 21 geometric alternatives. Source observations
+come from the unchanged original bank; 13 nearby material identities come from
+the original partition and component. There is no saved body or optimizer seed
+and no fixture primitive/face index. The smallest shared-edge result identifies
+material 26 through original profile 67. Its two fields are exclusive and have
+zero union XOR against the complete field. Literal outside-field RGBA remains
+exact; the restoration alone gains one alpha byte at (396, 1998). Thus the
+correct geometric/material interpretation still needs a feasible native floor.
+The replay is `.bench/cel-attached-generic-full-u-source-faces-replay/`, at SHA
+`fb2ae34bb9f3003949f9d9582ce27df5f828d3996c1f2d72b62bc820e5cf5a1b`.
+It is construction evidence, not a published or accepted drawing.
+
+The original right-side painted-source failures exposed the wrong restoration
+paint. The lower-right part of the U shares an original curve with material 26,
+a dark `#584022` face. Restoring that part with its original face paint removes
+the gold fringe. Merely placing the U above the original dark face does not
+repair the gold-only restoration, and reducing restoration opacity does not
+improve complete alpha.
+
+An independent saved-guide audit of the mixed-face drawing supports all 179
+original U body samples and all 449 additional samples. The actual U plus the
+unchanged genuine collar supports all 185 collar samples. Every original
+painted-source comparison passes, as does the added painted profile and source
+absence. Original material geometry/attributes and retained shadow command
+values are exact; complete former-field removal, byte-exact native reload and
+RGBA outside the literal field plus actual stroke body pass. Reassigned node
+IDs are not original command changes. The drawing remains **rejected**: eleven
+pixels gain one alpha byte, and original ownership/component acceptance is
+unproved. This saved fitted guide is diagnostic evidence, not cold generation.
+
+The mixed drawing and preview are under
+`.bench/cel-attached-full-u-mixed-face-fixed-body-audit/`. Related source-scope,
+shared-face discovery, winding-floor, order-only, opacity and cold joint-fit
+probes retain separate driver/helper hashes and their original algorithm SHA
+`806df7da36fb5d43259d852bb7d369d32d852194c6e94a50cf9ff9d42f342b14`.
+Its corrected command/locality audit separately records the current revision;
+it does not retroactively change those earlier generation claims.
+
+A fresh cold shared-face/body diagnostic starts at the measured raw width,
+prioritizes frozen original/added positive-body and painted-source feasibility,
+and normalizes the tiny restoration parameters without increasing their
+0.0625-pixel physical bounds. It retains a separate best source-feasible guide,
+so a lower numeric score with missing strokes cannot be presented as improved
+stroke output. At 600 evaluations and 24 parameters it supports all 179 original
+and 449 added U samples plus the genuine 185-sample collar, with zero fitting
+painted-source penalty, but leaves 387 total alpha bytes different. It generates
+no candidate. This is
+`.bench/cel-attached-generic-full-u-source-first-replay/`, under the current SHA
+above; this runtime fitter is not adopted. Starting at a feasible wider stroke
+and weighting source penalties more heavily does not solve the coupled fit.
+
+Appending each geometrically exclusive restoration field to its original
+material owner was also tested independently on both the stroke-hidden floor and
+the saved positive-body drawing. Original paint/frame and command prefix remain
+unchanged, but native alpha discrepancies increase: the separate floor's one
+pixel becomes eleven for either individual append and twenty-one for both.
+The body drawing also worsens. This is
+`.bench/cel-attached-full-u-shared-face-existing-owner-probe/`; it establishes
+neither source/ownership acceptance nor a better restoration mode. Exact
+geometric union does not imply native equivalence of compound path rendering.
+
 ## Resume here
 
 The current production route still accepts only the previously verified handle
@@ -646,7 +729,8 @@ partial-field subtraction or its material optimizer is not the next step.
    trace across the entire selected span; retain every original qualified sample
    and gap as separate frozen obligations. Include synthetic curved, translucent,
    true-gap and connected-junction controls before enabling the interpretation.
-2. Establish the complete restoration context's native alpha floor before fitting
+2. Use the adjoining-face constructor to preserve original restoration paint.
+   Establish the complete restoration context's native alpha floor before fitting
    a positive stroke. Native-monotone subtraction alone does not prove that
    restoration is monotone. Resolve excess already supplied by material/residual
    paint in construction; reject it before spending a body-only fit budget. A
