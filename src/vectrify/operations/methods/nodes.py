@@ -94,12 +94,12 @@ SETTINGS = {
     "tolerance": Setting(float, 3.0, minimum=0.0, maximum=20.0, label="tolerance"),
     # Each path fit: gradient steps, how far a point may move in SVG units,
     # and the size it works at.
-    "steps": Setting(int, 20, minimum=1, maximum=1000, label="steps"),
+    "steps": Setting(int, 60, minimum=1, maximum=1000, label="steps"),
     "movement": Setting(float, 2.0, minimum=0.0, maximum=100.0, label="movement"),
     "resolution": Setting(int, 384, minimum=64, maximum=2048, label="resolution"),
     # A path fit stops once a check, every ten steps, improves its match by
     # less than this, in percent: it has stalled.
-    "stall": Setting(float, 0.5, minimum=0.0, maximum=50.0, label="stall"),
+    "stall": Setting(float, 0.1, minimum=0.0, maximum=50.0, label="stall"),
     "workers": Setting(int, 1, minimum=1, maximum=max(1, os.cpu_count() or 1)),
     # How much of the difference where a step acted it has to fix to be
     # kept, in percent.
@@ -430,11 +430,7 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
     if step == "shape":
         from vectrify.refine.lines import is_line
 
-        initial = (
-            task.oids
-            if settings["detail"]
-            else tuple(oid for oid in task.oids if is_line(document, oid))
-        )
+        initial = tuple(oid for oid in task.oids if is_line(document, oid))
         if settings["snap"] and initial:
             # Edge-seeking is the initializer of the fit, not a competing
             # round result. A stopped gradient fit still retains this proposal.
@@ -638,18 +634,20 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
     Straight segments are fitted as curves, so the fit can bend one where
     the reference needs; those it leaves straight go back to lines.
     """
+    from vectrify.refine.parameters import line_knots
     from vectrify.refine.selected import FitOptions, fit_selected_path
     from vectrify.refine.simplify import curved, straightened
     from vectrify.refine.snap import _frame
 
     document, settings = task.document, task.settings
-    assert task.reference is not None
+    reference = task.reference
+    assert reference is not None
     options = FitOptions(
         steps=settings["steps"],
         displacement=settings["movement"],
         resolution=settings["resolution"],
         stall=settings["stall"] / 100,
-        snap=settings["snap"] and not settings["detail"],
+        snap=settings["snap"],
     )
     skipped: dict[str, str] = {}
     from vectrify.refine.lines import is_line
@@ -679,7 +677,26 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 now + (stop.deadline - now) / (len(pending) - index), stop
             )
         before = document
-        document = document.replace_geometry(curved(original))
+        prepared = curved(original)
+        if settings["detail"] and not is_line(document, oid):
+            from vectrify.refine.detail import densified
+
+            frame = _frame(document, oid, task.region, task.region.image.size)
+            if frame is not None:
+                prepared = densified(prepared, frame, task.held)
+                movable |= frozenset(
+                    n.id
+                    for s in prepared.subpaths
+                    for n in s.nodes
+                    if n.id not in task.held
+                )
+        document = document.replace_geometry(prepared)
+        polygon = area(settings)
+        if settings["detail"] and polygon is not None:
+            # A curve can leave the view even when both original endpoints
+            # are inside it. New knots outside it inherit the same region hold.
+            task = replace(task, held=task.held | _outside(document, (oid,), polygon))
+            movable -= task.held
         try:
             fit = fit_selected_path(
                 document,
@@ -687,10 +704,11 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                     object_ids=frozenset({oid}),
                     node_ids=movable if task.held else frozenset(),
                 ),
-                task.reference,
+                reference,
                 replace(options, snap=False) if is_line(document, oid) else options,
                 stop=path_stop,
                 progress=progress,
+                corners=line_knots(original),
             )
         except (DocumentError, UnsupportedPathError) as exc:
             # A path the fit cannot take, a gradient's say, is left as it is.
@@ -719,7 +737,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # to the raw fit if the straightened result is rejected.
         raw = document.replace_geometry(fitted)
         frame = _frame(document, oid, task.region, task.region.image.size)
-        if frame is not None:
+        if frame is not None and not settings["detail"]:
             fitted = straightened(fitted, STRAIGHT, frame)
         document = document.replace_geometry(fitted)
         # Judge the actual curves and followed neighbours before fitting the
@@ -741,7 +759,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         raw = polish(
             document,
             task.oids,
-            task.reference,
+            reference,
             options,
             held=task.held,
             shared=task.shared,
@@ -759,7 +777,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             if geometry == before.geometry_for(oid):
                 continue
             frame = _frame(raw, oid, task.region, task.region.image.size)
-            if frame is not None:
+            if frame is not None and not settings["detail"]:
                 candidate = candidate.replace_geometry(
                     straightened(geometry, STRAIGHT, frame)
                 )

@@ -104,6 +104,43 @@ def test_fitting_moves_only_the_selected_path_and_keeps_its_node_ids():
     assert document.element("bg") == original.element("bg")
 
 
+def test_tidy_fits_repeated_closing_knots_without_opening_spikes():
+    # Like arena's path 425: several redundant knots after the explicit
+    # closing curve. These are separate IDs, but all describe one corner.
+    svg = (
+        '<svg width="64" height="64"><rect width="64" height="64" fill="white"/>'
+        '<path id="p" fill="#68826d" d="M20 20 L24 24 L34 20 L33 26 '
+        "L42 27 L36 34 C30 33 24 33 18 35 C16 31 20 20 20 20 "
+        'L20 20 L20 20 L20 20 Z"/></svg>'
+    )
+    document = import_svg(svg)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
+    original = document.geometry_for("p").subpaths[0].nodes
+    closed = [node.id for node in original if node.endpoint == original[0].endpoint]
+    target = render_image(
+        svg.replace('id="p"', 'id="p" transform="translate(1 -1)"'),
+        (0, 0, 64, 64),
+        (64, 64),
+    )
+    req = replace(request(ed, steps=2, snap=True), reference=target)
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    result = job.state()["result"]
+    assert result["changed"]
+    assert (
+        result["metrics"]["after"]["difference"]
+        < (result["metrics"]["before"]["difference"])
+    )
+    job.apply()
+    geometry = ed.snapshot.document.geometry_for("p")
+    corner = geometry.node(closed[0]).endpoint
+    assert all(geometry.node(node).endpoint == corner for node in closed)
+    assert nodes_of(ed.snapshot.document) == nodes_of(document)
+    from vectrify.refine.crossings import crossings
+
+    assert crossings(geometry) == 0
+
+
 def test_simplify_without_a_reference_removes_points_and_keeps_the_look():
     ed = editor("p")
     job = Job(
@@ -278,11 +315,75 @@ def test_the_defaults_are_a_quick_tidy():
     # The fit is cheap enough to be on: a reduced resolution, few steps, and
     # it stops once it stalls.
     assert settings["resolution"] <= 384
-    assert settings["steps"] <= 20
+    assert settings["steps"] <= 60
     assert settings["stall"] > 0
     assert not settings["detail"]
     assert settings["seconds"] == 10
     assert nodes_method.DEFAULT_ROUNDS <= 4
+
+
+def test_detail_fit_keeps_source_points_and_adds_local_curve_controls():
+    pytest.importorskip("torch")
+    svg = (
+        '<svg width="64" height="64"><path id="p" fill="black" '
+        'd="M12 12 L52 12 L52 52 L12 52 Z"/></svg>'
+    )
+    original = import_svg(svg)
+    ed = Editor(original, selection=Selection(object_ids=frozenset({"p"})))
+    target = render_image(
+        svg.replace("L52 12", "C24 16 40 16 52 12"), (0, 0, 64, 64), (64, 64)
+    )
+    req = replace(request(ed, steps=2, snap=True, detail=True), reference=target)
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"]
+    job.apply()
+    after = ed.snapshot.document
+    before_ids = {n.id for s in original.geometry_for("p").subpaths for n in s.nodes}
+    after_ids = {n.id for s in after.geometry_for("p").subpaths for n in s.nodes}
+    assert before_ids < after_ids
+    assert nodes_method._crossings(after, ["p"]) == {"p": 0}
+    assert (
+        state["result"]["metrics"]["after"]["difference"]
+        < state["result"]["metrics"]["before"]["difference"]
+    )
+
+
+def test_detail_fit_holds_new_knots_where_the_curve_leaves_the_view(monkeypatch):
+    from vectrify.refine import selected
+
+    document = import_svg(
+        '<svg width="64" height="64"><path id="p" '
+        'd="M10 10 C10 60 50 60 50 10 L50 5 L10 5 Z"/></svg>'
+    )
+    seen = []
+
+    def fitting(current, selection, *_args, **_kwargs):
+        nodes = current.geometry_for("p").subpaths[0].nodes
+        outside = {n.id for n in nodes if n.endpoint[1] > 20}
+        assert outside
+        assert not outside & selection.node_ids
+        assert nodes[0].id in selection.node_ids
+        seen.append(outside)
+        return SimpleNamespace(values={})
+
+    monkeypatch.setattr(selected, "fit_selected_path", fitting)
+    target = Image.new("RGB", (64, 64), "white")
+    task = nodes_method._Task(
+        document,
+        Region(0, 0, 64, 64, target),
+        nodes_method.read_settings(
+            {"detail": True, "region": [0, 0, 64, 20]}, nodes_method.SETTINGS, "Tidy"
+        ),
+        ("p",),
+        target,
+    )
+    result, skipped = nodes_method._fit(task, None, None)
+    assert seen
+    assert not skipped
+    assert result == document
 
 
 def moved(document, where):
@@ -760,9 +861,12 @@ def test_a_slow_fill_cannot_spend_the_later_fills_time(first_spends, monkeypatch
     now = [0.0]
     calls = []
 
-    def slow(_document, selection, _reference, _options, *, stop, progress):
+    def slow(_document, selection, _reference, _options, *, stop, progress, corners):
         assert progress is None
         oid = next(iter(selection.object_ids))
+        assert corners <= {
+            n.id for s in _document.geometry_for(oid).subpaths for n in s.nodes
+        }
         calls.append((oid, stop.deadline))
         now[0] += first_spends if oid == "left" else stop.deadline - now[0]
         return SimpleNamespace(values={})

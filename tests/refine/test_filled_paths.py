@@ -32,6 +32,51 @@ def rasterize_svg_to_image(svg_text: str, *, out_w: int, out_h: int) -> Image.Im
         return image.convert("RGB")
 
 
+def test_monolithic_geometry_penalty_reaches_the_control_optimizer():
+    torch = pytest.importorskip("torch")
+    svg = (
+        '<svg width="16" height="16"><path d="M4 4 L12 4 L12 12 L4 12 Z" '
+        'fill="#000000"/></svg>'
+    )
+    target = rasterize_svg_to_image(svg, out_w=16, out_h=16)
+    penalties = []
+
+    def penalty(paths):
+        value = 10 * torch.cat(paths[0]).square().mean()
+        penalties.append(float(value.detach()))
+        return value
+
+    fit_filled_svg(
+        svg,
+        target,
+        steps=3,
+        monolithic=True,
+        device="cpu",
+        point_learning_rate=0.1,
+        color_learning_rate=0,
+        xing_weight=0,
+        control_loss=penalty,
+    )
+    assert len(penalties) == 3
+    assert penalties[-1] < penalties[0]
+
+
+def test_geometry_penalty_requires_monolithic_fitting():
+    pytest.importorskip("torch")
+    svg = (
+        '<svg width="16" height="16"><path d="M4 4 L12 4 L12 12 L4 12 Z" '
+        'fill="#000000"/></svg>'
+    )
+    with pytest.raises(ValueError, match="Control loss requires monolithic"):
+        fit_filled_svg(
+            svg,
+            Image.new("RGB", (16, 16)),
+            monolithic=False,
+            device="cpu",
+            control_loss=lambda _paths: 0,
+        )
+
+
 # The unbatched coverage, kept as the oracle the batched path must match.
 def _fill_coverage(
     control: Any,
