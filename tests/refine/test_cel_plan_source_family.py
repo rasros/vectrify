@@ -26,7 +26,7 @@ from vectrify.refine.cel_plan.local import Box, LocalPolicy
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.proposals import Operators, bounds
-from vectrify.refine.cel_plan.search import Proposal, State, identity
+from vectrify.refine.cel_plan.search import Proposal, State, identity, search
 from vectrify.refine.cel_plan.source_family import FamilyPart, SourceFamily, revision
 
 ORIGINAL = "M8 8H24V24H8Z"
@@ -536,3 +536,154 @@ def test_partial_junction_metadata_is_rejected(field):
     metadata.pop(field)
     with pytest.raises(ValueError, match="junction"):
         SourceFamily.from_metadata(metadata)
+
+
+def two_families():
+    first_before, first_after, first_parts = connected_fixture()
+    second_before, second_after, second_parts = fixture(transform="translate(50 0)")
+
+    def renamed(element):
+        return replace(
+            element,
+            id="two-" + element.id,
+            children=tuple(renamed(c) for c in element.children),
+        )
+
+    def combined(first, second):
+        return replace(
+            first,
+            root=replace(
+                first.root,
+                attributes=(("width", "100"), ("height", "40")),
+                children=(
+                    *first.root.children,
+                    *(renamed(c) for c in second.root.children),
+                ),
+            ),
+            geometries=(*first.geometries, *second.geometries),
+        )
+
+    initial = combined(first_before, second_before)
+    middle = combined(first_after, second_before)
+    final = combined(first_after, second_after)
+    original = Partition(
+        (
+            Surface("ink", (1,)),
+            Surface("material", (2,)),
+            Surface("two-ink", (3,)),
+            Surface("two-material", (4,)),
+        )
+    )
+    first = SourceFamily.bind(
+        initial,
+        middle,
+        "ink",
+        parse_path(REMOVED),
+        first_parts,
+        (100, 40),
+        Work.start(10),
+        junction="bar",
+    )
+    second_parts = tuple(
+        replace(
+            p, id="two-" + p.id, material="two-" + p.material if p.material else None
+        )
+        for p in second_parts
+    )
+    second = SourceFamily.bind(
+        middle,
+        final,
+        "two-ink",
+        parse_path(REMOVED),
+        second_parts,
+        (100, 40),
+        Work.start(10),
+    )
+    planned = original.with_family(first)
+    return middle, final, planned, planned.with_family(second)
+
+
+@pytest.mark.parametrize("sealed", [False, True])
+def test_scheduler_retains_a_second_family_only_with_its_component_seal(
+    monkeypatch, sealed
+):
+    middle, final, original, planned = two_families()
+    frontier, evidence, options = setup(
+        initial=export_svg(middle), target=export_svg(final), size=(100, 40)
+    )
+    entry = frontier.baseline
+    assert entry is not None
+    state = State(
+        middle,
+        export_svg(middle),
+        LocalPolicy(frontier.policy).start(entry.svg, entry.evaluation),
+        identity(entry.svg, original),
+        {},
+        partition=original,
+    )
+    second = planned.families[1]
+    ids = tuple(sorted(second.dependencies))
+    component = ComponentEdit.bind(middle, original, "two-body", Work.start(10))
+    operators = Operators(evidence, build(evidence), options)
+    for name in (
+        "families",
+        "overlays",
+        "paint",
+        "geometry",
+        "ink",
+        "replacements",
+        "ridges",
+    ):
+
+        def proposals(current, _work, name=name):
+            if name == "families":
+                yield Proposal(
+                    "control",
+                    ids,
+                    (),
+                    current.key,
+                    final,
+                    bounds(middle, final, ids),
+                    partition=planned,
+                    component=component if sealed else None,
+                )
+
+        monkeypatch.setattr(operators, name, proposals)
+    accepted = list(operators(state, Work.start(10)))
+    assert len(accepted) == int(sealed)
+    if sealed:
+        assert accepted[0].partition == planned
+        assert planned.families[0] == original.families[0]
+        assert component.validate(
+            middle, final, original, planned, ids, accepted[0].bounds, Work.start(10)
+        )
+
+
+def test_search_can_resume_native_family_metadata_without_reparsing_editor_ids():
+    middle, final, original, _ = two_families()
+    frontier, _, options = setup(
+        initial=export_svg(middle), target=export_svg(middle), size=(100, 40)
+    )
+    entry = frontier.baseline
+    assert entry is not None
+    entry = replace(entry, details={"planning_surfaces": original.metadata()})
+    frontier.baseline = entry
+    frontier.entries = [entry]
+    loaded, _ = load_project(save_project(middle))
+    report = search(
+        frontier,
+        options,
+        Work.start(10),
+        lambda _state, _work: iter(()),
+        seed_document=loaded,
+    )
+    assert report["status"] == "complete"
+    assert report["accepted"] == 0
+    with pytest.raises(ValueError, match="selected drawing"):
+        search(
+            frontier,
+            options,
+            Work.start(10),
+            lambda _state, _work: iter(()),
+            seed_document=final,
+        )

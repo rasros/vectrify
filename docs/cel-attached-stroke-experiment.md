@@ -1110,24 +1110,95 @@ validates against native reload. Evidence and preview are in
 `.bench/cel-attached-sealed-junction-independent-audit/`. Reports retain
 `accepted: false`: experimental scheduling/common acceptance remain unfinished.
 
+## Experimental scheduler and common scoring checkpoint
+
+`AttachedOutlines` now composes automatic complete discovery, checked-in body
+fitting, original junction sealing and atomic component/ownership binding into
+actual search proposals. It is scheduled only by explicit experimental High
+with `filled_bands=True`; ordinary modes retain the flag off. At most four
+construction candidates reach fitting, without fetching a fifth candidate to
+detect the limit. The current inferred-width fitter declines user-fixed widths.
+Each proposal declares every physical part, original material and junction,
+protects their paint/geometry, preserves existing families and charges complete
+representation cost. The scheduler tries complete strokes first on a verified
+material/band parent, leaving other operator slots in the cycle.
+
+The scheduler no longer replaces an incoming valid family list with only the
+old list. It preserves existing families and retains additions only when the
+proposal has a component seal; owner aliases and corrupt/revised existing
+families are rejected. A two-family control proves the second addition survives
+without losing the first family. Unsealed additions remain rejected.
+
+Search also accepts an optional native `seed_document` for resuming sealed
+editor identities. Its exported SVG must exactly match the selected scored
+frontier seed, and ordinary ownership/component/native and retained-memory
+checks still apply. Native project reload retains the identities sealed in
+family metadata; reparsing SVG would assign fresh geometry/node identities.
+A round-trip control verifies this handoff and rejects a different drawing.
+
+Eleven new controls cover actual complete proposals/dependencies/reload,
+common scoring without an exemption for stroke proposals, missing ownership,
+fixed width, interruption, explicit experimental scheduling, fitting limits,
+second-family retention, unsealed additions and native search handoff. All
+**1,607 CEL tests pass in 220.47 seconds**. Ruff, changed-file formatting and
+Pyrefly pass (two existing suppressions, 72 warnings).
+
+The sword replay runs the actual experimental scheduler and the unchanged
+common `search` gate against its selected fitted native parent. It intentionally
+limits this diagnostic to the first scheduled complete interpretation; it does
+not claim a full ordinary-mode run or changed time/evaluation budgets. Discovery
+receives no supplied owner/profile/material IDs or saved field/guide/body/fit
+vector. The original detailed normalizer remains **20,818**. Common search
+constructs the same inspected nine-node U, validates all seven component objects
+and charges the full **192** representation increase. Its local/native context
+score agrees with independent full evaluation to **9.56e-10**.
+
+**The actual result is rejected solely for `local-objective-regression`.** Raw
+visual loss rises by **0.0002177669**, and objective deltas at complexity
+0/25/50/75/100 are respectively **+0.0016934125 / +0.0009555894 /
++0.0005866779 / +0.0004022222 / +0.0003099943**. Reports copy this actual decision,
+not a hand-assigned acceptance flag. No candidate is published as accepted.
+
+The independent scheduled-candidate audit still passes all original 179,
+independent 449 and joint 185 body queries; complete former-field subtraction;
+original shadows/materials, literal ports/raw corners, real source gaps and
+source absence; exact native alpha/off-field locality/reload; original
+memberships, 64 cuts / 80 children and both component seals. The frozen source
+inventory's editable-stroke support rises from **82.6017% to 83.8570%**. That
+inventory is a diagnostic point-sampling measure, distinct from the body's
+raw-positive matching-window contract and not an acceptance term.
+
+Evidence, runtime drivers/hashes/logs and the scheduled candidate preview are in
+`.bench/cel-attached-scheduled-search/` and
+`.bench/cel-attached-scheduled-search-independent-audit/`, under algorithm SHA
+`7442f209fec9aa39100197d4bee879538141b292dc5a9e4c32f8f4441902631f`.
+This checkpoint completes scheduling and isolates the remaining ranking problem:
+the current raw-raster objective does not value converting qualified filled ink
+to a clean editable stroke. It does not establish ordinary-mode quality,
+performance or a release gate.
+
 ## Resume here
 
-The explicit filled-band co-planner still schedules the previously verified
-handle chain. The complete U now passes automatic checked-in discovery/fitting
-and independent validation. The original junction and literal ports are now
-sealed. Search integration remains unfinished; reports retain `accepted: false`. Ordinary CEL and ordinary
-High keep the experimental flag off.
+The complete U is now automatically constructed, physically sealed and evaluated
+by experimental search. Its candidate is valid but the current objective rejects
+it. Ordinary CEL and ordinary High retain the experimental flag off. The active
+goal remains unfinished; acceptance must be earned by explicit quality criteria.
 
-1. Schedule complete attached interpretations against their actual fitted parent
-   in explicit experimental search. Bind families atomically, preserve existing
-   families and the original namespace/cut/child limits and primary memberships,
-   and declare every part/material/junction in dependency, component and complete
-   representation cost accounting. Retain all body/source/gap/native/locality
-   checks and use the common acceptance/frontier rules.
-2. Independently validate the scheduled result, including the earlier frozen
-   trace, whole former-field removal, original ownership/component lineage and
-   native/metadata reload. Show its stroke preview with the actual acceptance
-   status before claiming the goal achieved.
+1. Define and verify experimental editable-ink quality using the frozen original
+   source bank and actual genuine stroke bodies. Preserve qualification and raw
+   positive matching windows; candidate-generated observations cannot earn extra
+   quality credit. Verify filled paths, hidden/fake strokes, unrelated additions
+   and real gaps cannot game the measure. Complete attached-field subtraction,
+   original ownership and exact native/source gates remain mandatory.
+2. Integrate that explicit quality criterion with common local/full evaluation
+   and complexity cost accounting. Keep all paths/nodes/paint charged, preserve
+   ordinary behavior with the experimental flag off, and verify score parity and
+   synthetic ranking tradeoffs before replaying the sword. Do not optimize away
+   the inspected stroke improvement merely to lower raw-raster error.
+3. Independently audit the actually selected scheduled result, including the
+   earlier frozen trace, whole former-field removal, original ownership/component
+   lineage and native/metadata reload. Present the stroke preview and actual
+   acceptance status before claiming the goal achieved.
 
-No new reference corpus, learned ranking, automatic-operation quality result or
-release gate is claimed by this draft. The active goal remains unfinished.
+Learned ranking and broader reference collection remain deferred. No automatic
+operation quality result or release gate is claimed by this draft.

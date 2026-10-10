@@ -24,6 +24,7 @@ from vectrify.document.paint import hex_colour, mean_colour
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan import constraints as chains
+from vectrify.refine.cel_plan.attached_outlines import AttachedOutlines
 from vectrify.refine.cel_plan.band_plans import BandPlans
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.filled_bands import FilledBands
@@ -103,6 +104,11 @@ class Operators:
         self._filled_band_guard: SourceLineGuard | None = None
         self.bands = (
             FilledBands(evidence, graph, options, guard=self._root.band_guard)
+            if filled_bands
+            else None
+        )
+        self.attached_outlines = (
+            AttachedOutlines(evidence, options, guard=self._root.band_guard)
             if filled_bands
             else None
         )
@@ -561,6 +567,10 @@ class Operators:
             iterators.append(iter(self.strokes(state, work)))
         if self.bands is not None:
             iterators.append(iter(self.bands(state, work)))
+        attached_slot = None
+        if self.attached_outlines is not None and self.options.quality == "high":
+            attached_slot = len(iterators)
+            iterators.append(iter(self.attached_outlines(state, work)))
         alive = set(range(len(iterators)))
         try:
             for cycle in range(MAX_OPERATOR_ITEMS):
@@ -590,6 +600,15 @@ class Operators:
                         slots.remove(preferred)
                         slots.insert(0, preferred)
                         self.schedule_diagnostics["composition_parents"] += 1
+                if (
+                    cycle == 0
+                    and attached_slot is not None
+                    and state.details.get("planned_band_stroke")
+                    and not state.details.get("attached_outline")
+                ):
+                    slots.remove(attached_slot)
+                    slots.insert(0, attached_slot)
+                    self.schedule_diagnostics["composition_parents"] += 1
                 for slot in slots:
                     if work.interrupted or not alive:
                         return
@@ -612,10 +631,15 @@ class Operators:
                         assert partition is not None
                         assert state.partition is not None
                         if partition.families != state.partition.families:
+                            old = state.partition.families
+                            added = tuple(f for f in partition.families if f not in old)
+                            if added and (
+                                proposal.component is None
+                                or any(f.owner in {g.owner for g in old} for f in added)
+                            ):
+                                continue
                             try:
-                                partition = replace(
-                                    partition, families=state.partition.families
-                                )
+                                partition = replace(partition, families=(*old, *added))
                             except ValueError:
                                 continue
                         try:
