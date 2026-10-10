@@ -716,6 +716,101 @@ The body drawing also worsens. This is
 neither source/ownership acceptance nor a better restoration mode. Exact
 geometric union does not imply native equivalence of compound path rendering.
 
+## Alpha-exact complete U and remaining ownership gate
+
+A different restoration interpretation preserves the complete former field as
+base material and restricts the adjoining dark-face overlay to fully covered
+original parent pixel cells. Those cells are measured under the actual opacity
+hierarchy. The dark overlay is an ordinary 108-node vector path, not an image,
+clip or mask. It overlaps base underpaint; this is a separate interpretation
+from the earlier exclusive two-face partition. Complete stroke-hidden native
+alpha is now byte-exact. Lowering stroke opacity alone still loses qualified
+source-body support and is not adopted.
+
+Increasing the complete source guide's curve resolution helps more than fitting
+the earlier six-node centered trace. `source_centerline.construct` fits the
+original opposing-rail midpoint guide while inserting every freshly measured raw
+corner as an exact segment endpoint. Its ports must already equal the measured
+ports; it does not infer a connection. It selects the most resolved tolerance
+that fits within the existing 24 local-normal/width parameters. The nearest guide
+point may change at most two native pixels to meet a raw corner. Construction
+returns immutable points and unique node IDs; source/gap/paint/native/ownership
+proof remains separate. **The helper is disabled in production search.**
+
+Ten focused controls cover exact raw corners and ports, transformed native points,
+input immutability, far-corner and unbound-port rejection, invalid/oversized
+inputs, fitting bounds, interruption and straight paths. All 1,508 CEL tests pass
+in 206.20 seconds; source/tests/scripts Ruff and changed-file formatting pass.
+Pyrefly reports zero errors, two existing suppressions and 70 warnings.
+
+A fresh 23-parameter, 600-evaluation body fit yields a genuine nine-node open U
+stroke of width 0.9304574064110984. It uses no saved optimizer vector. Its physical
+collar ports and measured raw corner stay exact. An independent complete drawing
+audit verifies:
+
+- Every full native alpha byte, literal outside field-plus-actual-body RGBA and
+  native save/reload RGBA are exact.
+- All 179 original U and 449 additional body samples are supported by the actual
+  new stroke; the genuine U plus unchanged collar supports all 185 collar samples.
+- Original and additional painted-source comparisons have no rejections or new
+  gaps; the added painted profile has no missing samples. The complete original
+  bank remains 13,145 qualified samples, with 1,630 missing reported separately.
+- Original material geometry/attributes and retained shadow commands are exact;
+  independent Boolean checks prove complete former-field removal, exact retained
+  difference and no residual ink in the field. The stroke is open, `fill="none"`,
+  crossing-free and passes source absence and the native SVG subset.
+
+This is still **not an accepted candidate**. Original-ancestor ownership replay
+needs at least 65 entries, exceeding the unchanged 64-cut ledger. Per-original-
+atom class encoding fixes the separate 65-versus-64 class-count issue but not the
+entry limit. The established stroke/residual plus restoration-underlay contract,
+and a dominant geometric coverage classification, also exceed 64 cuts. No
+namespace, cut allowance or coverage witness is altered to pass. The drawing's
+pixel/source proof does not replace the missing ownership/component proof.
+
+The proposed next design is explicit ownership of a physical source family:
+retained shadow, editable stroke and declared restoration paths can render one
+original source owner whose immutable raw region contains both shadow and ink.
+This needs a real serialized ownership contract, complete part/dependency and
+cost declarations, and synthetic controls that reject undeclared parts, missing
+source support and resurrected filled outlines. It is not implemented or accepted.
+Simply assigning an unsupported surface membership to avoid a cut is excluded.
+
+The first fitted construction and independent audit retain algorithm SHA
+`fb2ae34bb9f3003949f9d9582ce27df5f828d3996c1f2d72b62bc820e5cf5a1b`
+under `.bench/cel-attached-full-u-raw-corner-midrail-body-replay/` and
+`.bench/cel-attached-full-u-alpha-exact-independent-audit/`. After adding the
+checked-in constructor, a fresh body replay exports byte-identical SVG under SHA
+`629de136211f05e53cff067424d43478e24c24cdb3c6fcc030059167d881ec5f`,
+with a separate full independent audit under
+`.bench/cel-attached-full-u-checked-centerline-body-replay/` and
+`.bench/cel-attached-full-u-checked-centerline-independent-audit/`.
+The native field/opaque face domain is a saved diagnostic input; generic cold
+end-to-end construction and experimental search enablement remain unproved.
+Failed ownership drivers/logs are archived separately. The latest preview is
+`stroke-preview-ledger-pending.png` in the independent audit directory.
+
+A subsequent replay keeps the original measured-width search bounds explicit:
+raw width 2.25412654876709, fitted width in 1.127063274383545–3.3811898231506348.
+Starting from the same fresh checked-in rail/corner seed, it reaches a nine-node
+stroke of width **1.1341779707238542** in 525 evaluations. Independent full native
+alpha, literal locality, reload, original material/shadow geometry/attributes,
+complete field removal, physical ports/raw corner, every original/added positive
+body sample, the genuine collar, source absence and painted-source comparisons
+all pass. The original painted bank reports 1,629 missing samples with no
+rejections; all 449 added painted samples pass. This supersedes the thinner
+0.930457 preview as the current visual checkpoint and retains the same unresolved
+ownership gate. The source classification based on unchanged retained geometry
+and full removal field is independent of this stroke-width change.
+
+The replay and independent preview are
+`.bench/cel-attached-full-u-measured-width-centerline-body-replay/` and
+`.bench/cel-attached-full-u-measured-width-independent-audit/`, at the checked-in
+constructor SHA above. There are no saved body/optimizer seeds, wider physical
+movement limits or alpha exceptions. The saved generic field and native face
+restoration domain, original ledger gate, end-to-end cold construction and
+production enablement remain explicitly separate outstanding work.
+
 ## Resume here
 
 The current production route still accepts only the previously verified handle
@@ -729,15 +824,18 @@ partial-field subtraction or its material optimizer is not the next step.
    trace across the entire selected span; retain every original qualified sample
    and gap as separate frozen obligations. Include synthetic curved, translucent,
    true-gap and connected-junction controls before enabling the interpretation.
-2. Use the adjoining-face constructor to preserve original restoration paint.
-   Establish the complete restoration context's native alpha floor before fitting
+2. Use the now-tested corner-preserving whole-guide constructor and preserve
+   original restoration paint. The opaque face-overlay diagnostic establishes an
+   exact restoration floor; production integration still needs to prove it before fitting
    a positive stroke. Native-monotone subtraction alone does not prove that
    restoration is monotone. Resolve excess already supplied by material/residual
    paint in construction; reject it before spending a body-only fit budget. A
    bounded raw-source endpoint policy must distinguish newly inferred guides,
    transparent cluster means and protected original observations. Do not copy
    the human handle repair or waive final alpha.
-3. Give a separate restoration surface a real original-ledger declaration and
+3. Resolve the 65th original source-cut requirement with an explicit validated
+   source-family representation, retaining the original namespace and cut/child
+   limits. Give every physical part a real original-ledger declaration and
    complete component dependency proof. New filled identities require correct
    cost/dependency/locality accounting and original source membership; they
    cannot be introduced by an acceptance bypass, extra atom allowance or a
