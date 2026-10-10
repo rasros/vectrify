@@ -312,6 +312,7 @@ def search(
     *,
     checkpoint_work: Work | None = None,
     minimum_checkpoint_seconds: float = 0,
+    seed_document: Document | None = None,
 ) -> dict:
     """Accept local edits; publish full checkpoints within their live reserve.
 
@@ -346,8 +347,13 @@ def search(
         }
     evaluator = LocalPolicy(frontier.policy)
     try:
+        # Native families seal editor identities as well as geometry/paint.
+        # A caller resuming a saved native candidate can preserve those IDs;
+        # its exported drawing must still be exactly the selected scored seed.
+        if seed_document is not None and export_svg(seed_document) != entry.svg:
+            raise ValueError("Native search seed does not match the selected drawing")
         initial = State(
-            import_svg(entry.svg),
+            seed_document if seed_document is not None else import_svg(entry.svg),
             entry.svg,
             evaluator.start(entry.svg, entry.evaluation),
             entry.key,
@@ -386,6 +392,14 @@ def search(
     cursors: dict[str, Iterator[Proposal]] = {}
     cursor_peak = resumed = 0
     peak = _bytes(states)
+    if peak > MAX_BYTES:
+        return {
+            "status": "bounded",
+            "attempted": 0,
+            "accepted": 0,
+            "bounded_seeds": 1,
+            "seconds": time.monotonic() - started,
+        }
     # Standalone search reserves its own checkpoints. A pipeline supplies a
     # separate validation deadline; discovery may use its entire local slice
     # only while that deadline still leaves the measured full-check duration.
