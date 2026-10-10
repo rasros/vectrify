@@ -136,3 +136,27 @@ def test_bending_loss_ignores_translation_but_penalizes_handle_wiggles():
     noisy = [c.clone() for c in controls]
     noisy[0][0, 1] += 3
     assert parameters.bending_loss(noisy) > 0.1
+
+
+def test_outline_fairness_penalizes_existing_dents_not_just_handle_changes():
+    rough = mapping("M10 10 L14 10 L16 13 L18 10 L30 10 L30 30 L10 30 Z")
+    smooth = mapping("M10 10 L14 10 L16 10 L18 10 L30 10 L30 30 L10 30 Z")
+    controls = rough.controls_from_local(rough.original)
+    roughness = rough.fairness_loss(controls)
+    assert roughness > smooth.fairness_loss(smooth.controls_from_local(smooth.original))
+    assert rough.fairness_loss([c + 17 for c in controls]) == pytest.approx(
+        float(roughness)
+    )
+
+
+def test_outline_fairness_ignores_redundant_collinear_knots_and_has_finite_gradients():
+    sparse = mapping("M10 10 L30 10 L30 30 L10 30 Z")
+    dense = mapping(
+        "M10 10 L10 10 L10.01 10 L17 10 L29.9 10 L30 10 L30 15 L30 30 L10 30 Z"
+    )
+    sparse_loss = sparse.fairness_loss(sparse.controls_from_local(sparse.original))
+    local = dense.original.clone().requires_grad_()
+    dense_loss = dense.fairness_loss(dense.controls_from_local(local))
+    assert float(dense_loss.detach()) == pytest.approx(float(sparse_loss), rel=1e-3)
+    dense_loss.backward()
+    assert torch.isfinite(local.grad).all()

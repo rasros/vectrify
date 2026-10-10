@@ -59,6 +59,41 @@ def test_cleanup_removes_false_dents_but_keeps_the_reference_notch():
     assert best < before * 0.1
 
 
+def test_dense_knots_do_not_prevent_bridging_a_whole_false_dent():
+    dent = np.vstack(
+        (
+            np.linspace((16, 16), (20, 20), 41)[1:],
+            np.linspace((20, 20), (24, 16), 41)[1:],
+        )
+    )
+    path = "M8 16 L16 16 " + " ".join(f"L{x} {y}" for x, y in dent)
+    source = drawing(path + " L36 16 L40 24 L44 16 L56 16 L56 56 L8 56 Z")
+    target = np.asarray(
+        render_image(
+            export_svg(drawing("M8 16 L36 16 L40 24 L44 16 L56 16 L56 56 L8 56 Z")),
+            (0, 0, 64, 64),
+            (128, 128),
+        ),
+        dtype=float,
+    )
+    geometry = source.geometry_for("p")
+    best = score(source, target)
+
+    def accept(candidate):
+        nonlocal best
+        actual = score(source.replace_geometry(candidate), target)
+        if actual >= best or crossings(candidate):
+            return False
+        best = actual
+        return True
+
+    result = cleaned(geometry, geometry, FRAME, 4.1, frozenset(), accept, lambda: False)
+    old, new = geometry.subpaths[0].nodes, result.subpaths[0].nodes
+    assert [n.id for n in new] == [n.id for n in old]
+    assert max(n.endpoint[1] for n in new[2:82]) < 16.25
+    assert new[83].endpoint == (40, 24)
+
+
 @pytest.mark.parametrize("protection", ["pin", "feature", "held", "stopped", "cap"])
 def test_cleanup_respects_protected_knots_and_the_movement_limit(protection):
     geometry = drawing("M8 16 L10 18 L12 16").geometry_for("p")

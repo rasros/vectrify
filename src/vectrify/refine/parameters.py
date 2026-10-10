@@ -235,6 +235,47 @@ class ControlMap:
         expected = torch.stack(((2 * a + b) / 3, (a + 2 * b) / 3), 1)
         return (delta[:, 1:3] - expected).square().mean()
 
+    def fairness_loss(self, contours, pixel_scale=(1.0, 1.0)):
+        """Penalize actual outline wiggles, including those in the input."""
+        import torch
+
+        basis = self.original.new_tensor(
+            [
+                [1, 0, 0, 0],
+                [0.421875, 0.421875, 0.140625, 0.015625],
+                [0.125, 0.375, 0.375, 0.125],
+                [0.015625, 0.140625, 0.421875, 0.421875],
+            ]
+        )
+        losses = []
+        for contour in contours:
+            points = torch.einsum("tk,nkc->ntc", basis, contour).reshape(-1, 2)
+            points = points * self.original.new_tensor(pixel_scale)
+            edges = points.roll(-1, 0) - points
+            lengths = edges.norm(dim=-1).clamp_min(1e-6)
+            walked = torch.cat((lengths.new_zeros(1), lengths.cumsum(0)))
+            count = max(4, min(1024, int(float(walked[-1].detach())) + 1))
+            distance = (
+                torch.arange(count, device=points.device) / count * walked[-1].detach()
+            )
+            indices = torch.searchsorted(walked.detach(), distance.detach(), right=True)
+            indices = (indices - 1).clamp(0, len(points) - 1)
+            share = (distance - walked[indices].detach()) / lengths[indices].detach()
+            samples = points[indices] + share[:, None] * edges[indices]
+            edges = samples.roll(-1, 0) - samples
+            lengths = edges.norm(dim=-1)
+            following = edges.roll(-1, 0)
+            denominator = (lengths * lengths.roll(-1, 0)).clamp_min(0.25**2)
+            cross = edges[:, 0] * following[:, 1] - edges[:, 1] * following[:, 0]
+            dot = (edges * following).sum(-1)
+            # A bounded angle penalty ignores point spacing. Tiny/repeated
+            # spans cannot create enormous gradients or fake turns.
+            turn = (cross / denominator).square() + 4 * (
+                (-dot / denominator).clamp_min(0).square()
+            )
+            losses.append(turn.sum() / lengths.sum().clamp_min(1))
+        return torch.stack(losses).mean()
+
     def controls_from_local(self, local):
         import torch
 
