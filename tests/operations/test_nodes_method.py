@@ -281,16 +281,44 @@ def snap_twists(monkeypatch):
     monkeypatch.setattr(nodes_method, "_run_step", twisting)
 
 
-@pytest.mark.usefixtures("snap_twists")
-def test_a_step_that_makes_a_path_cross_itself_is_not_kept():
+def test_a_step_that_makes_a_path_cross_itself_is_not_kept(monkeypatch):
+    from vectrify.refine import selected
+
+    calls = []
+
+    def twisting(document, *_args, **_kwargs):
+        # Preserve IDs and commands, but make the fitter return a bow-tie.
+        # Repeated knots fill out the existing topology without affecting the
+        # crossing. Exercise the actual fit acceptance guard, independent of
+        # where snapping happens or how many improving rounds a CPU finishes.
+        nodes = document.geometry_for("p").subpaths[0].nodes
+        corners = np.array([(16, 16), (48, 48), (16, 48), (48, 16), (16, 16)])
+        previous = corners[0]
+        values = {}
+        for i, node in enumerate(nodes):
+            end = corners[4 * i // (len(nodes) - 1)]
+            if node.command == "C":
+                step = end - previous
+                value = np.array([previous + step / 3, previous + 2 * step / 3, end])
+            else:
+                value = end
+            values[node.id] = tuple(float(v) for v in value.ravel())
+            previous = end
+        calls.append(values)
+        return SimpleNamespace(values=values)
+
+    monkeypatch.setattr(selected, "fit_selected_path", twisting)
     ed = editor("p")
-    job = Job(method("improve", "nodes"), request(ed, steps=2, snap=True, detail=True))
+    job = Job(method("improve", "nodes"), request(ed, steps=2))
     job.run()
-    metrics = job.state()["result"]["metrics"]
-    assert metrics["steps"] == ["shape", "shape"]
-    job.apply()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert calls
+    assert not state["result"]["changed"]
+    metrics = state["result"]["metrics"]
+    assert metrics["steps"] == []
     assert nodes_method._crossings(ed.snapshot.document, ["p"]) == {"p": 0}
-    assert metrics["after"]["difference"] < metrics["before"]["difference"]
+    assert metrics["after"]["difference"] == metrics["before"]["difference"]
 
 
 @pytest.mark.usefixtures("snap_twists")
