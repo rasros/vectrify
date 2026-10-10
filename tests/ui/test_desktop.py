@@ -73,21 +73,30 @@ def test_desktop_installs_permission_fix_before_start(monkeypatch):
 
 
 @pytest.mark.parametrize("project", [False, True])
+@pytest.mark.parametrize("modern", [False, True])
 def test_native_save_writes_binary_projects_and_plain_svg(
-    monkeypatch, tmp_path, project
+    monkeypatch, tmp_path, project, modern
 ):
     import base64
 
     path = tmp_path / ("drawing.vectrify" if project else "drawing.svg")
     api = desktop.Api(desktop.Backend())
-    api._window = SimpleNamespace(
-        create_file_dialog=lambda *_args, **_kwargs: [str(path)]
+    dialog = MagicMock(return_value=[str(path)])
+    api._window = SimpleNamespace(create_file_dialog=dialog)
+    save = object()
+    webview = (
+        SimpleNamespace(FileDialog=SimpleNamespace(SAVE=save))
+        if modern
+        else SimpleNamespace(SAVE_DIALOG=save)
     )
     monkeypatch.setattr(
-        desktop.importlib, "import_module", lambda _name: SimpleNamespace(SAVE_DIALOG=1)
+        desktop.importlib,
+        "import_module",
+        lambda _name: webview,
     )
     source = '{"vectrify_editor":1}' if project else '<svg width="100" height="100"/>'
     expected = encode_project(source) if project else source.encode()
     content = base64.b64encode(expected).decode() if project else source
     assert api.save(path.name, content, "base64" if project else None) == str(path)
+    dialog.assert_called_once_with(save, save_filename=path.name)
     assert path.read_bytes() == expected

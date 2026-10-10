@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import socket
 import stat
 from pathlib import Path
@@ -173,6 +174,59 @@ def test_turning_agents_off_stops_it(editor):
     agents = backend.agents
     agents.agent = None
     assert post(url, token).status_code == 403
+
+
+@pytest.mark.parametrize("modern", [False, True])
+@pytest.mark.parametrize("quit_editor", [False, True])
+def test_shutdown_closes_open_mcp_streams(
+    editor, caplog, monkeypatch, modern, quit_editor
+):
+    backend, session_id = editor
+    url = backend.handle("/api/agent", {"enabled": True}, session_id)[1]["mcp"]["url"]
+    token = token_file().read_text().strip()
+    hosted = backend.agents._hosted
+    thread = hosted._thread
+    # Uvicorn configures its error logger without propagation by default.
+    monkeypatch.setattr(logging.getLogger("uvicorn.error"), "propagate", True)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json, text/event-stream",
+    }
+    if modern:
+        headers["MCP-Protocol-Version"] = "2026-07-28"
+        headers["MCP-Method"] = "subscriptions/listen"
+        method = "POST"
+        body = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "subscriptions/listen",
+            "params": {
+                "notifications": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                },
+            },
+        }
+    else:
+        initialized = post(url, token)
+        headers["Mcp-Session-Id"] = initialized.headers["mcp-session-id"]
+        headers["MCP-Protocol-Version"] = "2025-06-18"
+        method, body = "GET", None
+    with httpx2.stream(method, url, headers=headers, json=body, timeout=5) as response:
+        assert response.status_code == 200, response.read()
+        assert response.headers["content-type"].startswith("text/event-stream")
+        with caplog.at_level(logging.ERROR):
+            if quit_editor:
+                backend.agents.close()
+            else:
+                backend.handle("/api/agent", {"enabled": False}, session_id)
+            assert not thread.is_alive()
+            # The response ends cleanly, without a truncated chunked body.
+            response.read()
+        assert not caplog.records
+    with pytest.raises(httpx2.ConnectError):
+        post(url, token)
 
 
 def test_a_taken_port_moves_to_the_next_free_one(editor):

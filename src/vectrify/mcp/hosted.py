@@ -21,7 +21,7 @@ import anyio.to_thread
 import uvicorn
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.datastructures import Headers
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from vectrify.mcp.server import Vectrify, build_window_server
 from vectrify.mcp.target import WindowTarget
@@ -41,6 +41,14 @@ class Guard:
         self.app = app
         self.channel = channel
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        self._requests: set[anyio.CancelScope] = set()
+        self._stopping = False
+
+    def shutdown(self) -> None:
+        """End MCP streams on the server's loop before Uvicorn drains HTTP."""
+        self._stopping = True
+        for request in self._requests:
+            request.cancel()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
@@ -69,7 +77,38 @@ class Guard:
             if scope["path"].startswith("/agent/"):
                 await self.agent_call(scope, receive, send, headers)
                 return
+            await self.mcp_request(scope, receive, send)
+            return
         await self.app(scope, receive, send)
+
+    async def mcp_request(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self._stopping:
+            await respond(send, 503, "text/plain", b"The editor is shutting down")
+            return
+
+        started = completed = False
+
+        async def tracked_send(message: Message) -> None:
+            nonlocal started, completed
+            await send(message)
+            if message["type"] == "http.response.start":
+                started = True
+            elif message["type"] == "http.response.body":
+                completed = not message.get("more_body", False)
+
+        with anyio.CancelScope() as request:
+            self._requests.add(request)
+            try:
+                await self.app(scope, receive, tracked_send)
+            finally:
+                self._requests.discard(request)
+        # Only our shutdown cancellation is suppressed by this scope. Finish
+        # the HTTP response so clients see EOF instead of a truncated stream.
+        if request.cancel_called and not completed:
+            if started:
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                await respond(send, 503, "text/plain", b"The editor is shutting down")
 
     async def agent_call(
         self, scope: Scope, receive: Receive, send: Send, headers: Headers
@@ -135,6 +174,19 @@ def bind(port: int, tries: int) -> socket.socket:
     raise error
 
 
+class HostedServer(uvicorn.Server):
+    def __init__(self, config: uvicorn.Config, guard: Guard):
+        super().__init__(config)
+        self.guard = guard
+
+    async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
+        # MCP notification streams can stay open indefinitely. Lifespan
+        # shutdown happens after Uvicorn waits for HTTP requests, so close
+        # these first rather than waiting for the graceful timeout.
+        self.guard.shutdown()
+        await super().shutdown(sockets)
+
+
 class HostedMCP:
     """One run of the hosted server: started when allowed, stopped when not."""
 
@@ -161,13 +213,14 @@ class HostedMCP:
                 ],
             ),
         )
+        guard = Guard(app, self.channel, port)
         config = uvicorn.Config(
-            Guard(app, self.channel, port),
+            guard,
             log_level="warning",
             lifespan="on",
             timeout_graceful_shutdown=1,
         )
-        server = uvicorn.Server(config)
+        server = HostedServer(config, guard)
         self._server = server
         self._thread = threading.Thread(
             target=server.run,
