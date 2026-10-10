@@ -171,6 +171,33 @@ def test_tidy_cleans_unsupported_dents_even_when_gradient_fitting_stalls(monkeyp
     assert new[5].endpoint == (32, 20)
 
 
+def test_tidy_smoothing_keeps_a_supported_unmarked_notch():
+    pytest.importorskip("torch")
+    source = (
+        '<svg width="64" height="64"><rect width="64" height="64" fill="white"/>'
+        '<path id="p" fill="black" d="M8 16 L16 16 L18 18 L20 16 L28 16 '
+        'L32 24 L36 16 L42 16 L44 18 L46 16 L56 16 L56 56 L8 56 Z"/></svg>'
+    )
+    target = source.replace("L18 18", "L18 16").replace("L44 18", "L44 16")
+    document = import_svg(source)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
+    req = replace(
+        request(ed, steps=2, detail=True, snap=True),
+        reference=render_image(target, (0, 0, 64, 64), (64, 64)),
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    result = job.state()["result"]
+    assert result["changed"]
+    job.apply()
+    old = document.geometry_for("p").subpaths[0].nodes
+    geometry = ed.snapshot.document.geometry_for("p")
+    assert {n.id for n in old} <= {n.id for s in geometry.subpaths for n in s.nodes}
+    assert geometry.node(old[5].id).endpoint[1] >= 23.5
+    assert geometry.node(old[2].id).endpoint[1] < 16.5
+    assert geometry.node(old[8].id).endpoint[1] < 16.5
+
+
 def test_simplify_without_a_reference_removes_points_and_keeps_the_look():
     ed = editor("p")
     job = Job(

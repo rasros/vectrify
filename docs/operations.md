@@ -199,16 +199,25 @@ range, and concave outlines remain supported. These constraints also apply to
 joint fitting and the fixed-topology edge proposal inside a path fit.
 Smooth cubic joins retain one tangent and their original handle-length ratio.
 The knot, direction and length can move within the bounds; original line
-junctions and sharp corners remain free to develop their own tangents. A
-small bending penalty discourages handle wiggles from fitting isolated noisy
-pixels. Bounds and crossing rollbacks keep tied controls together, and an
-offending short span backs off locally rather than stalling the whole path.
-Tidy's single-path fit then tests short local bridges against the exact
-reference render. These remove unsupported dents and handle wiggles without
-deleting points or changing their IDs. Each bridge must improve the match and
+junctions and sharp corners remain free to develop their own tangents.
+Tidy penalizes uneven turns along the actual outline, sampled at reference
+pixel distances so redundant knots do not dilute the penalty. Its weight
+accounts for the paint contrast, perimeter and reference crop. Other shape
+fits retain the small penalty on changes in handle bending. Bounds and crossing
+rollbacks keep tied controls together, and an offending short span backs off
+locally rather than stalling the whole path.
+Tidy's single-path fit tests short local bridges before and after gradient
+fitting, using reference pixel distances rather than a fixed number of knots.
+It tries both a curve following the neighbouring tangents and a straight
+bridge against the exact reference render. Accepted bridges also give gradient
+fitting a cleaner starting outline. These remove unsupported dents and handle
+wiggles without deleting points or changing their IDs. Each bridge must improve the match and
 cannot add crossings; pins, protected features, region holds and `movement`
 still apply. Real notches and tips are retained when bridging them would make
-the reference match worse. The pass shares the fit's time limit.
+the reference match worse. A smoother gradient candidate may give back at most
+one percent of the starting reference error relative to the best accepted
+match. The pass shares the fit's time limit. Fitting crops align with reference
+pixel boundaries so its exact score uses the same pixels as the final result.
 When an interior fill lies inside an opaque stroked sibling underneath it,
 the single-path fit protects the existing exterior and ink in its loss and
 exact-render score, preventing reference blur from rewarding overpainted

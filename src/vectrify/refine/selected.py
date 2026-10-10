@@ -263,9 +263,22 @@ class FitContext:
         right, bottom = np.minimum(world.max(0) + margin, (vx + vw, vy + vh))
         if right <= left or bottom <= top:
             raise DocumentError("The selected path is outside the artboard")
+        # Use the reference pixel grid. A fractional crop changes Cairo's
+        # antialiasing and can rank two near-identical outlines differently
+        # from Tidy's full-resolution acceptance render.
+        box = (
+            math.floor((left - vx) * target.width / vw),
+            math.floor((top - vy) * target.height / vh),
+            math.ceil((right - vx) * target.width / vw),
+            math.ceil((bottom - vy) * target.height / vh),
+        )
+        left, top = vx + box[0] * vw / target.width, vy + box[1] * vh / target.height
+        right, bottom = (
+            vx + box[2] * vw / target.width,
+            vy + box[3] * vh / target.height,
+        )
         self.crop = (left, top, right, bottom)
-        width = max(1, math.ceil((right - left) * target.width / vw))
-        height = max(1, math.ceil((bottom - top) * target.height / vh))
+        width, height = box[2] - box[0], box[3] - box[1]
         scale = min(1, options.resolution / max(width, height))
         self.size = (max(1, round(width * scale)), max(1, round(height * scale)))
         self.scale = np.array(
@@ -277,16 +290,9 @@ class FitContext:
             np.asarray(target.convert("RGBA").getchannel("A")).min() < 255
         )
         self.target = (
-            target.convert("RGBA") if self.alpha else on_white(target)
-        ).resize(
-            self.size,
-            Image.Resampling.BICUBIC,
-            box=(
-                (left - vx) * target.width / vw,
-                (top - vy) * target.height / vh,
-                (right - vx) * target.width / vw,
-                (bottom - vy) * target.height / vh,
-            ),
+            (target.convert("RGBA") if self.alpha else on_white(target))
+            .crop(box)
+            .resize(self.size, Image.Resampling.BICUBIC)
         )
         # Paths that paint nowhere near the crop draw nothing in it: left
         # out, each of the many renders below costs a fraction.
@@ -605,10 +611,57 @@ def fit_selected_path(
                 held_pixels, previous_pixels, goal
             ) * weights
 
-    before = best = checked = score(context.before_image)
+    _, _, vw, vh = document.artboard()
+    fairness_scale = (
+        target.width / vw / context.scale[0],
+        target.height / vh / context.scale[1],
+    )
+    paint = np.asarray(
+        color(
+            context.style["fill"]
+            if not context.stroke_only
+            else context.style["stroke"]
+        )[:3]
+    )
+    contrast = float(
+        np.square(context.delta[..., :3] + context.transmission[..., :3] * paint).mean()
+    )
+    reference_area = context.size[0] * context.size[1] * np.prod(fairness_scale)
+    perimeter = float(
+        (
+            (parameters.initial_controls[:, 3] - parameters.initial_controls[:, 0])
+            * original.new_tensor(fairness_scale)
+        )
+        .norm(dim=-1)
+        .sum()
+    )
+    # Scale a turn's cost like a few reference pixels of edge mismatch,
+    # independent of the crop resolution and the fill's contrast.
+    fairness_weight = 4 * contrast * perimeter / reference_area
+
+    def quality(geometry, actual):
+        if not options.cleanup or context.stroke_only:
+            return actual
+        coordinates = original.new_tensor(
+            [
+                point
+                for s in geometry.subpaths
+                for n in s.nodes
+                for point in zip(n.values[::2], n.values[1::2], strict=True)
+            ]
+        )
+        with torch.no_grad():
+            penalty = parameters.fairness_loss(
+                controls_from_local(coordinates), fairness_scale
+            )
+        return actual + fairness_weight * float(penalty)
+
+    before = best = least_difference = score(context.before_image)
+    best_quality = checked = quality(context.geometry, before)
     best_values, best_fill, best_image = {}, None, context.before_image
     completed = folded = 0
     folds = crossings(context.geometry)
+    best_crossings = folds
     node_index = {node.id: i for i, node in enumerate(context.nodes)}
     # The node each row of coordinates belongs to.
     owners = np.repeat(
@@ -650,12 +703,24 @@ def fit_selected_path(
         )
         fill, image = context.candidate(geometry, paint[:3], options)
         actual = score(image)
-        if actual < best:
+        count = crossings(geometry)
+        proposed_quality = quality(geometry, actual)
+        if actual < before and (
+            actual <= least_difference + before * 0.01
+            and (count, proposed_quality) < (best_crossings, best_quality)
+            if options.cleanup
+            else actual < best
+        ):
             best, best_values, best_fill, best_image = actual, values, fill, image
+            best_crossings = count
+            best_quality = proposed_quality
+            least_difference = min(least_difference, actual)
 
     def observe(step, paths, colors):
         nonlocal completed, folded, best, best_values, best_fill, best_image
         nonlocal unfolded, checked
+        nonlocal folds, best_crossings, best_quality
+        nonlocal least_difference
         completed = step
         report(step, f"Fitting path · step {step}/{options.steps}")
         if step and (step % 10 == 0 or step == options.steps or stop.is_set()):
@@ -675,16 +740,28 @@ def fit_selected_path(
                     for dest, source in zip(paths[0], back, strict=True):
                         dest.copy_(source)
             unfolded = coordinates
+            count = crossings(geometry)
+            if options.cleanup:
+                folds = min(folds, count)
             fill, image = context.candidate(
                 geometry, colors[0].detach().clamp(0, 1).cpu().numpy(), options
             )
             actual = score(image)
             # A strong edge proposal must not stop the gradient fit before it
             # has had time to improve on its own starting geometry.
-            stalled = actual > checked * (1 - options.stall)
-            checked = actual
-            if actual < best:
+            proposed_quality = quality(geometry, actual)
+            stalled = proposed_quality > checked * (1 - options.stall)
+            checked = proposed_quality
+            if actual < before and (
+                actual <= least_difference + before * 0.01
+                and (count, proposed_quality) < (best_crossings, best_quality)
+                if options.cleanup
+                else actual < best
+            ):
                 best, best_values, best_fill, best_image = actual, values, fill, image
+                best_crossings = count
+                best_quality = proposed_quality
+                least_difference = min(least_difference, actual)
             if step and options.stall and stalled:
                 return False
         return not stop.is_set()
@@ -791,38 +868,16 @@ def fit_selected_path(
             else (1 - (1 - alphas[0]) * (1 - stroke))[None]
         )
 
-    fit_filled_svg(
-        ET.tostring(work, encoding="unicode"),
-        context.target,
-        steps=options.steps,
-        point_learning_rate=0.25 if options.nodes or options.handles else 0,
-        color_learning_rate=0.01 if options.color else 0,
-        # The Xing term only sees a cubic's own handles crossing; the
-        # folds a fit makes are mostly neighbouring segments crossing at a
-        # node, which observe undoes, and the term did not reduce them.
-        xing_weight=0,
-        monolithic=True,
-        fit_context=(context.base, context.delta, context.transmission),
-        project_controls=project,
-        control_transform=lambda paths: [
-            controls_from_local(local_from_controls(paths))
-        ],
-        control_loss=(lambda paths: 0.001 * parameters.bending_loss(paths[0]))
-        if not context.stroke_only
-        else None,
-        loss_transform=loss_transform,
-        observe=observe,
-        coverage_transform=include_stroke
-        if context.style["stroke"] != "none"
-        else None,
-        device=device,
-    )
-    if (
-        options.cleanup
-        and options.nodes
-        and options.handles
-        and not context.stroke_only
-    ):
+    def cleanup_best(stopped):
+        nonlocal best, best_values, best_image
+        nonlocal best_crossings, best_quality, least_difference
+        if not (
+            options.cleanup
+            and options.nodes
+            and options.handles
+            and not context.stroke_only
+        ):
+            return
         from vectrify.refine.cleanup import cleaned
         from vectrify.refine.snap import _Frame
 
@@ -851,17 +906,22 @@ def fit_selected_path(
         original_values = {n.id: n.values for n in context.nodes}
 
         def accept_bridge(candidate):
-            nonlocal best, best_values, best_image, bridge_folds
+            nonlocal best, best_values, best_image
+            nonlocal bridge_folds, best_crossings, best_quality, least_difference
             count = crossings(candidate)
             if count > bridge_folds:
                 return False
             rgb = color(best_fill)[:3] if best_fill is not None else paint[:3]
             _, image = context.candidate(candidate, np.array(rgb), options)
             actual = score(image)
-            if actual >= best:
+            proposed_quality = quality(candidate, actual)
+            if actual >= best or proposed_quality >= best_quality:
                 return False
             best, best_image = actual, image
             bridge_folds = count
+            best_crossings = count
+            best_quality = proposed_quality
+            least_difference = min(least_difference, actual)
             best_values = {
                 n.id: n.values
                 for s in candidate.subpaths
@@ -879,8 +939,70 @@ def fit_selected_path(
             options.displacement,
             held,
             accept_bridge,
-            stop.is_set,
+            stopped,
         )
+
+    cleanup_deadline = min(
+        getattr(stop, "deadline", float("inf")), time.monotonic() + 1.0
+    )
+    cleanup_best(lambda: stop.is_set() or time.monotonic() >= cleanup_deadline)
+    if options.cleanup and best_values:
+        coordinates = original.new_tensor(
+            [
+                point
+                for node in context.nodes
+                for point in zip(
+                    best_values.get(node.id, node.values)[::2],
+                    best_values.get(node.id, node.values)[1::2],
+                    strict=True,
+                )
+            ]
+        )
+        work[0].set(
+            "d",
+            " ".join(
+                to_path_d(c.cpu().tolist(), precision=9) + " Z"
+                for c in controls_from_local(coordinates)
+            ),
+        )
+        unfolded = coordinates.detach().cpu().numpy()
+        _, seeded_geometry = context.reshaped(unfolded)
+        folds = min(folds, crossings(seeded_geometry))
+        checked = best_quality
+
+    fit_filled_svg(
+        ET.tostring(work, encoding="unicode"),
+        context.target,
+        steps=options.steps,
+        point_learning_rate=0.25 if options.nodes or options.handles else 0,
+        color_learning_rate=0.01 if options.color else 0,
+        # The Xing term only sees a cubic's own handles crossing; the
+        # folds a fit makes are mostly neighbouring segments crossing at a
+        # node, which observe undoes, and the term did not reduce them.
+        xing_weight=0,
+        monolithic=True,
+        fit_context=(context.base, context.delta, context.transmission),
+        project_controls=project,
+        control_transform=lambda paths: [
+            controls_from_local(local_from_controls(paths))
+        ],
+        control_loss=(
+            lambda paths: (
+                fairness_weight * parameters.fairness_loss(paths[0], fairness_scale)
+                if options.cleanup
+                else 0.001 * parameters.bending_loss(paths[0])
+            )
+        )
+        if not context.stroke_only
+        else None,
+        loss_transform=loss_transform,
+        observe=observe,
+        coverage_transform=include_stroke
+        if context.style["stroke"] != "none"
+        else None,
+        device=device,
+    )
+    cleanup_best(stop.is_set)
     return FitResult(
         context.oid,
         best_values,
