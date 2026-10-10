@@ -25,9 +25,8 @@ class EdgeProfiles:
         self.frame = frame
         self.coverage = coverage
         self.power = np.square(response).sum(-1)
-        self.signal = gaussian_filter(
-            self.power - 2 * ((target - base) * response).sum(-1), 0.6
-        )
+        self.raw_signal = self.power - 2 * ((target - base) * response).sum(-1)
+        self.signal = gaussian_filter(self.raw_signal, 0.6)
         self.steps = np.arange(-6, 6.01, 0.25) / pixel_scale
         self.probe = 1.5 / pixel_scale
         self.threshold = max(1e-8, float(self.power.max()) * 0.02)

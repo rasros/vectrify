@@ -221,6 +221,56 @@ class ControlMap:
         self.handle_high = along.clamp_min(1)
         self.handle_active = (length > 1e-6) & movable[self.handle_indices].bool()
         self.initial_controls = torch.cat(self.controls_from_local(original)).detach()
+        # Cleanup may establish smooth joins that were absent in the noisy
+        # input. Give those joins a soft tangent constraint during fitting.
+        joins = []
+        start = 0
+        protected = {
+            n.id
+            for s in geometry.subpaths
+            for n in s.nodes
+            if n.pinned or n.feature is not None
+        }
+        protected_rows = set()
+        row = 0
+        for subpath in geometry.subpaths:
+            for node in subpath.nodes:
+                row += len(node.values) // 2
+                if node.id in protected:
+                    protected_rows.add(root(row - 1))
+        for count in counts:
+            for left in range(start, start + count):
+                right = start + (left - start + 1) % count
+                incoming, outgoing = gather[left], gather[right]
+                knot = root(incoming[3])
+                if (
+                    not straight[left]
+                    and not straight[right]
+                    and knot == root(outgoing[0])
+                    and knot not in protected_rows
+                    and bool(movable[incoming[2]])
+                    and bool(movable[outgoing[1]])
+                ):
+                    joins.append((left, right))
+            start += count
+        self.joins = torch.tensor(joins, dtype=torch.long, device=device).reshape(-1, 2)
+        self.guarded_joins = self.joins[:0]
+
+    def guard_smooth_joins(self, contours):
+        """Discourage new kinks at the seed's nearly collinear handle pairs."""
+        import torch
+
+        with torch.no_grad():
+            controls = torch.cat(contours)
+            left, right = self.joins.unbind(1)
+            a = controls[left, 3] - controls[left, 2]
+            b = controls[right, 1] - controls[right, 0]
+            power = a.norm(dim=-1) * b.norm(dim=-1)
+            cross = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+            good = (
+                (power > 1e-6) & ((a * b).sum(-1) > 0) & (cross.abs() < 0.087 * power)
+            )
+            self.guarded_joins = self.joins[good]
 
     def bending_loss(self, contours):
         """Penalize handle changes that do not follow the endpoint displacement.
@@ -254,7 +304,7 @@ class ControlMap:
             edges = points.roll(-1, 0) - points
             lengths = edges.norm(dim=-1).clamp_min(1e-6)
             walked = torch.cat((lengths.new_zeros(1), lengths.cumsum(0)))
-            count = max(4, min(1024, int(float(walked[-1].detach())) + 1))
+            count = max(4, min(2048, int(2 * float(walked[-1].detach())) + 1))
             distance = (
                 torch.arange(count, device=points.device) / count * walked[-1].detach()
             )
@@ -268,13 +318,28 @@ class ControlMap:
             denominator = (lengths * lengths.roll(-1, 0)).clamp_min(0.25**2)
             cross = edges[:, 0] * following[:, 1] - edges[:, 1] * following[:, 0]
             dot = (edges * following).sum(-1)
-            # A bounded angle penalty ignores point spacing. Tiny/repeated
-            # spans cannot create enormous gradients or fake turns.
-            turn = (cross / denominator).square() + 4 * (
-                (-dot / denominator).clamp_min(0).square()
-            )
-            losses.append(turn.sum() / lengths.sum().clamp_min(1))
-        return torch.stack(losses).mean()
+            turn = torch.atan2(cross / denominator, dot / denominator + 1e-5)
+            penalties = []
+            # Half-pixel samples catch tiny needles; compare opposing turns
+            # across several physical widths without flattening real corners.
+            for width in (5, 9, 17):
+                turns = torch.stack([turn.roll(i, 0) for i in range(width)])
+                excess = (turns.abs().sum(0) - turns.sum(0).abs()) / 2
+                penalties.append(excess.square().sum() / width)
+            losses.append(torch.stack(penalties).mean() / lengths.sum().clamp_min(1))
+        penalty = torch.stack(losses).mean()
+        if len(self.guarded_joins):
+            controls = torch.cat(contours) * self.original.new_tensor(pixel_scale)
+            left, right = self.guarded_joins.unbind(1)
+            a = controls[left, 3] - controls[left, 2]
+            b = controls[right, 1] - controls[right, 0]
+            power = (a.norm(dim=-1) * b.norm(dim=-1)).clamp_min(1e-6)
+            cross = (a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) / power
+            dot = (a * b).sum(-1) / power
+            penalty = penalty + (
+                cross.square() + 4 * (-dot).clamp_min(0).square()
+            ).sum() / (controls[:, 3] - controls[:, 0]).norm(dim=-1).sum().clamp_min(1)
+        return penalty
 
     def controls_from_local(self, local):
         import torch

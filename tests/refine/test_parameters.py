@@ -160,3 +160,27 @@ def test_outline_fairness_ignores_redundant_collinear_knots_and_has_finite_gradi
     assert float(dense_loss.detach()) == pytest.approx(float(sparse_loss), rel=1e-3)
     dense_loss.backward()
     assert torch.isfinite(local.grad).all()
+
+
+def test_fairness_does_not_penalize_a_supported_convex_corner():
+    corners = mapping("M8 8 L56 8 L56 56 L8 56 Z")
+    assert corners.fairness_loss(corners.controls_from_local(corners.original)) < 1e-12
+
+
+def test_nearly_smooth_seed_joins_resist_new_kinks_without_guarding_sharp_corners():
+    parameters = mapping(
+        "M10 20 C13 10 17 10 20 20 C23.001 30 27 30 30 20 C31 20 35 25 40 20 L40 40 Z"
+    )
+    controls = parameters.controls_from_local(parameters.original)
+    parameters.guard_smooth_joins(controls)
+    assert parameters.guarded_joins.tolist() == [[0, 1]]
+    local = parameters.original.clone().requires_grad_()
+    changed = local + torch.nn.functional.one_hot(torch.tensor(4), len(local))[
+        :, None
+    ] * local.new_tensor([1, 0])
+    guarded = parameters.fairness_loss(parameters.controls_from_local(changed))
+    parameters.guarded_joins = parameters.joins[:0]
+    unguarded = parameters.fairness_loss(parameters.controls_from_local(changed))
+    assert guarded > unguarded
+    guarded.backward()
+    assert torch.isfinite(local.grad).all()
