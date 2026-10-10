@@ -121,6 +121,17 @@ def fit(values, *, work=None):
     )
 
 
+@pytest.mark.parametrize("feature", ["position", "tip", "corner", "junction"])
+def test_direct_fit_declines_protected_owner_before_replacing_geometry(feature):
+    before, floor, *rest = fixture()
+    geometry = before.geometry_for("owner")
+    node = geometry.subpaths[0].nodes[0]
+    protected = geometry.replace_node(replace(node, feature=feature))
+    before = before.replace_geometry(protected)
+    assert fit((before, floor, *rest)) is None
+    assert before.geometry_for("owner") == protected
+
+
 @pytest.mark.parametrize(
     ("opacity", "transform", "reverse"),
     [(1, "translate(0 0)", False), (0.6, "translate(.35 .2)", True)],

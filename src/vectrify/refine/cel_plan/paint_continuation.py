@@ -66,7 +66,11 @@ def _supported(document, oid):
         document.geometry_users(geometry.id) == frozenset((oid,))
         and document.dependents({oid}) == frozenset((oid,))
         and sum(len(s.nodes) for s in geometry.subpaths) <= MAX_NODES
-        and not any(n.pinned for s in geometry.subpaths for n in s.nodes)
+        and not any(
+            n.pinned or n.feature is not None
+            for s in geometry.subpaths
+            for n in s.nodes
+        )
     )
 
 
