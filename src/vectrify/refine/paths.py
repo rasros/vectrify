@@ -1031,6 +1031,7 @@ def fit_filled_svg(
     fit_context: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
     project_controls: Any = None,
     control_transform: Any = None,
+    control_loss: Any = None,
     observe: Any = None,
     coverage_transform: Any = None,
     loss_transform: Any = None,
@@ -1072,6 +1073,7 @@ def fit_filled_svg(
     ``loss_transform`` optionally prepares the rendered image and target for
     monolithic fitting, for example a coarse image comparison before refinement.
     These optional hooks leave the automatic path-fit mutation unchanged.
+    ``control_loss`` adds a differentiable geometry penalty in monolithic fits.
     ``device`` overrides the default of CUDA whenever Torch sees a GPU.
     Without CUDA or the native extension, coverage comes from the portable
     polyline renderer in :mod:`vectrify.refine.soft_coverage`, whose gradient
@@ -1255,6 +1257,8 @@ def fit_filled_svg(
         raise ValueError("Image loss transformation requires monolithic fitting")
     if control_transform is not None and not monolithic:
         raise ValueError("Control transformation requires monolithic fitting")
+    if control_loss is not None and not monolithic:
+        raise ValueError("Control loss requires monolithic fitting")
     if control_transform is not None and project_controls is None:
         raise ValueError("Control transformation requires a control projection")
     context_tensors = None
@@ -1818,6 +1822,8 @@ def fit_filled_svg(
                 else error.mean()
             )
             loss = loss + xing_weight * _xing_loss(all_controls)
+            if control_loss is not None:
+                loss = loss + control_loss(controls)
             loss.backward()
             if control_transform is not None:
                 # The renderer sees duplicated cubic endpoints and derived

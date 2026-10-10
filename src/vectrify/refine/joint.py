@@ -22,7 +22,7 @@ from vectrify.document.join import path_style
 from vectrify.document.topology import inverse_matrix, mapped_point
 from vectrify.document.transforms import root_matrix
 from vectrify.refine.crossings import crossings
-from vectrify.refine.parameters import ControlMap
+from vectrify.refine.parameters import ControlMap, line_knots
 from vectrify.refine.selected import (
     FitContext,
     FitOptions,
@@ -143,6 +143,7 @@ class _Coordinates:
         device,
         endpoint_only=frozenset(),
         bilateral=False,
+        corners=frozenset(),
     ):
         import torch
 
@@ -187,6 +188,7 @@ class _Coordinates:
             self.original.new_tensor(mask)[:, None],
             options.displacement,
             stroke_only=self.stroke_only,
+            corners=corners,
         )
         self.bilateral = None
         if bilateral and self.stroke_only and options.nodes and options.handles:
@@ -612,6 +614,7 @@ def _polish_group(
             fit_device(),
             endpoint_only,
             bilateral,
+            corners=line_knots(before.geometry_for(oid)),
         )
         for oid in group
     ]
@@ -814,6 +817,14 @@ def _polish_group(
             fit_context=(context.base, context.delta, context.transmission),
             project_controls=project,
             control_transform=transformed,
+            control_loss=lambda paths: (
+                0.001
+                * sum(
+                    p.mapping.bending_loss(path)
+                    for p, path in zip(coordinates, paths, strict=True)
+                    if not p.stroke_only
+                )
+            ),
             observe=observe,
             coverage_transform=coverage,
             loss_transform=loss_transform,
