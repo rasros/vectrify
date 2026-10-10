@@ -26,7 +26,8 @@ also leaves missing support unchanged at **117**, gives **zero** score gain and
 is rejected by common search. Coverage is measured per stroke through the whole
 paint stack before pooling, so an overlapping stroke cannot lend it visibility.
 Controls also cover same-background and white strokes, partial occlusion,
-legitimate duplicate ink and shared group opacity.
+legitimate duplicate ink, shared group opacity and native rounding of faint
+light-gray or intrinsically translucent paint.
 
 Attached discovery excludes geometry with protected position, tip, corner or
 junction nodes. Direct fitting checks the original and restored owner before
@@ -39,7 +40,7 @@ The branch includes merged [PR #329](https://github.com/rasros/vectrify/pull/329
 and subsequent `main` changes through `acb7a79`. Earlier linked outlines from
 [PR #325](https://github.com/rasros/vectrify/pull/325) remain supported: shared
 fill/outline geometry is excluded from conversion, preserving the linked pair.
-All **298 targeted tests**, Ruff and Pyrefly pass after the fixes.
+All **301 targeted tests**, Ruff and Pyrefly pass after the fixes.
 
 ## Complete construction
 
@@ -116,9 +117,10 @@ and unchanged genuine junction. Changed or added undeclared paint intersecting a
 new family's removal field excludes that new stroke from quality credit, so a
 clone of the old filled outline under the stroke cannot imitate complete removal.
 
-Criterion version **2** measures each solid stroke independently. Whitening
-that stroke in the complete native drawing reveals its alpha after every later
-paint and ancestor opacity; a separate probe verifies that it darkens the
+Criterion version **2** measures each solid stroke independently. Black/white
+probes of that stroke in the complete native drawing reveal its alpha after
+every later paint and ancestor opacity, without dividing by a small paint
+contrast that can amplify native rounding; a separate probe verifies that it darkens the
 non-ink backdrop without borrowing another eligible stroke's darkening. Visible
 contributions are pooled only after both checks. Filled paint, occluded strokes,
 white or same-background paint and double-counted group opacity cannot supply
@@ -169,7 +171,7 @@ Fresh automatic scheduling and common search accept and checkpoint the complete
 nine-node U at width **1.1625470830648519**. The actual frontier selects it at
 complexity **75 and 100** and retains the cheaper fitted parent at **0, 25 and
 50**. No rejection override or stroke cost exemption is used. Search completes
-in **200.04 seconds**, with one attempted/accepted/checkpointed proposal and zero
+in **197.75 seconds**, with one attempted/accepted/checkpointed proposal and zero
 score disagreements. Local/full term agreement is within **9.56e-10**.
 
 | Measure | Fitted parent | Selected attached stroke |
@@ -209,11 +211,11 @@ Evidence is in `.bench/cel-attached-reviewed-search/` and
 `.bench/cel-attached-reviewed-audit/`: native projects,
 SVGs, partitions, complete reports, copied runtime/audit drivers and the preview
 `stroke-preview-automatic.png`. Generation and audit verify the unchanged
-algorithm SHA **f4eab0e621b98f2c37c1c8054bed656b93e49860b8e8844ebffe45afd8857d07**.
+algorithm SHA **2689e107fb69ef5ef0eb0c06e8cec384943e2b4aa931739cddae2b049d6c8197**.
 Generation uses the actual fitted parent; the independent audit's older trace
 and field remain validation inputs only.
 
-All **298 targeted tests pass**, including the visibility, common-search,
+All **301 targeted tests pass**, including the visibility, common-search,
 protected-feature, body-fit, discovery, restoration, ownership and latest-main
 integration controls. Ruff across source/tests/scripts and changed-file
 formatting pass; Pyrefly reports zero errors (two existing suppressions).
