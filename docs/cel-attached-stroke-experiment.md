@@ -934,40 +934,84 @@ still runtime code and is not scheduled by the checked-in experimental planner.
 Both reports retain `accepted: false`. Ordinary CEL and its ordinary High route
 remain unchanged; no new reference corpus or learned ranking is introduced.
 
+## Checked-in complete body fitter checkpoint
+
+`SpanBodyFit` now owns the successful local-normal body fit. It consumes a
+complete restoration floor, a freshly constructed source centerline, its frozen
+whole-guide source bank and an actual original same-component stroke. Both
+ports must coincide with a genuine open contour's literal endpoints; measured
+raw corners remain exact vertices. Only cubic controls, unfixed interior cubic
+vertices and width enter the existing 24-parameter, 600-evaluation budget.
+Original material, residual shadows and junction geometry stay outside it.
+
+Every original profile touched by the literal removal field contributes its
+**entire** frozen qualified body contract, including queries outside the crop.
+The actual existing stroke body classifies joint obligations; the new stroke
+alone supplies all other obligations and the additional whole-guide contract.
+Shared ancestor opacity, actual paint alpha, local width, caps and joins are
+preserved in native white-body queries. Background fill supplies no body support.
+The source qualification bank is unchanged: raw contrast qualification is not
+replaced by the separate whole-guide ink-support percentage.
+
+The fitter returns a drawing only after complete native alpha equality, literal
+field-plus-actual-body RGBA locality, exact full-context/crop agreement, all
+isolated/joint body queries, original and added painted-source comparisons and
+source absence pass. Physical family binding/component acceptance stay separate;
+its result reports `accepted: false` until the enclosing planner accepts it.
+
+Fifteen controls cover curved connected chains, exact corners/ports, original
+shadow/material preservation, fractional/translucent frames, profile-order
+independence, full source tails outside the crop, real gaps, unknown source
+identities, low-contrast qualification, unrelated corruption, unsupported bars,
+nonuniform frames, parameter bounds, interruption, shared group opacity and
+actual paint alpha/caps/width. All **1,567 CEL planning tests pass in 218.52
+seconds**; Ruff, changed-file formatting and Pyrefly pass (two existing
+suppressions, 70 warnings).
+
+Fresh runtime discovery followed by this checked-in fitter reproduces the
+successful nine-node U at width **1.1625470830648519**, with 23 parameters and
+600 evaluations. Its complete generation and independent validation pass every
+previous gate: all 179 original U and 448 fresh additional body queries, the
+independent earlier frozen **449-position** trace, all 185 joint collar queries,
+exact native alpha/locality/reload, original shadow/material commands and paint,
+complete former-field subtraction, original ownership and two component seals.
+The original painted bank remains 13,145 qualified / 1,629 missing with no new
+gaps or rejections. Original 64 cuts / 80 children and representation cost
+5,696 -> 5,888 remain unchanged from the previous complete interpretation.
+
+Evidence and the updated visible preview are in
+`.bench/cel-attached-checked-span-body/` and
+`.bench/cel-attached-checked-span-body-independent-audit/`, under algorithm SHA
+`cb160996bcfea15081c5376d64112d2a1b3f97900195742446f62876e2b8a850`.
+Drivers, generation dependencies, independent foundation and runtime logs are
+archived. No saved field, face, guide, source trace, body or optimizer vector
+enters generation. The existing fitted parent and supplied owner filter remain
+explicit diagnostic inputs. This checkpoint reproduces the previous visual
+improvement through checked-in fitting code; it does not claim a new visual gain
+or automatic planner completion.
+
 ## Resume here
 
-The current production route still accepts only the previously verified handle
-chain. The complete U now passes fresh runtime generation and independent
-validation, but its orchestration is not scheduled by the checked-in planner. Repeating the
-partial-field subtraction or its material optimizer is not the next step.
+The explicit filled-band co-planner still schedules the previously verified
+handle chain. The complete U now passes fresh runtime discovery, the checked-in
+body fitter and independent validation. Its discovery orchestration and
+experimental search scheduling remain unfinished; both reports retain
+`accepted: false`. Ordinary CEL and ordinary High keep the experimental flag off.
 
-1. Use the disabled generic primitive constructor, with bounded node/extent
-   work, complete original-field containment, exact original curve controls and
-   independent native retained-context checks. Measure an additional raw source
-   trace across the entire selected span; retain every original qualified sample
-   and gap as separate frozen obligations. Include synthetic curved, translucent,
-   true-gap and connected-junction controls before enabling the interpretation.
-2. Use the now-tested corner-preserving whole-guide constructor and preserve
-   original restoration paint. The opaque face-overlay diagnostic establishes an
-   exact restoration floor; production integration still needs to prove it before fitting
-   a positive stroke. Native-monotone subtraction alone does not prove that
-   restoration is monotone. Resolve excess already supplied by material/residual
-   paint in construction; reject it before spending a body-only fit budget. A
-   bounded raw-source endpoint policy must distinguish newly inferred guides,
-   transparent cluster means and protected original observations. Do not copy
-   the human handle repair or waive final alpha.
-3. Use the validated source-family representation for the complete interpretation,
-   preserving the original namespace, cut/child limits and primary memberships.
-   Its saved-drawing proof now passes. Construct and bind it against the actual
-   fitted parent, declare every physical part/material for complete cost and
-   dependency accounting, and preserve original paint/frame and exact subtraction.
-4. Check in the now-successful fresh discovery/port/material/body orchestration
-   with focused controls, then schedule it against the actual fitted parent in
-   explicit experimental search. The supplied-owner runtime drawing already
-   passes independent complete validation, including the earlier frozen source
-   trace; preserve every body/source/gap/native/locality/ownership/reload gate
-   when integrating it. Keep saved body/fit/domain inputs and fixture indices
-   out of generation. Show the scheduled result with its acceptance status.
+1. Check in the successful original-profile/primitive/genuine-port/material/face
+   discovery flow with bounded controls. Feed freshly measured nongap guides
+   into the existing corner-preserving constructor, native-exact floor and body
+   fitter. Preserve every original qualified source observation and gap. Keep
+   saved fields, faces, traces, fit vectors and fixture indices out of generation.
+2. Schedule the complete interpretation against its actual fitted parent in
+   explicit experimental search. Bind its physical family atomically, preserve
+   the original namespace/cut/child limits and all primary memberships, and
+   declare every part/material in dependency, component and representation cost
+   accounting. Retain the complete body/source/gap/native/locality gates.
+3. Independently validate the scheduled result, including the earlier frozen
+   trace, whole former-field removal, original ownership/component lineage and
+   native/metadata reload. Show its stroke preview with the actual acceptance
+   status before claiming the goal achieved.
 
 No new reference corpus, learned ranking, automatic-operation quality result or
 release gate is claimed by this draft. The active goal remains unfinished.
