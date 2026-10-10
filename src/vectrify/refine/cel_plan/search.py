@@ -72,6 +72,8 @@ def identity(svg: str, partition: Partition | None) -> str:
     digest = hashlib.sha256(svg.encode())
     if partition is not None and partition.atoms is not None:
         digest.update(partition.atoms.key.encode())
+    if partition is not None and partition.families:
+        digest.update(repr(tuple(f.metadata() for f in partition.families)).encode())
     return digest.hexdigest()
 
 
@@ -472,6 +474,18 @@ def search(
                 if partition is not None:
                     try:
                         partition.validate(proposal.document)
+                        previous_families = (
+                            state.partition.families
+                            if state.partition is not None
+                            else ()
+                        )
+                        if proposal.component is None and any(
+                            f not in previous_families for f in partition.families
+                        ):
+                            raise ValueError(
+                                "New physical source families require a sealed "
+                                "component replacement"
+                            )
                         if state.partition is not None and not partition.follows(
                             state.partition
                         ):

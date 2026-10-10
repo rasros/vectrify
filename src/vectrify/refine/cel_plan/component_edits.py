@@ -169,6 +169,33 @@ class ComponentEdit:
             after, self.parent, declared, work
         ):
             raise ValueError("Component replacement changed external dependencies")
+        proposed.validate(after)
+        if not proposed.follows(original):
+            raise ValueError(
+                "Component replacement lost source ownership or physical families"
+            )
+        added = tuple(f for f in proposed.families if f not in original.families)
+        if any(f.dependencies - declared for f in added):
+            raise ValueError(
+                "Component replacement must declare every new family part and material"
+            )
+        for family in added:
+            family.validate_before(before, after)
+            members = tuple(
+                i for i, oid in original.owners.items() if oid == family.owner
+            )
+            start = len(original.atoms.cuts) if original.atoms is not None else 0
+            descendants = (
+                proposed.atoms.descendants(members, start)
+                if proposed.atoms is not None
+                else members
+            )
+            if not members or any(
+                proposed.owners.get(i) != family.owner for i in descendants
+            ):
+                raise ValueError(
+                    "Component replacement reassigned physical family source ownership"
+                )
         for document, record in zip((before, after), records, strict=True):
             for oid in declared & record.keys():
                 _check(work)
