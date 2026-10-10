@@ -1057,26 +1057,74 @@ must also declare/protect that original junction dependency so later independent
 geometry or paint edits cannot disconnect the new chain. This checkpoint adds
 automatic construction, not another visual gain or a release claim.
 
+## Sealed original junction checkpoint
+
+Complete attached families can now declare an unchanged original `junction`
+and their two literal native `ports`. The junction joins the sealed revision
+and dependency set, while remaining an original read-only path rather than a
+new physical family part. Validation requires a genuine open sibling stroke
+whose actual endpoints coincide with both saved ports; reversed endpoint order
+is supported. The new stroke must retain those same ports. A native-coordinate
+tolerance of 1e-9 accommodates floating point frame round trips only.
+
+Binding proves that the junction already existed in the actual parent and its
+geometry, paint and frame remain unchanged. Metadata and native reload retain
+the certificate. Existing families without junction declarations keep their
+previous metadata representation. Component edits must declare the junction,
+and subsequent independent operators protect it through the family's existing
+paint/geometry dependency protections. Source/body/native acceptance remains
+separate from this structural certificate.
+
+Discovery now distinguishes physical family paths from read-only original
+dependencies. Original materials and original junction strokes remain available
+as unchanged restoration donors and port evidence for another independent chain.
+Already protected paths cannot become new removal owners; new physical family
+strokes cannot supply invented original ports.
+
+Eleven added controls cover normal and rotated translucent frames, reversed
+junction endpoints, native/metadata reload, component dependency completeness,
+changed or invented originals, resealed moved/closed/filled/transformed junctions,
+moved new-stroke ports, incomplete metadata and independent operator protection.
+The automatic discovery/fitting control also verifies that the original donor
+and junction remain readable while the converted stroke cannot become new port
+evidence. All **1,596 CEL tests pass in 218.66 seconds**; Ruff, changed-file
+formatting and Pyrefly pass (two existing suppressions, 72 warnings).
+
+A fresh no-owner-filter sword run produces the same nine-node complete U and
+zero missing samples across the original 179 U queries, all 448 fresh added
+queries and all 185 joint collar queries. The family seals the actual original
+collar and native ports `(333.5, 1941.5)` and `(393.5, 1941.5)`. Complete native
+alpha, byte-exact off-field locality, reload and original ownership/component
+seals pass. The geometry and representation cost are unchanged from the prior
+checkpoint; this change protects the connection, rather than claiming a new
+visual gain. Generation evidence is in `.bench/cel-attached-sealed-junction/`
+under algorithm SHA
+`c98a124ad7f7c03a69595d75869945cafe23f509a3cc271ff7a2c215517312d6`.
+
+The independent audit also passes all original 179 and earlier frozen 449 body
+queries and all 185 collar queries, the full 13,145-position original source
+bank, exact complete former-field subtraction and unchanged original materials.
+The original 64 cuts / 80 children, memberships and two sequential component
+seals remain valid. Its saved partition equals the generated certificate and
+validates against native reload. Evidence and preview are in
+`.bench/cel-attached-sealed-junction-independent-audit/`. Reports retain
+`accepted: false`: experimental scheduling/common acceptance remain unfinished.
+
 ## Resume here
 
 The explicit filled-band co-planner still schedules the previously verified
 handle chain. The complete U now passes automatic checked-in discovery/fitting
-and independent validation. Search integration and explicit connection sealing
-remain unfinished; reports retain `accepted: false`. Ordinary CEL and ordinary
+and independent validation. The original junction and literal ports are now
+sealed. Search integration remains unfinished; reports retain `accepted: false`. Ordinary CEL and ordinary
 High keep the experimental flag off.
 
-1. Declare the original genuine junction stroke in the physical family's sealed
-   dependencies. Preserve its actual geometry, paint/frame and literal ports
-   during subsequent independent edits and save/reload. Keep original materials
-   usable as unchanged restoration donors; family protection must not prevent
-   constructing another independent chain from those original materials.
-2. Schedule complete attached interpretations against their actual fitted parent
+1. Schedule complete attached interpretations against their actual fitted parent
    in explicit experimental search. Bind families atomically, preserve existing
    families and the original namespace/cut/child limits and primary memberships,
    and declare every part/material/junction in dependency, component and complete
    representation cost accounting. Retain all body/source/gap/native/locality
    checks and use the common acceptance/frontier rules.
-3. Independently validate the scheduled result, including the earlier frozen
+2. Independently validate the scheduled result, including the earlier frozen
    trace, whole former-field removal, original ownership/component lineage and
    native/metadata reload. Show its stroke preview with the actual acceptance
    status before claiming the goal achieved.

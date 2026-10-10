@@ -168,8 +168,17 @@ def test_automatic_owner_enumeration_can_fit_and_bind_without_a_supplied_owner()
         result.floor.parts,
         evidence.source_size,
         Work.start(10),
+        junction=result.bar,
     )
     family.validate(candidate)
+    planned = part.with_family(family)
+    tables = discovery._tables(candidate, planned, Work.start(10))
+    assert tables is not None
+    materials, ports = tables
+    assert "base" in {m.id for m in materials}
+    assert "bar" in {p.id for p in ports}
+    assert "ink" not in {p.id for p in ports}
+    assert discovery.discover(candidate, planned, "base", Work.start(10)) == ()
     assert (
         curve_path(
             candidate.geometry_for(

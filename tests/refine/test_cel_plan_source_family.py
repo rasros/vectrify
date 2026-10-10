@@ -119,7 +119,7 @@ def test_physical_family_retains_original_ownership_and_survives_native_reload(
         original,
         planned,
         tuple(family.dependencies),
-        Box(0, 0, 40, 40),
+        bounds(before, after, tuple(family.dependencies)),
         Work.start(10),
     )
 
@@ -319,10 +319,12 @@ def test_sealed_parent_snapshot_cannot_be_forged_even_when_final_geometry_matche
         family.validate_before(altered, after)
 
 
+@pytest.mark.parametrize("connected", [False, True])
 def test_operator_scheduling_preserves_family_while_allowing_independent_work(
     monkeypatch,
+    connected,
 ):
-    before, after, parts = fixture()
+    before, after, parts = connected_fixture() if connected else fixture()
     geometry = parse_path("M30 8H36V14H30Z")
     element = Element(
         "sibling", "path", (("fill", "#906030"),), geometry_id=geometry.id
@@ -334,7 +336,11 @@ def test_operator_scheduling_preserves_family_while_allowing_independent_work(
             tx.insert_object("body", element, geometries=(geometry,))
         documents.append(editor.snapshot.document)
     before, after = documents
-    family = bind(before, after, parts)
+    family = (
+        connected_bind(before, after, parts)
+        if connected
+        else bind(before, after, parts)
+    )
     original = Partition(
         (Surface("ink", (1,)), Surface("material", (2,)), Surface("sibling", (3,)))
     )
@@ -369,7 +375,7 @@ def test_operator_scheduling_preserves_family_while_allowing_independent_work(
             assert family.dependencies <= set(current.details["geometry_constraints"])
             if name != "families":
                 return
-            for oid in ("material", "sibling"):
+            for oid in (("bar",) if connected else ()) + ("material", "sibling"):
                 changed = paint(current.document, oid, "fill", "#887733")
                 yield Proposal(
                     "control",
@@ -412,4 +418,121 @@ def test_incomplete_family_metadata_is_rejected(field):
     metadata = bind(before, after, parts).metadata()
     metadata.pop(field)
     with pytest.raises(ValueError, match="metadata"):
+        SourceFamily.from_metadata(metadata)
+
+
+def connected_fixture(**kwargs):
+    before, after, parts = fixture(**kwargs)
+    geometry = parse_path("M22 9H10")
+    element = Element(
+        "bar",
+        "path",
+        (("fill", "none"), ("stroke", "#222222"), ("stroke-width", "1")),
+        geometry_id=geometry.id,
+    )
+    documents = []
+    for document in (before, after):
+        editor = Editor(document, selection=Selection(whole_document=True))
+        with editor.transaction("Add original junction") as tx:
+            tx.insert_object("body", element, geometries=(geometry,))
+        documents.append(editor.snapshot.document)
+    return documents[0], documents[1], parts
+
+
+def connected_bind(before, after, parts):
+    return SourceFamily.bind(
+        before,
+        after,
+        "ink",
+        parse_path(REMOVED),
+        parts,
+        (40, 40),
+        Work.start(10),
+        junction="bar",
+    )
+
+
+@pytest.mark.parametrize("transform", ["translate(0 0)", "matrix(.8 .6 -.6 .8 15 2)"])
+def test_original_junction_ports_and_dependency_survive_native_reload(transform):
+    before, after, parts = connected_fixture(opacity=0.6, transform=transform)
+    family = connected_bind(before, after, parts)
+    assert family.junction == "bar"
+    assert "bar" in family.dependencies
+    assert "bar" not in family.paths
+    loaded, _ = load_project(save_project(after))
+    restored = SourceFamily.from_metadata(json.loads(json.dumps(family.metadata())))
+    assert restored == family
+    restored.validate(loaded)
+    original = Partition((Surface("ink", (1,)), Surface("material", (2,))))
+    planned = original.with_family(restored)
+    assert "bar" in planned.family_dependencies
+    contract = ComponentEdit.bind(before, original, "body", Work.start(10))
+    with pytest.raises(ValueError, match="every new family"):
+        contract.validate(
+            before,
+            after,
+            original,
+            planned,
+            tuple(family.dependencies - {"bar"}),
+            Box(0, 0, 40, 40),
+            Work.start(10),
+        )
+    assert contract.validate(
+        before,
+        after,
+        original,
+        planned,
+        tuple(family.dependencies),
+        bounds(before, after, tuple(family.dependencies)),
+        Work.start(10),
+    )
+
+
+@pytest.mark.parametrize("kind", ["stroke", "junction", "closed", "fill", "frame"])
+def test_resealed_family_cannot_lose_its_literal_connection(kind):
+    before, after, parts = connected_fixture()
+    family = connected_bind(before, after, parts)
+    oid = "ink" if kind == "stroke" else "bar"
+    if kind in {"stroke", "junction", "closed"}:
+        old = after.geometry_for(oid)
+        path = "M10 9H21" if kind != "closed" else "M10 9H22Z"
+        changed = replace(
+            after,
+            geometries=tuple(
+                replace(g, subpaths=parse_path(path).subpaths) if g.id == old.id else g
+                for g in after.geometries
+            ),
+        )
+    else:
+        changed = paint(
+            after,
+            "bar",
+            "fill" if kind == "fill" else "transform",
+            "black" if kind == "fill" else "translate(1 0)",
+        )
+    with pytest.raises(ValueError, match="junction"):
+        reseal(family, changed).validate(changed)
+
+
+def test_junction_must_be_an_unchanged_original_and_cannot_alias_material():
+    before, after, parts = connected_fixture()
+    changed = paint(after, "bar", "stroke", "red")
+    with pytest.raises(ValueError, match="original junction"):
+        connected_bind(before, changed, parts)
+    family = connected_bind(before, after, parts)
+    with pytest.raises(ValueError, match="literal junction"):
+        replace(family, junction="material")
+    without = fixture()[0]
+    with pytest.raises(ValueError, match="actual parent"):
+        connected_bind(without, after, parts)
+    with pytest.raises(ValueError, match="invented"):
+        family.validate_before(without, after)
+
+
+@pytest.mark.parametrize("field", ["junction", "ports"])
+def test_partial_junction_metadata_is_rejected(field):
+    before, after, parts = connected_fixture()
+    metadata = connected_bind(before, after, parts).metadata()
+    metadata.pop(field)
+    with pytest.raises(ValueError, match="junction"):
         SourceFamily.from_metadata(metadata)

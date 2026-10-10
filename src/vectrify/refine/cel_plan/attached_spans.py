@@ -136,11 +136,11 @@ class AttachedSpans:
             self.diagnostics["bounded"] += 1
             return None
         partition.validate(document)
-        protected = partition.family_dependencies
+        physical = {oid for family in partition.families for oid in family.paths}
         materials, ports, count = [], [], 0
         for surface in partition.surfaces:
             _check(work)
-            if surface.role == "underlay" or surface.id in protected:
+            if surface.role == "underlay" or surface.id in physical:
                 continue
             oid = surface.id
             if not _supported(document, oid) or not _paint(
@@ -169,7 +169,7 @@ class AttachedSpans:
             _check(work)
             if (
                 element.tag != "path"
-                or element.id in protected
+                or element.id in physical
                 or _style(document, element) is None
             ):
                 continue
@@ -200,10 +200,12 @@ class AttachedSpans:
                 )
         return tuple(materials), tuple(ports)
 
-    def _owners(self, document, materials, ports, work):
+    def _owners(self, document, materials, ports, work, protected=frozenset()):
         owners = []
         for material in materials:
             _check(work)
+            if material.id in protected:
+                continue
             style = path_style(document, document.element(material.id))
             if (
                 paint_server(style["fill"]) is not None
@@ -228,7 +230,9 @@ class AttachedSpans:
         if tables is None:
             return
         materials, ports = tables
-        for oid in self._owners(document, materials, ports, work):
+        for oid in self._owners(
+            document, materials, ports, work, partition.family_dependencies
+        ):
             self.diagnostics["owners"] += 1
             yield from self._discover(document, oid, materials, ports, work)
 
@@ -239,7 +243,8 @@ class AttachedSpans:
             return ()
         materials, ports = tables
         if (
-            oid not in {m.id for m in materials}
+            oid in partition.family_dependencies
+            or oid not in {m.id for m in materials}
             or paint_server(path_style(document, document.element(oid))["fill"])
             is not None
         ):
