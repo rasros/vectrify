@@ -1,6 +1,6 @@
 """Count where an outline crosses itself.
 
-Each contour is drawn as a polyline, every segment sampled at a few points,
+Each contour is drawn as a polyline, bounding each cubic's chord error,
 and every pair of non-neighbouring lines that cross counts once. A bow-tie
 crosses once; a cubic whose handles tie it into a loop crosses where the loop
 closes. Lines that only touch or lie along each other do not count, so a
@@ -15,9 +15,6 @@ import numpy as np
 import shapely
 
 from vectrify.document import Geometry
-
-# How many points each segment is drawn with.
-SAMPLES = 8
 
 
 def bezier(control: np.ndarray, t: np.ndarray):
@@ -77,13 +74,38 @@ def polyline_crossings(points: np.ndarray, closed: bool) -> int:
     return len(crossing_pairs(points, closed))
 
 
-def contour_line(controls: list[np.ndarray], samples: int = SAMPLES):
+def contour_line(controls: list[np.ndarray], samples: int | None = None):
     """The polyline a contour's segments (each 2 or 4 controls) are drawn as,
     and the segment each of its lines is part of."""
     if not controls:
         return np.zeros((0, 2)), np.zeros(0, dtype=int)
     curve = np.array([len(control) == 4 for control in controls])
-    counts = np.where(curve, samples, 1)
+    counts = np.ones(len(controls), dtype=int)
+    if curve.any():
+        cubics = np.asarray(
+            [c for c, bent in zip(controls, curve, strict=True) if bent]
+        )
+        if samples is not None:
+            counts[curve] = samples
+        else:
+            # A fixed count per segment misses small loops and changes its
+            # verdict after exact subdivision. Bound the chord approximation
+            # error instead, using the cubic's second derivative. Straight
+            # monotone cubics need only their endpoints.
+            extent = np.ptp(np.concatenate(controls), axis=0).max()
+            tolerance = max(1e-7, float(extent) * 1e-5)
+            derivative = 6 * np.linalg.norm(np.diff(cubics, n=2, axis=1), axis=2).max(1)
+            required = np.sqrt(derivative / (8 * tolerance)).clip(2, 512)
+            count = 2 ** np.ceil(np.log2(required))
+            chord = cubics[:, 3] - cubics[:, 0]
+            length2 = (chord**2).sum(1).clip(1e-24)
+            handles = cubics[:, 1:3] - cubics[:, :1]
+            along = (handles * chord[:, None]).sum(2) / length2[:, None]
+            off = handles - along[..., None] * chord[:, None]
+            straight = (np.linalg.norm(off, axis=2).max(1) <= tolerance) & (
+                (along[:, 0] >= 0) & (along[:, 1] <= 1) & (along[:, 0] <= along[:, 1])
+            )
+            counts[curve] = np.where(straight, 1, count).astype(int)
     owners = np.repeat(np.arange(len(controls)), counts)
     line = np.empty((1 + len(owners), 2))
     line[0] = np.asarray(controls[0][0], dtype=np.float64)
@@ -101,16 +123,20 @@ def contour_line(controls: list[np.ndarray], samples: int = SAMPLES):
             [c for c, bent in zip(controls, curve, strict=True) if bent],
             dtype=np.float64,
         )
-        t = np.linspace(0, 1, samples + 1)[1:, None]
-        u = 1 - t
-        basis = np.hstack([u**3, 3 * u**2 * t, 3 * u * t**2, t**3])
-        points = np.einsum("sk,nkc->nsc", basis, control)
-        at = starts[curve][:, None] + np.arange(samples)[None]
-        line[at.ravel()] = points.reshape(-1, 2)
+        for count in np.unique(counts[curve]):
+            selected = counts[curve] == count
+            t = np.linspace(0, 1, count + 1)[1:, None]
+            u = 1 - t
+            basis = np.hstack([u**3, 3 * u**2 * t, 3 * u * t**2, t**3])
+            points = np.einsum("sk,nkc->nsc", basis, control[selected])
+            at = starts[curve][selected, None] + np.arange(count)[None]
+            line[at.ravel()] = points.reshape(-1, 2)
     return line, owners
 
 
-def crossed_nodes(geometry: Geometry, samples: int = SAMPLES) -> tuple[int, set[str]]:
+def crossed_nodes(
+    geometry: Geometry, samples: int | None = None
+) -> tuple[int, set[str]]:
     """How many times *geometry*'s contours cross themselves, in all, and the
     nodes at the ends of the segments that cross.
 
@@ -137,6 +163,6 @@ def crossed_nodes(geometry: Geometry, samples: int = SAMPLES) -> tuple[int, set[
     return total, nodes
 
 
-def crossings(geometry: Geometry, samples: int = SAMPLES) -> int:
+def crossings(geometry: Geometry, samples: int | None = None) -> int:
     """How many times *geometry*'s contours cross themselves, in all."""
     return crossed_nodes(geometry, samples)[0]
