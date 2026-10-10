@@ -9,12 +9,16 @@ replace it atomically. This is internal planning metadata, never SVG geometry.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from vectrify.document import Document
 from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.model import Evidence, Graph, StageInterruptedError, Work
+
+if TYPE_CHECKING:
+    from vectrify.refine.cel_plan.source_family import SourceFamily
 
 
 @dataclass(frozen=True)
@@ -42,6 +46,7 @@ class OwnedEdge:
 class Partition:
     surfaces: tuple[Surface, ...]
     atoms: Atoms | None = None
+    families: tuple[SourceFamily, ...] = ()
 
     def __post_init__(self):
         ids = [surface.id for surface in self.surfaces]
@@ -80,6 +85,21 @@ class Partition:
                 for i in (*s.members, *s.covered)
             ):
                 raise ValueError("Ownership must reference active source atoms")
+        from vectrify.refine.cel_plan.source_family import MAX_FAMILIES
+
+        owners = {s.id for s in self.surfaces if s.role != "underlay"}
+        family_owners = [f.owner for f in self.families]
+        paths = [oid for f in self.families for oid in f.paths]
+        if (
+            len(self.families) > MAX_FAMILIES
+            or len(family_owners) != len(set(family_owners))
+            or set(family_owners) - owners
+            or len(paths) != len(set(paths))
+            or (set(paths) & set(ids)) != set(family_owners)
+        ):
+            raise ValueError(
+                "Physical source families need distinct primary owners and parts"
+            )
 
     @property
     def owners(self) -> dict[int, str]:
@@ -99,6 +119,16 @@ class Partition:
             raise ValueError(
                 "Planned surface ownership references missing drawing paths"
             )
+        for family in self.families:
+            family.validate(document)
+
+    @property
+    def family_dependencies(self) -> frozenset[str]:
+        return frozenset(oid for f in self.families for oid in f.dependencies)
+
+    def with_family(self, family: SourceFamily) -> Partition:
+        """Declare physical parts without changing any original source ownership."""
+        return Partition(self.surfaces, self.atoms, (*self.families, family))
 
     def edges(self, graph: Graph) -> tuple[OwnedEdge, ...]:
         if self.atoms is not None and graph.source_atoms != self.atoms.key:
@@ -112,6 +142,10 @@ class Partition:
 
     def replace(self, ids: tuple[str, ...], surfaces: tuple[Surface, ...]) -> Partition:
         removed = set(ids)
+        if removed & {f.owner for f in self.families}:
+            raise ValueError(
+                "A physical source family requires an atomic family replacement"
+            )
         selected = tuple(surface for surface in self.surfaces if surface.id in removed)
         if len(selected) != len(removed) or any(s.role == "underlay" for s in selected):
             raise ValueError("Replace known primary planned surfaces")
@@ -130,6 +164,7 @@ class Partition:
         return Partition(
             tuple(s for s in self.surfaces if s.id not in removed) + surfaces,
             self.atoms,
+            self.families,
         )
 
     def split(self, ids, surfaces, atoms: Atoms) -> Partition:
@@ -147,10 +182,25 @@ class Partition:
                 for s in self.surfaces
             ),
             atoms,
+            self.families,
         )
         return expanded.replace(ids, surfaces)
 
     def follows(self, previous: Partition) -> bool:
+        if any(f not in self.families for f in previous.families):
+            return False
+        start = len(previous.atoms.cuts) if previous.atoms is not None else 0
+        for family in previous.families:
+            members = tuple(
+                i for i, oid in previous.owners.items() if oid == family.owner
+            )
+            descendants = (
+                self.atoms.descendants(members, start)
+                if self.atoms is not None
+                else members
+            )
+            if any(self.owners.get(i) != family.owner for i in descendants):
+                return False
         if self.atoms == previous.atoms:
             return self.owners.keys() == previous.owners.keys()
         if self.atoms is None or not self.atoms.extends(previous.atoms):
@@ -160,8 +210,13 @@ class Partition:
 
     def metadata(self) -> dict:
         return {
-            "version": 1,
+            "version": 2 if self.families else 1,
             "complete": True,
+            **(
+                {"source_families": [f.metadata() for f in self.families]}
+                if self.families
+                else {}
+            ),
             **(
                 {"source_atoms": self.atoms.metadata()}
                 if self.atoms is not None
@@ -180,8 +235,19 @@ class Partition:
 
     @classmethod
     def from_metadata(cls, metadata: dict | None) -> Partition | None:
-        if not metadata or metadata.get("version") != 1 or not metadata.get("complete"):
+        if (
+            not metadata
+            or metadata.get("version") not in (1, 2)
+            or not metadata.get("complete")
+        ):
             return None
+        from vectrify.refine.cel_plan.source_family import SourceFamily
+
+        if metadata["version"] == 1 and "source_families" in metadata:
+            raise ValueError("Physical source families require ownership version 2")
+        families = metadata.get("source_families", ())
+        if metadata["version"] == 2 and not families:
+            raise ValueError("Ownership version 2 requires physical source families")
         return cls(
             tuple(
                 Surface(
@@ -190,6 +256,7 @@ class Partition:
                 for s in metadata["surfaces"]
             ),
             Atoms.from_metadata(metadata.get("source_atoms")),
+            tuple(SourceFamily.from_metadata(f) for f in families),
         )
 
 

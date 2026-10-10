@@ -768,12 +768,13 @@ and a dominant geometric coverage classification, also exceed 64 cuts. No
 namespace, cut allowance or coverage witness is altered to pass. The drawing's
 pixel/source proof does not replace the missing ownership/component proof.
 
-The proposed next design is explicit ownership of a physical source family:
+The next design proposed at that checkpoint was ownership of a physical source family:
 retained shadow, editable stroke and declared restoration paths can render one
 original source owner whose immutable raw region contains both shadow and ink.
 This needs a real serialized ownership contract, complete part/dependency and
 cost declarations, and synthetic controls that reject undeclared parts, missing
-source support and resurrected filled outlines. It is not implemented or accepted.
+source support and resurrected filled outlines. Its implementation and saved-drawing
+ownership proof are recorded below; complete automatic generation remains open.
 Simply assigning an unsupported surface membership to avoid a cut is excluded.
 
 The first fitted construction and independent audit retain algorithm SHA
@@ -809,7 +810,63 @@ The replay and independent preview are
 constructor SHA above. There are no saved body/optimizer seeds, wider physical
 movement limits or alpha exceptions. The saved generic field and native face
 restoration domain, original ledger gate, end-to-end cold construction and
-production enablement remain explicitly separate outstanding work.
+production enablement remain explicitly separate outstanding work at that checkpoint.
+
+## Physical source-family ownership checkpoint
+
+The serialized ownership model now explicitly declares the physical parts of one
+unchanged source owner. A raw region containing both shadow and attached ink can
+render as an editable stroke, its exact residual shadow and separately painted
+material restorations. The declaration does not claim that the thin stroke alone
+paints the entire source region, and introduces no new primary memberships or
+source cuts. Legacy partitions retain version 1; a partition with physical families
+uses version 2 and cannot silently serialize as a legacy partition.
+
+Binding records the actual original owner geometry, attributes and native frame.
+Validation requires a genuine open stroke, exact original shadow command prefix
+and Boolean difference, no retained ink inside the complete removal field, and
+complete restoration under original material paint/frame. Every part and original
+material dependency has a native-reload-stable revision. A sealed component edit
+must declare all parts and materials and retain the original family memberships.
+Ordinary operators preserve these declarations and dependencies while permitting
+independent edits; this does not enable complete-U generation in search.
+
+The saved nine-node U of width 1.1341779707238542 now passes an independent
+ownership audit as well as every earlier body/native/source check:
+
+- All primary owners and the exact original atom ledger remain unchanged:
+  **64 cuts and 80 allocated children**, before and after this interpretation.
+  The earlier accepted handle route's 81-child ledger is a different candidate.
+- Two sequential component seals prove original ancestor to fitted material
+  parent, then that exact parent to the physical-family drawing. Partition
+  metadata and the native project both reload and validate.
+- Exact full native alpha, outside-field-plus-actual-body RGBA and save/reload
+  RGBA hold. Original materials, retained shadow controls, complete field removal,
+  exact physical ports/raw corner, real source gaps and absence checks remain valid.
+- The actual stroke supports all 179 original and 449 additional U samples;
+  combined with the unchanged genuine collar, it supports all 185 collar samples.
+  The original painted bank still reports 1,629 missing out of 13,145 qualified
+  samples, with no rejections or new gaps; the added profile has no missing samples.
+- Every physical path is charged: three added paths, 158 added nodes, four added
+  contours and one private gradient increase complete representation cost from
+  5,696 to 5,888. Ownership grouping hides no geometry or paint cost.
+
+Twenty-six focused controls cover saturated ledgers, original membership, native
+and metadata reload, ancestor/material/part changes, private gradient clones,
+equivalent numeric opacity, independent operator composition, undeclared or aliased
+parts, reassigned owners, forged parent snapshots, retained filled outlines,
+restoration gaps/escapes, paint order, changed alpha and interruption.
+All **1,534 CEL planning tests pass in 203.53 seconds**. The affected ownership,
+component and opacity subset passes all 87 tests; source/tests/scripts Ruff,
+changed-file formatting and Pyrefly pass (two existing suppressions, 70 warnings).
+
+The saved-drawing audit and preview are in
+`.bench/cel-attached-full-u-physical-family-independent-audit/`, at algorithm SHA
+`5e770d1a6c8272e0b9977ebf03b90409d80e2fa4e0e1941a15a78e0bee0e5f50`.
+The body/field are saved diagnostic inputs; **cold complete construction and
+experimental search acceptance remain unproved**. `accepted` remains false in
+the report. This resolves the ownership representation, not the remaining
+generation/integration goal, and does not change ordinary CEL behavior.
 
 ## Resume here
 
@@ -833,14 +890,11 @@ partial-field subtraction or its material optimizer is not the next step.
    bounded raw-source endpoint policy must distinguish newly inferred guides,
    transparent cluster means and protected original observations. Do not copy
    the human handle repair or waive final alpha.
-3. Resolve the 65th original source-cut requirement with an explicit validated
-   source-family representation, retaining the original namespace and cut/child
-   limits. Give every physical part a real original-ledger declaration and
-   complete component dependency proof. New filled identities require correct
-   cost/dependency/locality accounting and original source membership; they
-   cannot be introduced by an acceptance bypass, extra atom allowance or a
-   fabricated coverage witness. Preserve original material geometry, paint/frame
-   and the sealed complete shadow subtraction.
+3. Use the validated source-family representation for the complete interpretation,
+   preserving the original namespace, cut/child limits and primary memberships.
+   Its saved-drawing proof now passes. Construct and bind it against the actual
+   fitted parent, declare every physical part/material for complete cost and
+   dependency accounting, and preserve original paint/frame and exact subtraction.
 4. Cold-regenerate a complete candidate without fixture indices or saved body/fit
    parameters. Independently audit its actual isolated body, original and added
    painted source profiles, real gaps, native alpha, literal locality, original

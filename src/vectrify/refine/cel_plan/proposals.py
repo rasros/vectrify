@@ -499,6 +499,27 @@ class Operators:
         if branch is not self:
             yield from branch(state, work)
             return
+        protected = (
+            state.partition.family_dependencies
+            if state.partition is not None
+            else frozenset()
+        )
+        if protected:
+            state = replace(
+                state,
+                details={
+                    **state.details,
+                    "paint_constraints": sorted(
+                        set(state.details.get("paint_constraints", ())) | protected
+                    ),
+                    "geometry_constraints": sorted(
+                        set(state.details.get("geometry_constraints", ())) | protected
+                    ),
+                    "chain_constraints": chains.discard(
+                        state.details.get("chain_constraints"), protected
+                    ),
+                },
+            )
         context = state.details.get("search_budget", {})
         target = context.get("representation_target", state.snapshot.evaluation.cost)
         pressure = state.snapshot.evaluation.cost / max(1, target)
@@ -586,6 +607,24 @@ class Operators:
                     if proposal is None:
                         alive.remove(slot)
                         continue
+                    if protected:
+                        partition = proposal.partition or state.partition
+                        assert partition is not None
+                        assert state.partition is not None
+                        if partition.families != state.partition.families:
+                            try:
+                                partition = replace(
+                                    partition, families=state.partition.families
+                                )
+                            except ValueError:
+                                continue
+                        try:
+                            partition.validate(proposal.document)
+                        except ValueError:
+                            continue
+                        if not partition.follows(state.partition):
+                            continue
+                        proposal = replace(proposal, partition=partition)
                     self.schedule_diagnostics[
                         "family_proposals" if slot == 0 else "reserved_proposals"
                     ] += 1
