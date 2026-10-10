@@ -7,7 +7,8 @@ import pytest
 
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cleanup import cleaned
-from vectrify.refine.crossings import crossings
+from vectrify.refine.crossings import bezier, crossings
+from vectrify.refine.edge_profiles import EdgeProfiles
 from vectrify.refine.snap import _Frame
 from vectrify.svg_render import render_image
 
@@ -95,7 +96,8 @@ def test_dense_knots_do_not_prevent_bridging_a_whole_false_dent():
 
 
 @pytest.mark.parametrize("protection", ["pin", "feature", "held", "stopped", "cap"])
-def test_cleanup_respects_protected_knots_and_the_movement_limit(protection):
+@pytest.mark.parametrize("guided", [False, True])
+def test_cleanup_respects_protected_knots_and_the_movement_limit(protection, guided):
     geometry = drawing("M8 16 L10 18 L12 16").geometry_for("p")
     node = geometry.subpaths[0].nodes[1]
     if protection == "pin":
@@ -111,6 +113,11 @@ def test_cleanup_respects_protected_knots_and_the_movement_limit(protection):
         held,
         lambda _: True,
         lambda: protection == "stopped",
+        guide=(
+            lambda points, _: np.column_stack((points[:, 0], np.full(len(points), 16)))
+        )
+        if guided
+        else None,
     )
     assert result == geometry
 
@@ -131,3 +138,81 @@ def test_cleanup_removes_a_cubic_hook_without_deleting_its_controls():
     assert node.command == "C"
     assert node.values[1::2] == (16, 16, 16)
     assert result.subpaths[0].nodes[0] == geometry.subpaths[0].nodes[0]
+
+
+def test_reference_fitting_removes_ripples_from_an_inflected_curve():
+    control = np.array([[8, 18], [20, 28], [38, 8], [56, 18]])
+    t = np.linspace(0, 1, 25)
+    points, tangents = bezier(control, t)
+    # The same broad curve with small, unsupported waves in its upper edge.
+    points[:, 1] += 1.4 * np.sin(12 * np.pi * t) * np.sin(np.pi * t) ** 2
+    tangents[:, 1] += 1.4 * (
+        12 * np.pi * np.cos(12 * np.pi * t) * np.sin(np.pi * t) ** 2
+        + np.pi * np.sin(12 * np.pi * t) * np.sin(2 * np.pi * t)
+    )
+    path = "M8 18 " + " ".join(
+        "C"
+        + " ".join(
+            str(v)
+            for v in np.r_[
+                points[j - 1] + tangents[j - 1] / 72,
+                points[j] - tangents[j] / 72,
+                points[j],
+            ]
+        )
+        for j in range(1, len(t))
+    )
+    source = drawing(path + " L56 56 L8 56 Z")
+    reference = drawing("M8 18 C20 28 38 8 56 18 L56 56 L8 56 Z")
+    target = np.asarray(
+        render_image(export_svg(reference), (0, 0, 64, 64), (128, 128)), float
+    )
+    coverage = 1 - np.asarray(render_image(export_svg(source)), float).mean(-1) / 255
+    guide = EdgeProfiles(
+        np.ones((64, 64, 3)),
+        -np.ones((64, 64, 3)),
+        np.asarray(render_image(export_svg(reference)), float) / 255,
+        coverage,
+        FRAME,
+        1,
+    )
+    geometry = source.geometry_for("p")
+    scores = []
+    for reader in (None, guide):
+        best = score(source, target)
+
+        def accept(candidate):
+            nonlocal best
+            actual = score(source.replace_geometry(candidate), target)
+            if actual >= best or crossings(candidate):
+                return False
+            best = actual
+            return True
+
+        result = cleaned(
+            geometry,
+            geometry,
+            FRAME,
+            3,
+            frozenset(),
+            accept,
+            lambda: False,
+            guide=reader,
+        )
+        old, new = geometry.subpaths[0].nodes, result.subpaths[0].nodes
+        assert [n.id for n in new] == [n.id for n in old]
+        assert [n.command for n in new] == [n.command for n in old]
+        assert (
+            max(
+                np.linalg.norm(
+                    np.asarray(a.values).reshape(-1, 2)
+                    - np.asarray(b.values).reshape(-1, 2),
+                    axis=1,
+                ).max()
+                for a, b in zip(old, new, strict=True)
+            )
+            <= 3 + 1e-9
+        )
+        assert crossings(result) == 0
+        scores.append(best)
+    assert scores[1] < scores[0] / 10

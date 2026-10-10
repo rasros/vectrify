@@ -639,6 +639,58 @@ def fit_selected_path(
     # independent of the crop resolution and the fill's contrast.
     fairness_weight = 4 * contrast * perimeter / reference_area
 
+    def outline_coverage(geometry):
+        coordinates = original.new_tensor(
+            [
+                point
+                for s in geometry.subpaths
+                for n in s.nodes
+                for point in zip(n.values[::2], n.values[1::2], strict=True)
+            ]
+        )
+        silhouette = ET.fromstring(ET.tostring(work))
+        silhouette[0].set("fill", "black")
+        silhouette[0].set(
+            "d",
+            " ".join(
+                to_path_d(c.cpu().tolist(), precision=9) + " Z"
+                for c in controls_from_local(coordinates)
+            ),
+        )
+        return (
+            1
+            - np.asarray(render_image(ET.tostring(silhouette)), dtype=float).mean(-1)
+            / 255
+        )
+
+    guide = None
+    if (
+        options.cleanup
+        and options.nodes
+        and options.handles
+        and not context.stroke_only
+    ):
+        from vectrify.refine.edge_profiles import EdgeProfiles
+        from vectrify.refine.snap import _Frame
+
+        response = context.delta.copy()
+        response[..., :3] += context.transmission[..., :3] * paint
+        base, guide_target = context.base.copy(), context.array(context.target).copy()
+        if context.alpha:
+            for field in (response, base, guide_target):
+                field[..., 3] *= np.sqrt(3)
+        guide = EdgeProfiles(
+            base,
+            response,
+            guide_target,
+            outline_coverage(context.geometry),
+            _Frame(
+                context.linear * context.scale[:, None],
+                (context.offset - context.crop[:2]) * context.scale,
+            ),
+            float(np.mean(fairness_scale)),
+        )
+
     def quality(geometry, actual):
         if not options.cleanup or context.stroke_only:
             return actual
@@ -762,7 +814,11 @@ def fit_selected_path(
                 best_crossings = count
                 best_quality = proposed_quality
                 least_difference = min(least_difference, actual)
-            if step and options.stall and stalled:
+            # The projected gradient fit needs time to settle after a native
+            # cleanup seed. Its first ten-step check can temporarily regress
+            # or render identically even though later checks improve the edge.
+            minimum_steps = min(30, options.steps) if options.cleanup else 10
+            if step >= minimum_steps and options.stall and stalled:
                 return False
         return not stop.is_set()
 
@@ -902,6 +958,8 @@ def fit_selected_path(
             ),
         )
         paint = color(context.style["fill"])
+        if guide is not None:
+            guide.coverage = outline_coverage(geometry)
         bridge_folds = crossings(geometry)
         original_values = {n.id: n.values for n in context.nodes}
 
@@ -928,6 +986,8 @@ def fit_selected_path(
                 for n in s.nodes
                 if n.values != original_values[n.id]
             }
+            if guide is not None:
+                guide.coverage = outline_coverage(candidate)
             return True
 
         vx, vy, vw, vh = document.artboard()
@@ -940,6 +1000,7 @@ def fit_selected_path(
             held,
             accept_bridge,
             stopped,
+            guide=guide,
         )
 
     cleanup_deadline = min(
