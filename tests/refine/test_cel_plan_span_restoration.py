@@ -144,6 +144,25 @@ def test_generated_floor_binds_after_a_real_positive_stroke_is_installed():
     family.validate(candidate)
 
 
+def test_equivalent_reparsed_faces_keep_physical_part_identities():
+    document, span, face = fixture()
+    reparsed = replace(
+        face,
+        source_index=99,
+        field=parse_path(face.field.path_data()),
+        remainder=parse_path(face.remainder.path_data()),
+    )
+    first = construct(
+        document, "owner", span, "base", (48, 48), Work.start(10), face=face
+    )
+    second = construct(
+        document, "owner", span, "base", (48, 48), Work.start(10), face=reparsed
+    )
+    assert first is not None
+    assert second is not None
+    assert first.parts == second.parts
+
+
 @pytest.mark.parametrize(
     "corruption", ["resurrect", "prefix", "outside", "open", "extent"]
 )
