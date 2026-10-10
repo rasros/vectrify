@@ -133,6 +133,8 @@ class SourceFamily:
     frame: Matrix
     attributes: tuple[tuple[str, str], ...]
     revisions: tuple[tuple[str, str], ...]
+    junction: str | None = None
+    ports: tuple[tuple[float, float], ...] = ()
 
     def __post_init__(self):
         roles = [p.role for p in self.parts]
@@ -160,6 +162,20 @@ class SourceFamily:
         ):
             raise ValueError("Invalid physical source family declaration")
         expected = set(ids) | {p.material for p in self.parts if p.material}
+        if self.junction is not None:
+            if (
+                not isinstance(self.junction, str)
+                or not self.junction
+                or self.junction in expected
+                or len(self.ports) != 2
+                or any(len(p) != 2 for p in self.ports)
+                or not np.isfinite(self.ports).all()
+                or self.ports[0] == self.ports[1]
+            ):
+                raise ValueError("Source family needs distinct literal junction ports")
+            expected.add(self.junction)
+        elif self.ports:
+            raise ValueError("Source family ports require an original junction")
         if (
             {oid for oid, _ in self.revisions} != expected
             or len(self.revisions) != len(expected)
@@ -168,7 +184,9 @@ class SourceFamily:
                 for _, digest in self.revisions
             )
         ):
-            raise ValueError("Source family needs every part and material revision")
+            raise ValueError(
+                "Source family needs every part, material and junction revision"
+            )
 
     @property
     def paths(self):
@@ -181,7 +199,9 @@ class SourceFamily:
     def validate(self, document: Document):
         try:
             if any(revision(document, oid) != digest for oid, digest in self.revisions):
-                raise ValueError("Source family physical parts or materials changed")
+                raise ValueError(
+                    "Source family physical parts, materials or junction changed"
+                )
             parent = document.ancestry(self.owner)[-2].id
             if any(
                 document.element(p.id).tag != "path"
@@ -199,8 +219,44 @@ class SourceFamily:
                     "Source family stroke must follow its residual and restorations"
                 )
             self._geometry(document)
+            self._junction(document)
         except (KeyError, IndexError) as exc:
             raise ValueError("Source family references missing physical paths") from exc
+
+    def _junction(self, document):
+        if self.junction is None:
+            return
+        if (
+            _style(document, document.element(self.junction)) is None
+            or document.ancestry(self.junction)[-2].id
+            != document.ancestry(self.owner)[-2].id
+        ):
+            raise ValueError("Source family junction needs an original sibling stroke")
+        stroke = transformed_geometry(
+            document.geometry_for(self.owner), root_matrix(document, self.owner)
+        ).subpaths[0]
+        endpoints = np.array([stroke.nodes[i].endpoint for i in (0, -1)])
+        # Local/native round trips under rotated frames can differ in the last
+        # floating point bits. This tolerance is arithmetic only, not a snap.
+        if not np.allclose(endpoints, self.ports, atol=1e-9, rtol=0):
+            raise ValueError("Source family stroke moved its literal junction ports")
+        junction = transformed_geometry(
+            document.geometry_for(self.junction),
+            root_matrix(document, self.junction),
+        )
+        if not any(
+            not s.closed
+            and len(s.nodes) >= 2
+            and np.allclose(
+                np.array([s.nodes[i].endpoint for i in ends]),
+                self.ports,
+                atol=1e-9,
+                rtol=0,
+            )
+            for s in junction.subpaths
+            for ends in ((0, -1), (-1, 0))
+        ):
+            raise ValueError("Source family junction lost its literal open endpoints")
 
     def validate_before(self, before: Document, after: Document):
         """Bind saved source snapshots to the sealed actual parent document."""
@@ -213,6 +269,11 @@ class SourceFamily:
         ):
             raise ValueError("Source family does not describe its original owner")
         originals = {e.id for e in before.elements() if e.tag == "path"}
+        if self.junction is not None and (
+            self.junction not in originals
+            or revision(before, self.junction) != revision(after, self.junction)
+        ):
+            raise ValueError("Source family changed or invented its original junction")
         if any(p.id in originals for p in self.parts if p.id != self.owner):
             raise ValueError("Source family companions must be newly declared paths")
         if any(
@@ -312,7 +373,7 @@ class SourceFamily:
             )
 
     @classmethod
-    def bind(cls, before, after, owner, removed, parts, size, work):
+    def bind(cls, before, after, owner, removed, parts, size, work, *, junction=None):
         """Construct and verify an atomic physical interpretation, not source fit."""
         _check(work)
         if (
@@ -324,6 +385,27 @@ class SourceFamily:
         ):
             raise ValueError("Source family exceeds supported construction bounds")
         ids = {p.id for p in parts} | {p.material for p in parts if p.material}
+        ports = ()
+        if junction is not None:
+            if junction not in {e.id for e in before.elements() if e.tag == "path"}:
+                raise ValueError(
+                    "Source family junction must exist in its actual parent"
+                )
+            if revision(before, junction) != revision(after, junction):
+                raise ValueError("Source family changed its original junction")
+            ids.add(junction)
+            native = transformed_geometry(
+                after.geometry_for(owner), root_matrix(after, owner)
+            )
+            if len(native.subpaths) != 1 or len(native.subpaths[0].nodes) < 2:
+                raise ValueError("Source family needs two literal stroke ports")
+            ports = tuple(
+                (
+                    float(native.subpaths[0].nodes[i].endpoint[0]),
+                    float(native.subpaths[0].nodes[i].endpoint[1]),
+                )
+                for i in (0, -1)
+            )
         family = cls(
             owner,
             tuple(parts),
@@ -332,6 +414,8 @@ class SourceFamily:
             cast(Matrix, tuple(root_matrix(before, owner))),
             tuple(sorted(before.element(owner).attributes)),
             tuple(sorted((oid, revision(after, oid)) for oid in ids)),
+            junction,
+            ports,
         )
         family.validate_before(before, after)
         for part in parts:
@@ -364,6 +448,11 @@ class SourceFamily:
             "frame": list(self.frame),
             "attributes": [list(a) for a in self.attributes],
             "revisions": [list(r) for r in self.revisions],
+            **(
+                {"junction": self.junction, "ports": [list(p) for p in self.ports]}
+                if self.junction is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -380,6 +469,8 @@ class SourceFamily:
                 tuple(value["frame"]),
                 tuple(tuple(a) for a in value["attributes"]),
                 tuple(tuple(r) for r in value["revisions"]),
+                value.get("junction"),
+                tuple(tuple(p) for p in value.get("ports", ())),
             )
         except (KeyError, TypeError, AttributeError) as exc:
             raise ValueError("Invalid physical source family metadata") from exc
