@@ -17,6 +17,30 @@ A fresh frontier must score all candidates under that same policy and retain the
 original detailed representation normalizer. Changing an existing frontier's
 policy would mix incompatible scores.
 
+## Independent review status
+
+The October 10 review found a blocking experimental-ranking defect. Isolated
+stroke alpha is pooled before a pooled visibility test. A fully occluded opaque
+stroke can therefore borrow the darkening of an overlapping 0.04-opacity visible
+stroke. Moving the hidden stroke underneath that faint line leaves every native
+RGBA byte unchanged but changes missing support from **117 to 0**, improves the
+visual score by **0.04**, and is accepted and selected by common search.
+
+Actual visible ink contribution must be measured after complete paint occlusion
+before applying the body-support threshold. The existing hidden-stroke controls
+do not cover this overlapping case. The validated sword U below remains a valid
+physical conversion, but the quality criterion is not generally safe against
+hidden ink and the PR remains a draft. The minimal reproduction and report are
+in `.bench/pr-316-independent-review/hidden-ink-repro.py` and
+`hidden-ink-report.json`.
+
+Issue [#317](https://github.com/rasros/vectrify/issues/317) was implemented by
+merged [PR #325](https://github.com/rasros/vectrify/pull/325). Its linked-outline
+support and the subsequent merged changes are integrated from `main`. Shared
+geometry remains excluded from attached-field conversion, which must not detach
+a linked fill/outline pair. The combined branch passes 186 focused MCP, editable
+ink, attached-proposal and source-family tests, Ruff and Pyrefly.
+
 ## Complete construction
 
 `AttachedSpans` discovers complete opposing source fields, genuine sibling
