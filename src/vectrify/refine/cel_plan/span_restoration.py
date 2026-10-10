@@ -154,8 +154,13 @@ def construct(
             return None
         fields.append((face.material, shade))
     _check(work)
+    # Parser-generated source-face geometry IDs are incidental. Name physical
+    # parts from their actual material/commands so a repeated construction has
+    # the same identity even when the supplied face was parsed again.
     key = sha256(
-        repr((oid, base_material, span.field.path_data(), face)).encode()
+        repr(
+            (oid, tuple((material, field.path_data()) for material, field in fields))
+        ).encode()
     ).hexdigest()[:12]
     residual_id = f"{oid}-span-residual-{key}"
     parts = [FamilyPart(oid, "stroke"), FamilyPart(residual_id, "residual")]

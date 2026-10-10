@@ -990,24 +990,92 @@ explicit diagnostic inputs. This checkpoint reproduces the previous visual
 improvement through checked-in fitting code; it does not claim a new visual gain
 or automatic planner completion.
 
+## Automatic complete-span discovery checkpoint
+
+`AttachedSpans` now discovers the interpretation from the actual fitted parent,
+its original partition and the unchanged original source bank. It enumerates
+eligible original owners near genuine open-stroke endpoint pairs, complete
+opposing primitive fields, actual same-component port orientations and original
+materials. Complete shared native material curves rank the base paint; source
+fields/shared original material edges supply adjoining faces. The newly inferred
+guide is bound to actual ports before raw ink measurement and corner-preserving
+construction. Original observations and gaps remain separate frozen obligations.
+
+The stage bounds original surface/geometry/port scans, sixteen eligible owners,
+32 source fields and 16,384 source points per owner, 64 primitive alternatives,
+four adjoining-floor alternatives and four retained complete candidates. Only
+that bounded candidate pool retains documents and additional source banks.
+Original source indices record provenance; geometry/face area and path commands
+rank construction. An exact restoration floor does not prove a positive stroke
+or authorize publication. All constructed candidates retain `accepted: false`.
+
+Physical restoration part IDs now derive from the actual material and restored
+path commands. Equivalent reparsed faces keep the same part identities instead
+of inheriting incidental parser-generated geometry IDs or source-list indices.
+A dedicated repeat-construction control verifies this behavior.
+
+Seventeen new discovery controls cover curved complete chains, rotated and
+translucent frames, real same-component ports, original shared material curves,
+automatic owner selection followed by genuine body fitting/family binding,
+adjoining-face inference, immutable inputs/repeated construction, filled and
+foreign/displaced ports, nearby unshared edges, unsupported paint, real gaps,
+native-frame validation, allocation bounds and interruption. All **1,585 CEL
+planning tests pass in 220.73 seconds**. Ruff, changed-file formatting and
+Pyrefly pass (two existing suppressions, 70 warnings).
+
+The sword replay supplies **no owner/profile/primitive/material IDs**. Automatic
+discovery examines five eligible original owners and 32 genuine port pairs among
+65 original supported materials. It derives 31 source fields and 44 primitive
+alternatives across those owners, reaches two complete port matches, rejects
+four native-invalid restoration alternatives and retains four complete floors.
+The first constructed interpretation is the inspected complete U, with its
+original Gold/Dark materials and actual existing collar stroke.
+
+A fresh checked-in body fit reproduces the verified nine-node stroke at width
+**1.1625470830648519**, within the unchanged 23-parameter/600-evaluation bounds.
+Generation and independent validation preserve all 179 original U and 448 fresh
+additional actual body queries, the earlier frozen **449-position** independent
+trace and all 185 genuine joint collar queries. Complete former-field removal,
+retained original shadow commands, original material geometry/paint, literal
+ports/raw corners, native alpha/locality/reload, original ownership and two
+component seals pass. The original source bank remains 13,145 qualified / 1,629
+missing, with no new gaps or rejections. The original 64 cuts / 80 children and
+complete representation cost 5,696 -> 5,888 are unchanged.
+
+Evidence, drivers/dependencies/logs and the automatic-discovery preview are in
+`.bench/cel-attached-automatic-span-discovery/` and
+`.bench/cel-attached-automatic-span-discovery-independent-audit/`, under algorithm
+SHA `6e5cf741129abd2ed5c7bde887baa0c6683c179af5c36305fe2103d028d8f7c7`.
+The fitted parent and original raw source bank are the only generation inputs.
+Saved fields, faces, guides, source traces, bodies and optimizer vectors remain
+outside generation. The earlier trace/domain are independent validation inputs.
+
+**The goal remains unfinished.** Complete discovery and fitting are checked in,
+but experimental search does not yet schedule or accept this interpretation.
+The current replay's genuine junction is unchanged and fully verified; integration
+must also declare/protect that original junction dependency so later independent
+geometry or paint edits cannot disconnect the new chain. This checkpoint adds
+automatic construction, not another visual gain or a release claim.
+
 ## Resume here
 
 The explicit filled-band co-planner still schedules the previously verified
-handle chain. The complete U now passes fresh runtime discovery, the checked-in
-body fitter and independent validation. Its discovery orchestration and
-experimental search scheduling remain unfinished; both reports retain
-`accepted: false`. Ordinary CEL and ordinary High keep the experimental flag off.
+handle chain. The complete U now passes automatic checked-in discovery/fitting
+and independent validation. Search integration and explicit connection sealing
+remain unfinished; reports retain `accepted: false`. Ordinary CEL and ordinary
+High keep the experimental flag off.
 
-1. Check in the successful original-profile/primitive/genuine-port/material/face
-   discovery flow with bounded controls. Feed freshly measured nongap guides
-   into the existing corner-preserving constructor, native-exact floor and body
-   fitter. Preserve every original qualified source observation and gap. Keep
-   saved fields, faces, traces, fit vectors and fixture indices out of generation.
-2. Schedule the complete interpretation against its actual fitted parent in
-   explicit experimental search. Bind its physical family atomically, preserve
-   the original namespace/cut/child limits and all primary memberships, and
-   declare every part/material in dependency, component and representation cost
-   accounting. Retain the complete body/source/gap/native/locality gates.
+1. Declare the original genuine junction stroke in the physical family's sealed
+   dependencies. Preserve its actual geometry, paint/frame and literal ports
+   during subsequent independent edits and save/reload. Keep original materials
+   usable as unchanged restoration donors; family protection must not prevent
+   constructing another independent chain from those original materials.
+2. Schedule complete attached interpretations against their actual fitted parent
+   in explicit experimental search. Bind families atomically, preserve existing
+   families and the original namespace/cut/child limits and primary memberships,
+   and declare every part/material/junction in dependency, component and complete
+   representation cost accounting. Retain all body/source/gap/native/locality
+   checks and use the common acceptance/frontier rules.
 3. Independently validate the scheduled result, including the earlier frozen
    trace, whole former-field removal, original ownership/component lineage and
    native/metadata reload. Show its stroke preview with the actual acceptance
