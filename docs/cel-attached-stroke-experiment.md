@@ -865,14 +865,80 @@ The saved-drawing audit and preview are in
 `5e770d1a6c8272e0b9977ebf03b90409d80e2fa4e0e1941a15a78e0bee0e5f50`.
 The body/field are saved diagnostic inputs; **cold complete construction and
 experimental search acceptance remain unproved**. `accepted` remains false in
-the report. This resolves the ownership representation, not the remaining
+the report. This resolved the ownership representation at that checkpoint, not the remaining
 generation/integration goal, and does not change ordinary CEL behavior.
+
+## Fresh complete-span construction checkpoint
+
+`span_restoration.construct` now builds the complete material floor from an
+original opposing-rail span and optional original shared face. It copies the
+whole removal field under the original base material and restricts the adjoining
+face overlay to measured opaque parent cells. Retained shadow commands and all
+original material geometry/paint/frame remain exact. Complete native alpha and
+literal outside-field RGBA equality are required **before** fitting a stroke.
+The intermediate owner is unpainted: it cannot bind an accepted physical family
+until a genuine positive open stroke is installed and separately verified.
+The constructor remains disabled in search.
+
+Eighteen controls cover opaque/translucent and fractional frames, private
+user-space gradients, complete removal and retained controls, full native alpha,
+locality/reload, genuine final family binding, old-ink resurrection, changed
+prefixes, escaping/open/oversized fields, unsupported materials, singular frames,
+unshared faces, valid geometry with invalid native alpha, bounds and interruption.
+All **1,552 CEL tests pass in 202.97 seconds**. Ruff, changed-file formatting and
+Pyrefly pass (two existing suppressions, 70 warnings).
+
+A fresh runtime orchestration enumerates the unchanged original source profiles
+and derives 17 source fields and 40 distinct complete primitive alternatives.
+Matching both inferred endpoints to an actual same-component genuine stroke
+leaves two U alternatives. Base paint is selected through the longest complete
+shared original material curves; the adjoining face is independently inferred
+from original source fields/material edges. The smaller 591.156-area field is
+excluded by restoration construction. The complete 598.003-area, 20-node field passes with a
+108-node opaque face overlay.
+
+No saved field, face, guide, source trace, body or optimizer vector enters this
+generation. The fitted material parent and supplied owner filter remain explicit
+diagnostic inputs. A fresh source/corner seed gives nine nodes and 23 fitting
+parameters. A bounded local-normal fit, charging each original body obligation
+once, reaches width **1.1625470830648519** within 600 evaluations. The original
+measured width is 2.254244804382324; its original half-to-one-and-a-half width
+bounds and two-pixel movement bounds remain unchanged. The actual existing
+collar body supports 184 of its 185 observations; its genuine union with the
+generated U supports all 185. Classification uses actual existing stroke support,
+not a collar profile index.
+
+Complete generation checks pass native alpha, literal field-plus-actual-body
+RGBA locality, original material/shadow geometry and attributes, original atom
+ownership and two component seals, source absence/gaps, native subset and reload.
+All 179 original U and 448 freshly sampled additional body positions pass. A
+separate independent audit also preserves the **earlier frozen 449-position
+trace**, including every actual isolated body query and painted-source observation.
+Its whole expected former-field subtraction is exact; original primary ownership
+and all 64 cuts/80 children remain byte-identical. The original 13,145-sample
+painted bank still reports 1,629 missing, with no rejections or new gaps. Complete
+representation cost remains 5,888 against the parent's 5,696.
+
+The new fresh construction, complete fit and independent preview are in
+`.bench/cel-attached-cold-span-restoration-discovery/`,
+`.bench/cel-attached-cold-span-complete-body/` and
+`.bench/cel-attached-cold-span-complete-independent-audit/`, at algorithm SHA
+`299b5dfbb3cb8c3480981b222816d39a10bc642bd9ee1d986f40de4c10c5a945`.
+The independent audit's older trace/domain are frozen validation obligations,
+not generation inputs. Runtime drivers/helper/dependency hashes are archived
+separately from the checked-in constructors.
+
+**The goal remains unfinished.** Fresh generation and complete validation now
+pass for this supplied owner, but discovery/port/material/body orchestration is
+still runtime code and is not scheduled by the checked-in experimental planner.
+Both reports retain `accepted: false`. Ordinary CEL and its ordinary High route
+remain unchanged; no new reference corpus or learned ranking is introduced.
 
 ## Resume here
 
 The current production route still accepts only the previously verified handle
-chain. Whole original curve spans and separate material surfaces improve the
-construction, but the larger complete drawings remain rejected. Repeating the
+chain. The complete U now passes fresh runtime generation and independent
+validation, but its orchestration is not scheduled by the checked-in planner. Repeating the
 partial-field subtraction or its material optimizer is not the next step.
 
 1. Use the disabled generic primitive constructor, with bounded node/extent
@@ -895,11 +961,13 @@ partial-field subtraction or its material optimizer is not the next step.
    Its saved-drawing proof now passes. Construct and bind it against the actual
    fitted parent, declare every physical part/material for complete cost and
    dependency accounting, and preserve original paint/frame and exact subtraction.
-4. Cold-regenerate a complete candidate without fixture indices or saved body/fit
-   parameters. Independently audit its actual isolated body, original and added
-   painted source profiles, real gaps, native alpha, literal locality, original
-   ownership/component ledgers and save/reload. Show the complete stroke drawing
-   for visual feedback only with its acceptance status stated accurately.
+4. Check in the now-successful fresh discovery/port/material/body orchestration
+   with focused controls, then schedule it against the actual fitted parent in
+   explicit experimental search. The supplied-owner runtime drawing already
+   passes independent complete validation, including the earlier frozen source
+   trace; preserve every body/source/gap/native/locality/ownership/reload gate
+   when integrating it. Keep saved body/fit/domain inputs and fixture indices
+   out of generation. Show the scheduled result with its acceptance status.
 
 No new reference corpus, learned ranking, automatic-operation quality result or
 release gate is claimed by this draft. The active goal remains unfinished.
