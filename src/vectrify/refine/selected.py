@@ -638,8 +638,10 @@ def fit_selected_path(
     # Scale a turn's cost like a few reference pixels of edge mismatch,
     # independent of the crop resolution and the fill's contrast.
     fairness_weight = 4 * contrast * perimeter / reference_area
+    if options.cleanup:
+        parameters.guard_smooth_joins(controls_from_local(original))
 
-    def outline_coverage(geometry):
+    def outline_coverage(geometry, padding=0):
         coordinates = original.new_tensor(
             [
                 point
@@ -650,6 +652,10 @@ def fit_selected_path(
         )
         silhouette = ET.fromstring(ET.tostring(work))
         silhouette[0].set("fill", "black")
+        if padding:
+            silhouette.set("width", str(context.size[0] + 2 * padding))
+            silhouette.set("height", str(context.size[1] + 2 * padding))
+            silhouette[0].set("transform", f"translate({padding} {padding})")
         silhouette[0].set(
             "d",
             " ".join(
@@ -691,7 +697,7 @@ def fit_selected_path(
             float(np.mean(fairness_scale)),
         )
 
-    def quality(geometry, actual):
+    def quality(geometry, actual, smoothing=1):
         if not options.cleanup or context.stroke_only:
             return actual
         coordinates = original.new_tensor(
@@ -706,7 +712,7 @@ def fit_selected_path(
             penalty = parameters.fairness_loss(
                 controls_from_local(coordinates), fairness_scale
             )
-        return actual + fairness_weight * float(penalty)
+        return actual + smoothing * fairness_weight * float(penalty)
 
     before = best = least_difference = score(context.before_image)
     best_quality = checked = quality(context.geometry, before)
@@ -924,7 +930,7 @@ def fit_selected_path(
             else (1 - (1 - alphas[0]) * (1 - stroke))[None]
         )
 
-    def cleanup_best(stopped):
+    def cleanup_best(stopped, *, polish=False):
         nonlocal best, best_values, best_image
         nonlocal best_crossings, best_quality, least_difference
         if not (
@@ -958,12 +964,14 @@ def fit_selected_path(
             ),
         )
         paint = color(context.style["fill"])
+        smoothing = 4 if polish else 1
+        best_quality = quality(geometry, best, smoothing)
         if guide is not None:
             guide.coverage = outline_coverage(geometry)
         bridge_folds = crossings(geometry)
         original_values = {n.id: n.values for n in context.nodes}
 
-        def accept_bridge(candidate):
+        def accept_bridge(candidate, *, allow_error=False):
             nonlocal best, best_values, best_image
             nonlocal bridge_folds, best_crossings, best_quality, least_difference
             count = crossings(candidate)
@@ -972,8 +980,17 @@ def fit_selected_path(
             rgb = color(best_fill)[:3] if best_fill is not None else paint[:3]
             _, image = context.candidate(candidate, np.array(rgb), options)
             actual = score(image)
-            proposed_quality = quality(candidate, actual)
-            if actual >= best or proposed_quality >= best_quality:
+            proposed_quality = quality(candidate, actual, smoothing)
+            # Use the same bounded quality comparison as gradient proposals.
+            # A repair that removes kinks or crossings may give back a little
+            # pixel error, but stays better than the starting artwork and near
+            # the best image match already found in this fit.
+            if (
+                (not allow_error and actual >= best)
+                or actual >= before
+                or actual > least_difference + before * 0.01
+                or (count, proposed_quality) >= (bridge_folds, best_quality)
+            ):
                 return False
             best, best_image = actual, image
             bridge_folds = count
@@ -992,6 +1009,27 @@ def fit_selected_path(
 
         vx, vy, vw, vh = document.artboard()
         pixels = np.diag([target.width / vw, target.height / vh])
+        if guide is not None:
+            from vectrify.refine.boundary import field_loops, reconstructed
+
+            padding = max(8, round(8 / float(np.mean(fairness_scale))))
+            contours = field_loops(
+                guide.raw_signal,
+                guide.power,
+                outline_coverage(geometry, padding),
+                padding,
+            )
+            geometry = reconstructed(
+                geometry,
+                context.geometry,
+                guide.frame,
+                contours,
+                float(np.mean(fairness_scale)),
+                options.displacement,
+                held,
+                lambda candidate: accept_bridge(candidate, allow_error=True),
+                stopped,
+            )
         cleaned(
             geometry,
             context.geometry,
@@ -1004,7 +1042,7 @@ def fit_selected_path(
         )
 
     cleanup_deadline = min(
-        getattr(stop, "deadline", float("inf")), time.monotonic() + 1.0
+        getattr(stop, "deadline", float("inf")), time.monotonic() + 2.0
     )
     cleanup_best(lambda: stop.is_set() or time.monotonic() >= cleanup_deadline)
     if options.cleanup and best_values:
@@ -1029,6 +1067,8 @@ def fit_selected_path(
         unfolded = coordinates.detach().cpu().numpy()
         _, seeded_geometry = context.reshaped(unfolded)
         folds = min(folds, crossings(seeded_geometry))
+        parameters.guard_smooth_joins(controls_from_local(coordinates))
+        best_quality = quality(seeded_geometry, best)
         checked = best_quality
 
     fit_filled_svg(
@@ -1063,7 +1103,7 @@ def fit_selected_path(
         else None,
         device=device,
     )
-    cleanup_best(stop.is_set)
+    cleanup_best(stop.is_set, polish=True)
     return FitResult(
         context.oid,
         best_values,
