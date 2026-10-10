@@ -144,8 +144,16 @@ class Frontier:
             details,
         )
 
-    def add(self, svg: str, label: str, details: dict | None = None) -> bool:
-        return self._add(svg, label, details)
+    def add(
+        self,
+        svg: str,
+        label: str,
+        details: dict | None = None,
+        *,
+        document=None,
+        partition=None,
+    ) -> bool:
+        return self._add(svg, label, details, document=document, partition=partition)
 
     def checkpoint(
         self,
@@ -155,9 +163,21 @@ class Frontier:
         expected: Evaluation,
         *,
         raster: Canvas | None = None,
+        document=None,
+        partition=None,
+        work=None,
     ) -> bool:
         """Independently verify a local working state's full native score."""
-        return self._add(svg, label, details, expected=expected, expected_raster=raster)
+        return self._add(
+            svg,
+            label,
+            details,
+            expected=expected,
+            expected_raster=raster,
+            document=document,
+            partition=partition,
+            work=work,
+        )
 
     def refine(
         self, svg: str, label: str, details: dict, *, complexity: int, before: float
@@ -180,6 +200,9 @@ class Frontier:
         maximum: tuple[int, float] | None = None,
         expected: Evaluation | None = None,
         expected_raster: Canvas | None = None,
+        document=None,
+        partition=None,
+        work=None,
     ) -> bool:
         if len(svg.encode()) > MAX_BYTES:
             self._record(
@@ -202,7 +225,15 @@ class Frontier:
                 else None
             )
             evaluation = (
-                self.policy.evaluate(svg, pixels=pixels)
+                self.policy.evaluate(
+                    svg,
+                    pixels=pixels,
+                    document=document,
+                    partition=partition,
+                    work=work,
+                )
+                if self.policy.editable_ink is not None
+                else self.policy.evaluate(svg, pixels=pixels)
                 if pixels is not None
                 else self.policy.evaluate(svg)
             )
