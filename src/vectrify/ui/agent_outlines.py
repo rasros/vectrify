@@ -18,7 +18,11 @@ def linked_targets(document, ids):
         if element.geometry_id is None:
             continue
         users = document.geometry_users(element.geometry_id)
-        if any(document.element(u).get(SOURCE) for u in users):
+        if any(
+            document.element(u).get(SOURCE)
+            or document.element(u).get("data-vectrify-clip-source")
+            for u in users
+        ):
             targets.update(users)
     return sorted(targets)
 

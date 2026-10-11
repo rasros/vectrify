@@ -990,9 +990,30 @@ class Session:
             ),
             geometry_id=geometry.id,
         )
-        # Creation explicitly targets the drawing, independently of selection.
+        parent = str(payload.get("parent", document.root.id))
+        if parent != document.root.id:
+            from vectrify.document.hit_test import multiply
+            from vectrify.document.regions import object_matrix
+            from vectrify.document.topology import inverse_matrix
+
+            # Creation inside a group intentionally adopts its clipping/opacity.
+            # Preserve the same root-space coordinates as drawing at the top level.
+            matrix = multiply(
+                inverse_matrix(object_matrix(document, parent)),
+                object_matrix(document, document.root.id),
+            )
+            element = replace(
+                element,
+                attributes=(
+                    *element.attributes,
+                    ("transform", "matrix(" + " ".join(str(v) for v in matrix) + ")"),
+                ),
+            )
+        # Creation explicitly targets its container, independently of selection.
         with self.editor.transaction("Draw path", selection=Selection.all()) as tx:
-            tx.insert_object(document.root.id, element, geometries=(geometry,))
+            tx.insert_object(
+                parent, element, index=payload.get("index"), geometries=(geometry,)
+            )
         self.editor.select(Selection(object_ids=frozenset({element.id})))
 
     def _command_copy(self, _payload: dict) -> None:

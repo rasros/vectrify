@@ -166,7 +166,9 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
         return
     allowed = GEOMETRY[tag] | PAINT | {"transform", "clip-path"}
     if tag == "path":
-        allowed |= {"data-vectrify-outline-source"}
+        allowed |= {"data-vectrify-outline-source", "data-vectrify-clip-source"}
+    if tag == "clipPath":
+        allowed |= {"data-vectrify-clip-owner"}
     if tag == "g":
         allowed |= {"data-vectrify-feature-sources"}
     for name, value in attributes.items():

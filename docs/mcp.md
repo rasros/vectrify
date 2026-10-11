@@ -616,3 +616,31 @@ as paint edits. For complete contours, isolation also verifies unchanged paint
 before extraction, including compound fill/hole behavior. An existing transformed
 outline layer keeps the source alignment; layers with opacity or clipping require
 a different layer name.
+
+### Clipping objects and groups
+
+`clip(ids, boundary, action="set", linked=true)` makes the selected objects
+or groups visible only inside the union of the supplied closed paths. It
+keeps the target IDs, contents, paint and stacking. The boundary paths remain
+painted in their original locations; their strokes do not enlarge the clip.
+Fill-rule holes are preserved, and boundaries may be inside their target group.
+For example, an existing body shape can clip a group of shading paths, allowing
+those paths to extend beyond the body's edge.
+
+Every target receives a separate boundary in its own coordinate system.
+`linked=true` shares path geometry: changing the source's nodes updates the
+boundary too. `linked=false` takes an independent copy. Placement is captured
+when the tool runs; call it again after transforming or reparenting a source.
+Convert rectangles, circles, ellipses or instances to paths before using them
+as boundaries. Targets themselves can be ordinary shapes, instances or groups.
+
+Calling `clip` again replaces the target's existing clip. To remove it, use
+`clip(ids, action="remove")` without `boundary`. Imported/shared definitions
+are preserved; unreferenced definitions created for that target are collected.
+The operation respects structure locks and is one undo step. It also works
+inside `edit_batch`, so inspect a staged preview before applying it.
+
+Use `add_path(parent=clipped_group, ...)` to create further paint inside the
+boundary. Path coordinates retain the usual root-space convention, and the
+new path inherits the group's clipping. Keep any outer stroke as a sibling
+above the clipped group when it should straddle the visible edge.

@@ -387,6 +387,28 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
+    def clip(
+        ids: Ids,
+        boundary: Ids | None = None,
+        action: Literal["set", "remove"] = "set",
+        linked: bool = True,
+    ) -> CallToolResult:
+        """Clip objects or groups to the union of closed boundary paths.
+
+        Keeps paint, geometry, stacking and IDs. Boundary paths remain drawn;
+        strokes are excluded and fill-rule holes are preserved. A boundary may
+        be inside its target group. Each target gets its own transformed clip.
+        linked=true shares path geometry, so node edits update the boundary;
+        false copies it. Placement is captured: call again after transforming
+        or reparenting a source. set replaces existing clipping; remove clears
+        it (omit boundary). Use edit_batch to preview and apply as one undo step.
+        """
+        return state.call(
+            "clip",
+            {"ids": ids, "boundary": boundary, "action": action, "linked": linked},
+        )
+
+    @tool(structured_output=False)
     def edit_batch(
         action: Literal["stage", "status", "apply", "discard"] = "stage",
         edits: list[dict[str, Any]] | None = None,
