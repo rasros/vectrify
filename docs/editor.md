@@ -587,6 +587,14 @@ cel trace do, **Move shared edges together** (on by default) moves the
 neighbour's copy of the edge with it, so no gap opens between them and
 neither covers the other; the corners where three regions meet stay put.
 
+Paths sharing one geometry asset, including body shapes used by clipping
+boundaries and outlines, can also be tidied without detaching. Tidy edits
+each asset once and judges the result over all affected artwork. Instances
+keep their references, and clipping and linked outlines follow the edited
+geometry. When the fast path fitter cannot handle these dependencies, Tidy
+uses bounded fitting against the actual SVG render. Locks on any dependent
+object are respected, and the preview reports the linked artwork.
+
 **Only what is in view** tidies just the points inside the part of the
 drawing the window shows: of the selected paths, or, with nothing selected
 (Tidy then opens with it ticked), of every path painting there. Zoom in on a

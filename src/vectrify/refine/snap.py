@@ -36,7 +36,7 @@ from scipy.spatial import KDTree
 from vectrify.document import Document, Geometry, PathNode
 from vectrify.document.join import path_style
 from vectrify.document.model import new_id
-from vectrify.document.transforms import root_matrix
+from vectrify.document.transforms import object_matrix
 from vectrify.image_utils import resize_long_side
 from vectrify.operations.generate import Region
 from vectrify.refine.crossings import bezier as _bezier
@@ -101,7 +101,7 @@ class _Frame:
 
 
 def _frame(document: Document, oid: str, region: Region, size) -> _Frame | None:
-    matrix = root_matrix(document, oid)
+    matrix = object_matrix(document, oid)
     a, b, c, d, e, f = matrix
     scale = np.diag([size[0] / region.width, size[1] / region.height])
     linear = scale @ np.array([[a, c], [b, d]], dtype=np.float64)

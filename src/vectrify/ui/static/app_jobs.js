@@ -166,7 +166,8 @@ export function operationDialogs({getState, getObject, waitForEdits,
       const note = skipped.length ? ` Some paths were not fitted: ${[...new Set(skipped)].join('; ')}.` : '';
       const late = metrics.out_of_time ? ' Stopped at the time limit.' : '';
       const followed = metrics.followed ? ` ${metrics.followed} neighbouring path${metrics.followed === 1 ? '' : 's'} moved along shared edges.` : '';
-      return `${points} · ${fit} · ${order}.${followed}${late}${note} Apply keeps this result as one undoable edit.`;
+      const linked = metrics.linked ? ' Linked outlines, instances and clipping keep following their shared geometry.' : '';
+      return `${points} · ${fit} · ${order}.${followed}${linked}${late}${note} Apply keeps this result as one undoable edit.`;
     },
     applied: 'Paths tidied. Undo restores them.',
   }).wire();
@@ -183,7 +184,7 @@ export function operationDialogs({getState, getObject, waitForEdits,
   });
   for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
   // Whether paths, or groups that may hold them, are selected for Tidy.
-  const tidyTargets = () => getState().selection.objects.some(id => ['path', 'g'].includes(getObject(id)?.tag));
+  const tidyTargets = () => getState().selection.objects.some(id => ['path', 'use', 'g'].includes(getObject(id)?.tag));
   async function openTidy() {
     await waitForEdits();
     const reference = Boolean(getState().reference);

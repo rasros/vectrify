@@ -53,6 +53,21 @@ def simplify(
         frame = _frame(document, oid, region, region.image.size)
         if frame is None:
             continue
+        users = document.geometry_users(geometry.id)
+        if users != {oid}:
+            # A local simplification must stay within tolerance for every
+            # transformed copy, including artwork clipped by this asset.
+            frames = [
+                _frame(document, user, region, region.image.size)
+                for user in users
+                if document.element(user).tag in {"path", "use"}
+            ]
+            scale = max(
+                np.linalg.norm(other.matrix, ord=2)
+                for other in frames
+                if other is not None
+            )
+            frame = _Frame(np.eye(2) * scale, np.zeros(2))
         # Points go first: a curve drawn as a line joins its neighbours worse.
         geometry = _simplified(
             geometry,
