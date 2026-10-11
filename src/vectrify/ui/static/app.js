@@ -2412,7 +2412,12 @@ function pressStage(event) {
     startGesture('drawPath', event, common); return;
   }
   const near = tool === 'nodes' && !middle && !space ? nearestPoint(event.clientX, event.clientY) : null;
-  if (near) { pressPoint({target: near}, common); return; }
+  if (near) {
+    // Points and handles remain editable outside the artboard, including the
+    // reach around an edge point. Release must keep their click selection.
+    common.deselectOutside = false;
+    pressPoint({target: near}, common); return;
+  }
   const hits = hitStack(event.clientX, event.clientY);
   const boundary = event.target?.closest?.('[data-clip-object]');
   if (boundary) {
@@ -2524,7 +2529,7 @@ async function releaseStage(event) {
   const finished = drag, controller = gestures[finished.kind];
   drag = null; stage.classList.remove('panning');
   if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-  // A click outside the artboard clears the selection in every tool.
+  // A click on empty canvas outside the artboard clears the selection.
   if (finished.deselectOutside && !finished.moved) { await clickEmpty(false); return; }
   if (finished.moved && !controller.keepClickCycle) clickCycle = null;
   await controller.release?.(finished);

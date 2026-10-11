@@ -109,3 +109,71 @@ assert.equal(context.drag.snap.target.kind, 'point');
 // Unconstrained drags retain ordinary snapping in both coordinates.
 targets = [[63, 31]]; context.drag.snaps = null;
 assert.deepEqual(position(snappedDrag(event(64, 35, {shiftKey: false}))), [63, 31]);
+
+// Points and handles can extend beyond the artboard (including clipped paths).
+// Run their clicks through both canvas handlers: release must keep what press
+// selected, while an empty click outside must still clear the selection.
+let circles = [];
+Object.assign(context, {
+  tool: 'nodes', space: false, POINT_REACH: 10, gestures, clickCycle: null, drag: null,
+  stage: {focus() {}, setPointerCapture() {}, hasPointerCapture: () => false, classList: {remove() {}}},
+  $: () => ({getBoundingClientRect: () => ({left: 0, right: 100, top: 0, bottom: 100})}),
+  overlay: {querySelectorAll: () => circles}, hitStack: () => [],
+  renderNodeInspector() {}, drawOverlay() {},
+  selectPoints: (objects, points) => { context.state.selection.objects = objects; selected = points; },
+  selectObject: () => { context.state.selection.objects = []; },
+});
+vm.runInContext(`
+  ${section('function nearestPoint(', '// The selected points,')}
+  ${section('function clickEmpty(', '// The points a point command')}
+  ${section('function startGesture(', '// A press on the canvas')}
+  ${section('function pressStage(', '// In Nodes the unselected')}
+  ${section('async function releaseStage(', '// Double-click a group')}
+`, context);
+const pressStage = vm.runInContext('pressStage', context);
+const releaseStage = vm.runInContext('releaseStage', context);
+const canvasClick = async (x, y, extra = {}) => {
+  const e = event(x, y, {button: 0, pointerId: 1, timeStamp: 1, shiftKey: false, ...extra});
+  pressStage(e);
+  await releaseStage(e);
+};
+const circle = (x, y, node, part = 'endpoint', anchor) => ({
+  dataset: {object: 'p', node, part, anchor},
+  getBoundingClientRect: () => ({x: x - 2, y: y - 2, width: 4, height: 4}),
+});
+
+nodes[0].values = [101, 50]; nodes[1].values = [40, 50];
+selected = [];
+circles = [circle(101, 50, 'a')];
+await canvasClick(101, 50);
+assert.deepEqual([...selected], ['p a']);
+assert.deepEqual([...context.state.selection.objects], ['p']);
+
+// The reach around an inside point also works from outside the artboard.
+selected = []; nodes[0].values = [99, 50];
+circles = [circle(99, 50, 'a')];
+await canvasClick(104, 50);
+assert.deepEqual([...selected], ['p a']);
+
+// Shift-click toggles only the clicked point, preserving its selected peers.
+selected = ['p a', 'p b'];
+await canvasClick(104, 50, {shiftKey: true});
+assert.deepEqual([...selected], ['p b']);
+
+// Pinned points still select on click; off-artboard handles keep their anchor.
+selected = []; nodes[0].pinned = true;
+await canvasClick(104, 50);
+assert.deepEqual([...selected], ['p a']);
+nodes[0].pinned = false;
+selected = []; nodes[1].values = [105, 50, 90, 50, 80, 50];
+circles = [circle(105, 50, 'b', '0', 'p b')];
+await canvasClick(105, 50);
+assert.deepEqual([...selected], ['p b']);
+assert.equal(vm.runInContext('activeHandle?.anchor', context), 'p b');
+
+circles = [];
+await canvasClick(150, 50);
+assert.deepEqual([...selected], []);
+assert.deepEqual([...context.state.selection.objects], ['p']);
+await canvasClick(150, 50);
+assert.deepEqual([...context.state.selection.objects], []);
