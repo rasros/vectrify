@@ -317,6 +317,9 @@ and saved projects restore it.
   or **Cancel** discards the draft. Creation is one undoable edit and selects the
   new path for paint and point editing. Middle mouse panning works while drawing.
 - Group/ungroup, stacking order, delete and detach shared geometry.
+  Deleting objects that contain pinned points asks for confirmation. Cancel
+  keeps them; confirming deletes them in one undoable edit. Undo restores
+  their pins too. Deleting individual pinned points still requires unpinning.
   **Send backward**/**Bring forward** (Ctrl/⌘ `[` / `]`, or the ↓ / ↑ buttons
   of the Select strip) move one object a step; **Send to back**/**Bring to
   front** (add Shift, or ⇊ / ⇈) move the selection to the back or front of its

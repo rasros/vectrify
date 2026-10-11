@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
+from vectrify.document.editor import PinnedDeletionError
 from vectrify.project_file import MAX_SOURCE, decode_source, encode_project
 from vectrify.ui.agent_channel import MCP_PORT, AgentChannel, answer
 from vectrify.ui.session import Session
@@ -162,6 +163,16 @@ class Backend:
                 else:
                     return 404, {"error": "Not found"}
             return 200, result
+        except PinnedDeletionError as exc:
+            if path == "/api/action" and data.get("command") == "delete":
+                return 200, {
+                    "confirmation": "delete_pinned",
+                    "message": (
+                        "The selected objects contain pinned points. "
+                        "Delete them anyway?"
+                    ),
+                }
+            return 400, {"error": str(exc)}
         except StaleRevisionError as exc:
             return 409, {"error": str(exc)}
         except (

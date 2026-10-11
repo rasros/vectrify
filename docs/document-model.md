@@ -163,8 +163,11 @@ geometry edits. They participate in the same preview/apply/abort transaction.
   identified subtree into an explicitly selected container. New IDs must be
   unique; path assets and references are validated. New objects can be edited
   further within the same transaction.
-- `delete_objects(object_ids)` removes explicit subtrees, rejecting pinned
-  content and dangling references. It does not silently delete other consumers.
+- `delete_objects(object_ids, allow_pinned=False)` removes explicit subtrees,
+  rejecting pinned content unless deletion is explicitly confirmed with
+  `allow_pinned=True`. The editor asks for confirmation before deleting objects
+  with pinned points. Dangling references are always rejected; deletion does
+  not silently delete other consumers or unpin surviving shared geometry.
 - `reorder_object(object_id, index)` moves one selected object to a final sibling
   index; zero is the back. Other siblings retain their relative ordering. This
   can change occlusion.

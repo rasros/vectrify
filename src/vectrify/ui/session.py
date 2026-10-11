@@ -702,6 +702,14 @@ class Session:
         # prevent the person selecting surviving identities.
         self.check_revision(payload)
         if (
+            command == "delete"
+            and payload.get("confirm_pinned") is True
+            and payload["revision"] != self.editor.snapshot.revision
+        ):
+            raise StaleRevisionError(
+                "The drawing changed while confirming deletion. Try deleting again."
+            )
+        if (
             command not in {"select", "undo", "redo", "open"}
             and payload["revision"] != self.editor.snapshot.revision
         ):
@@ -1221,7 +1229,9 @@ class Session:
     def _command_delete(self, payload: dict) -> None:
         selected = self._object_selection().object_ids
         with self._object_transaction(payload["command"]) as tx:
-            tx.delete_objects(selected)
+            tx.delete_objects(
+                selected, allow_pinned=payload.get("confirm_pinned") is True
+            )
 
     def _command_restack(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

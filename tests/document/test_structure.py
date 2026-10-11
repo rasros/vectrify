@@ -234,6 +234,50 @@ def test_delete_pinned_use_instance_is_rejected():
         tx.delete_objects(frozenset({"first"}))
 
 
+@pytest.mark.parametrize("object_id", ["a", "layer"])
+def test_confirmed_delete_pinned_path_or_group_is_one_undoable_edit(object_id):
+    editor = Editor(import_svg(SVG), selection=select(object_id))
+    node = editor.snapshot.document.geometry_for("a").subpaths[0].nodes[0]
+    editor.pin_node("a", node.id)
+    before = editor.snapshot.document
+    with (
+        pytest.raises(EditRejectedError, match="pinned"),
+        editor.transaction("Delete") as tx,
+    ):
+        tx.delete_objects(frozenset({object_id}))
+    assert editor.snapshot.document == before
+    with editor.transaction("Delete") as tx:
+        tx.delete_objects(frozenset({object_id}), allow_pinned=True)
+    assert object_id not in {e.id for e in editor.snapshot.document.elements()}
+    assert editor.undo().document == before
+    assert editor.snapshot.document.geometry_for("a").node(node.id).pinned
+    editor.redo()
+    assert object_id not in {e.id for e in editor.snapshot.document.elements()}
+
+
+def test_confirmed_delete_instance_keeps_shared_pins_and_reference_checks():
+    editor = Editor(import_svg(SHARED), selection=Selection.all())
+    node = editor.snapshot.document.geometry_for("first").subpaths[0].nodes[0]
+    editor.pin_node("first", node.id)
+    before = editor.snapshot.document
+    with (
+        pytest.raises(EditRejectedError, match="references"),
+        editor.transaction("Delete definition") as tx,
+    ):
+        tx.delete_objects(frozenset({"shape"}), allow_pinned=True)
+    assert editor.snapshot.document == before
+    editor.set_locks("first", frozenset({"structure"}))
+    with (
+        pytest.raises(EditRejectedError, match="locked"),
+        editor.transaction("Delete locked instance") as tx,
+    ):
+        tx.delete_objects(frozenset({"first"}), allow_pinned=True)
+    editor.set_locks("first", frozenset())
+    with editor.transaction("Delete instance") as tx:
+        tx.delete_objects(frozenset({"first"}), allow_pinned=True)
+    assert editor.snapshot.document.geometry_for("second").node(node.id).pinned
+
+
 def test_inherited_locks_and_external_group_instances_block_structure_changes():
     source = OBJECTS.replace("</svg>", '<use id="copy" href="#layer" x="50"/></svg>')
     editor = Editor(import_svg(source), selection=select("a"))
