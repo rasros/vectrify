@@ -184,7 +184,7 @@ def test_raster_retains_paths_helper_monkeypatches_and_tile_gradients(monkeypatc
         iter(raster.initial_simple_groups.items())
     )
     alphas = raster.rasterise_simple(rule, width, height, items)
-    sum(alpha.sum() for _index, alpha in alphas).backward()
+    torch.stack([alpha.sum() for _index, alpha in alphas]).sum().backward()
     assert calls[0][0] == (0, 0, width, height)
     assert calls[0][1]["dynamic_fuse"] is False
     assert scene.control_storage.grad.abs().sum() > 0
@@ -284,10 +284,12 @@ def test_rgba_context_passes_affine_response_and_target_through_loss_hook():
     torch = pytest.importorskip("torch")
     source = '<svg><path d="M2 2 L14 2 L14 10 L2 10 Z" fill="#804020"/></svg>'
     target = Image.new("RGBA", (16, 12), (60, 90, 120, 128))
-    context = tuple(
-        np.full((12, 16, 4), value, dtype=np.float32) for value in (0.2, 0.1, 0.4)
+    context = (
+        np.full((12, 16, 4), 0.2, dtype=np.float32),
+        np.full((12, 16, 4), 0.1, dtype=np.float32),
+        np.full((12, 16, 4), 0.4, dtype=np.float32),
     )
-    seen = []
+    seen: list[str | tuple[str, int]] = []
 
     def coverage(_controls, alphas):
         seen.append("coverage")
