@@ -236,27 +236,8 @@ def test_coupled_bilateral_curve_improves_a_filled_shape_without_edge_labels():
         bilateral=True,
         supports=True,
     )
-    ordinary = joint._polish_group(
-        document,
-        ("fill", "ink"),
-        target,
-        FitOptions(steps=40, displacement=4, resolution=64),
-        frozenset(),
-        (),
-        score,
-        Event(),
-        None,
-        frozenset(),
-    )
-    retained = joint.polish(
-        document,
-        ("fill", "ink"),
-        target,
-        FitOptions(steps=40, displacement=4, resolution=64),
-        score=score,
-    )
-    assert score(retained) <= score(result)
-    assert score(result) < score(ordinary) * 0.6
+    # Keep one real coupled fit. Model selection and comparison against the
+    # same seed are exercised by the focused comparison test below.
     assert score(result) < score(document) * 0.6
     model = Bilateral.infer(result.geometry_for("ink"), frozenset(), 4)
     assert model is not None

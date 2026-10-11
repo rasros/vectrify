@@ -125,9 +125,17 @@ def test_gap_ambiguity_and_short_fragment_do_not_define_a_complete_stroke():
     )
 
 
-@pytest.mark.parametrize("diagonal", [False, True])
-@pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("cap", ["butt", "round"])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("diagonal", "fixed", "cap"),
+    [
+        (False, False, "butt"),
+        (True, True, "round"),
+        (False, False, "round"),
+        (False, True, "butt"),
+        (True, False, "butt"),
+    ],
+)
 def test_atomic_fit_preserves_materials_ports_explicit_width_and_native_crop(
     fixed, diagonal, cap
 ):

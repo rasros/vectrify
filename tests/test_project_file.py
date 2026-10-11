@@ -19,7 +19,8 @@ def test_project_file_keeps_exact_utf8_and_reference_data(compressed):
 
 @pytest.mark.parametrize(
     "data",
-    [b"\x1f\x8bgarbage", gzip.compress(b"project")[:-3], b"\xff\xfe"],
+    [b"\x1f\x8bgarbage", gzip.compress(b"project", mtime=0)[:-3], b"\xff\xfe"],
+    ids=["malformed-gzip", "truncated-gzip", "invalid-utf8"],
 )
 def test_invalid_files_give_document_errors(data):
     with pytest.raises(DocumentError):

@@ -21,9 +21,7 @@ jobs:
   test:
     name: Lint and test
     runs-on: ubuntu-latest
-    # The suite runs in about 15s and a whole job has never taken over three
-    # minutes. Without a cap a wedged step inherits the six-hour default: three
-    # runs sat on "Install system deps" for five hours before anyone looked.
+    # Keep a wedged step from inheriting GitHub's six-hour default.
     timeout-minutes: 15
 
     steps:
@@ -59,13 +57,17 @@ jobs:
         run: uv run pyrefly check
 
       - name: Run tests
-        run: uv run pytest -q
+        # Two workers, each with one native math thread, avoid oversubscription.
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: uv run pytest -q -n 2 --dist=loadfile --durations=25 --junitxml=test-reports/pytest.xml
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: |
-            .pytest_cache/
+          path: test-reports/
           if-no-files-found: ignore

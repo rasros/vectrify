@@ -99,12 +99,19 @@ def test_virtual_intrinsic_statistics_recompose_original_weighted_atoms(monkeypa
         source_roles.moments(roles, evidence, graph, options, work)
 
 
-@pytest.mark.parametrize("alpha", [128, 64])
-@pytest.mark.parametrize("gap", [False, True])
-@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-@pytest.mark.parametrize("ink_roles", ["connected", "fitted"])
-@pytest.mark.parametrize("ink_coverage", ["visible", "fractional"])
-@pytest.mark.parametrize("ink_fit", ["source", "carrier"])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "gap", "grouping", "ink_roles", "ink_coverage", "ink_fit"),
+    [
+        (128, False, "ward", "connected", "visible", "source"),
+        (64, True, "paint-fit", "fitted", "fractional", "carrier"),
+        (128, False, "ward", "fitted", "fractional", "carrier"),
+        (64, True, "paint-fit", "connected", "visible", "source"),
+        (128, False, "paint-fit", "connected", "visible", "carrier"),
+        (128, True, "ward", "connected", "fractional", "source"),
+        (64, False, "ward", "fitted", "visible", "source"),
+    ],
+)
 def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
     alpha, gap, grouping, ink_roles, ink_coverage, ink_fit
 ):

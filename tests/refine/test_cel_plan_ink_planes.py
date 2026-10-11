@@ -101,9 +101,17 @@ def test_connected_ink_role_retains_source_exterior_lines_without_closing_gaps(
     assert bool(support[9, 48]) is not gap
 
 
-@pytest.mark.parametrize("alpha", [255, 128])
-@pytest.mark.parametrize("hole", [False, True])
-@pytest.mark.parametrize("gap", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "hole", "gap"),
+    [
+        (255, False, False),
+        (128, True, True),
+        (255, False, True),
+        (255, True, False),
+        (128, False, False),
+    ],
+)
 def test_three_material_planes_keep_fragmented_ink_and_actual_source_gaps(
     alpha, hole, gap
 ):

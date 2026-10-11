@@ -11,7 +11,6 @@ choosing its own targets before the person's selection is given back.
 from __future__ import annotations
 
 import anyio
-import pytest
 from mcp import Client
 
 from tests.mcp.helpers import data, reference_png, restore
@@ -166,8 +165,3 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
     assert not missing, f"Operation commands no MCP tool sends: {sorted(missing)}"
     sent = {c for tool in EDITS.values() for c in tool}
     assert sent <= ACTION_COMMANDS.keys(), sorted(sent - ACTION_COMMANDS.keys())
-
-
-@pytest.mark.parametrize("tool", sorted(EDITS))
-def test_each_edit_names_commands_the_session_has(tool):
-    assert set(EDITS[tool]) <= ACTION_COMMANDS.keys()

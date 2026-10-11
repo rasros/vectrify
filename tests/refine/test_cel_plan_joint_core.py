@@ -63,9 +63,17 @@ def test_thin_material_between_two_fills_keeps_both_shared_boundaries(step):
     np.testing.assert_array_equal(actual[..., 1].sum(), strip.sum())
 
 
-@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
-@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("grouping", "layout", "boundary_fit"),
+    [
+        ("ward", "regions", "curve"),
+        ("paint-fit", "ink-planes", "anchored"),
+        ("ward", "regions", "anchored"),
+        ("ward", "ink-planes", "curve"),
+        ("paint-fit", "regions", "curve"),
+    ],
+)
 def test_joint_material_budget_keeps_short_hatching_as_supported_ink(
     grouping, layout, boundary_fit
 ):
@@ -116,9 +124,12 @@ def test_joint_material_budget_keeps_short_hatching_as_supported_ink(
     assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 3
 
 
-@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
-@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+# Exercise the owner limit under both layouts. The hatching test above covers
+# grouping/boundary combinations without rebuilding 70 islands each time.
+@pytest.mark.parametrize(
+    ("grouping", "layout", "boundary_fit"),
+    [("ward", "regions", "curve"), ("paint-fit", "ink-planes", "anchored")],
+)
 def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(
     grouping, layout, boundary_fit
 ):
@@ -277,15 +288,22 @@ def test_offline_dynamic_component_publishes_through_full_native_checkpoint(grou
     assert partition.follows(state.partition)
 
 
-@pytest.mark.parametrize("alpha", [255, 128, 64])
-@pytest.mark.parametrize("hole", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
 @pytest.mark.parametrize(
-    ("grouping", "boundary_fit"),
+    ("alpha", "hole", "grouping", "boundary_fit"),
     [
-        ("static", "polygon"),
-        ("ward", "polygon"),
-        ("ward", "curve"),
-        ("paint-fit", "curve"),
+        (255, False, "static", "polygon"),
+        (64, True, "paint-fit", "curve"),
+        (255, True, "ward", "polygon"),
+        (128, False, "ward", "polygon"),
+        (128, True, "static", "polygon"),
+        (64, False, "ward", "curve"),
+        (255, False, "paint-fit", "curve"),
+        (255, True, "ward", "curve"),
+        (128, False, "ward", "curve"),
+        (128, False, "paint-fit", "curve"),
+        (64, False, "static", "polygon"),
+        (64, False, "ward", "polygon"),
     ],
 )
 def test_joint_component_includes_every_eligible_owner_with_complete_uncut_support(
@@ -349,15 +367,19 @@ def test_joint_component_includes_every_eligible_owner_with_complete_uncut_suppo
     )
 
 
-@pytest.mark.parametrize("protection", ["paint", "locked", "pinned", "fixed"])
+# Each protection runs under both layouts; grouping combinations are covered
+# by the material tests above.
 @pytest.mark.parametrize(
-    ("grouping", "layout"),
+    ("protection", "grouping", "layout"),
     [
-        ("static", "regions"),
-        ("ward", "regions"),
-        ("paint-fit", "regions"),
-        ("ward", "ink-planes"),
-        ("paint-fit", "ink-planes"),
+        ("paint", "static", "regions"),
+        ("locked", "ward", "regions"),
+        ("pinned", "paint-fit", "regions"),
+        ("fixed", "ward", "regions"),
+        ("paint", "ward", "ink-planes"),
+        ("locked", "paint-fit", "ink-planes"),
+        ("pinned", "ward", "ink-planes"),
+        ("fixed", "paint-fit", "ink-planes"),
     ],
 )
 def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_owner(

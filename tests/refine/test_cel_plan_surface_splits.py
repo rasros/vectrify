@@ -68,9 +68,17 @@ def setup(alpha=255, hole=False, *, diagonal=False, single=False):
     return e, frontier, state, options
 
 
-@pytest.mark.parametrize("alpha", [255, 128])
-@pytest.mark.parametrize("hole", [False, True])
-@pytest.mark.parametrize("single", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "hole", "single"),
+    [
+        (255, False, False),
+        (128, True, True),
+        (255, False, True),
+        (255, True, False),
+        (128, False, False),
+    ],
+)
 def test_two_editable_paints_split_real_atoms_with_native_local_and_reload_agreement(
     alpha, hole, single
 ):
