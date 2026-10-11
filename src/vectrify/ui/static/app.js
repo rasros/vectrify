@@ -93,7 +93,12 @@ function action(command, data = {}, label = 'Applying edit…') {
     $('busy-label').textContent = label;
     try {
       const ids = command === 'undo' ? state.undo_ids?.slice(-1) : command === 'redo' ? state.redo_ids?.slice(0, 1) : undefined;
-      const result = await request('/api/action', {command, ...data, ...(ids ? {ids} : {}), selection: state.selection, epoch: state.epoch, revision: state.revision});
+      const payload = {command, ...data, ...(ids ? {ids} : {}), selection: state.selection, epoch: state.epoch, revision: state.revision};
+      let result = await request('/api/action', payload);
+      if (command === 'delete' && result.confirmation === 'delete_pinned') {
+        if (!window.confirm(result.message)) return false;
+        result = await request('/api/action', {...payload, confirm_pinned: true});
+      }
       if (!['select', 'copy'].includes(command)) dirty = true;
       if (command === 'paste') { scope = null; focusPoint = null; pointMemory = null; }
       await applyState(result);

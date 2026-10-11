@@ -7,8 +7,10 @@ const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', impor
 const actionSource = source.slice(source.indexOf('function action('), source.indexOf('let svgElements ='));
 const geometrySource = source.slice(source.indexOf('async function loadGeometries('), source.indexOf('function paintReference('));
 const calls = [], errors = [], loaded = [], polls = [];
-let conflict = false;
+let conflict = false, pinnedDelete = false, confirmed = false;
+const confirmations = [];
 const context = vm.createContext({
+  window: {confirm: message => { confirmations.push(message); return confirmed; }},
   $: () => ({}),
   setBusy: () => {},
   renderDrawing: () => {}, renderInspector: () => {}, drawOverlay: () => {},
@@ -17,6 +19,7 @@ const context = vm.createContext({
   request: async (path, payload) => {
     calls.push({path, payload: JSON.parse(JSON.stringify(payload))});
     if (path === '/api/action' && conflict) throw new Error('This edit conflicts with another edit at fill. Nothing was changed.');
+    if (path === '/api/action' && payload.command === 'delete' && pinnedDelete && !payload.confirm_pinned) return {confirmation: 'delete_pinned', message: 'Delete objects with pinned points?'};
     if (path === '/api/nodes') return {epoch: 'drawing', revision: 2, geometries: {a: {id: 'geometry'}}};
     return {epoch: 'drawing', revision: 2, svg: '<svg/>', selection: {objects: ['a'], nodes: []}};
   },
@@ -49,3 +52,20 @@ assert.ok(!errors[0].toLowerCase().includes('refresh'));
 await vm.runInContext('loadGeometries()', context);
 assert.equal(vm.runInContext('geometries.size', context), 0, 'do not cache newer geometry under an older revision');
 assert.deepEqual(polls, [0]);
+
+conflict = false;
+pinnedDelete = true;
+const cancelledAt = calls.length, loadedAt = loaded.length;
+assert.equal(await action('delete'), false);
+assert.equal(calls.length, cancelledAt + 1, 'cancel must not issue a deletion');
+assert.equal(loaded.length, loadedAt, 'a confirmation response is not drawing state');
+assert.equal(errors.length, 1, 'cancelling is not an error');
+confirmed = true;
+assert.equal(await action('delete'), true);
+const attempts = calls.slice(-2);
+assert.equal(attempts[0].payload.confirm_pinned, undefined);
+assert.deepEqual(attempts[1].payload, {...attempts[0].payload, confirm_pinned: true}, 'retry the same targets and revision that were confirmed');
+assert.equal(confirmations.length, 2);
+pinnedDelete = false;
+assert.equal(await action('delete'), true);
+assert.equal(confirmations.length, 2, 'ordinary deletion needs no confirmation');

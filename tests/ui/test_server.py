@@ -13,6 +13,64 @@ from vectrify.project_file import decode_source
 from vectrify.ui.server import Backend, EditorServer
 
 
+def test_delete_pinned_objects_requests_confirmation_and_preserves_undo():
+    backend = Backend('<svg><g id="group"><path id="p" d="M0 0 L10 0"/></g></svg>')
+    _, state = backend.handle("/api/session", {}, None)
+    session_id = state["session"]
+    session = backend.sessions[session_id]
+    session.action(
+        {
+            "command": "select",
+            "epoch": session.epoch,
+            "revision": 0,
+            "objects": ["group"],
+        }
+    )
+    node = session.editor.snapshot.document.geometry_for("p").subpaths[0].nodes[0]
+    session.editor.pin_node("p", node.id)
+    before = session.editor.snapshot
+    payload = {"command": "delete", "epoch": session.epoch, "revision": before.revision}
+    status, result = backend.handle("/api/action", payload, session_id)
+    assert status == 200
+    assert result["confirmation"] == "delete_pinned"
+    assert "pinned points" in result["message"]
+    assert session.editor.snapshot == before
+    status, result = backend.handle(
+        "/api/action", {**payload, "confirm_pinned": True}, session_id
+    )
+    assert status == 200
+    assert "confirmation" not in result
+    assert result["revision"] == before.revision + 1
+    assert not session.editor.snapshot.document.root.children
+    assert session.editor.undo().document == before.document
+
+
+def test_confirmed_delete_refuses_changes_made_while_dialog_is_open():
+    backend = Backend('<svg><path id="p" d="M0 0 L10 0"/></svg>')
+    _, state = backend.handle("/api/session", {}, None)
+    session_id = state["session"]
+    session = backend.sessions[session_id]
+    session.action(
+        {"command": "select", "epoch": session.epoch, "revision": 0, "objects": ["p"]}
+    )
+    nodes = session.editor.snapshot.document.geometry_for("p").subpaths[0].nodes
+    session.editor.pin_node("p", nodes[0].id)
+    payload = {
+        "command": "delete",
+        "epoch": session.epoch,
+        "revision": session.editor.snapshot.revision,
+    }
+    assert backend.handle("/api/action", payload, session_id)[1]["confirmation"]
+    session.editor.pin_node("p", nodes[1].id)
+    before = session.editor.snapshot
+    status, result = backend.handle(
+        "/api/action", {**payload, "confirm_pinned": True}, session_id
+    )
+    assert status == 409
+    assert "changed while confirming" in result["error"]
+    assert session.editor.snapshot == before
+
+
 @pytest.fixture
 def server():
     sample = (Path(__file__).with_name("sample.svg")).read_text()

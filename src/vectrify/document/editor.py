@@ -202,6 +202,10 @@ class EditRejectedError(DocumentError):
     """An edit violates scope, locks, or node constraints."""
 
 
+class PinnedDeletionError(EditRejectedError):
+    """Deleting pinned objects requires explicit confirmation."""
+
+
 class StaleRevisionError(EditRejectedError):
     """The editor changed after the transaction captured its snapshot."""
 
@@ -2727,13 +2731,17 @@ class Transaction:
             )
             return tuple(element.id for element in elements)
 
-    def delete_objects(self, object_ids: frozenset[str]) -> None:
-        """Delete explicit subtrees; surviving references must never dangle."""
+    def delete_objects(
+        self, object_ids: frozenset[str], *, allow_pinned: bool = False
+    ) -> None:
+        """Delete subtrees, optionally confirming pins; references cannot dangle."""
         with self._change():
             self._whole_objects()
-            self._remove_objects(object_ids)
+            self._remove_objects(object_ids, allow_pinned=allow_pinned)
 
-    def _remove_objects(self, object_ids: frozenset[str]) -> None:
+    def _remove_objects(
+        self, object_ids: frozenset[str], *, allow_pinned: bool = False
+    ) -> None:
         removed = set()
         for object_id in object_ids:
             if object_id == self._working.root.id:
@@ -2745,7 +2753,7 @@ class Transaction:
         for element in self._working.elements():
             if element.id not in removed and set(references(element)) & removed:
                 raise EditRejectedError("Delete or retarget dependent references first")
-            if element.id in removed:
+            if element.id in removed and not allow_pinned:
                 # A pinned definition reached through a use is protected too.
                 pending = [element]
                 seen = set()
@@ -2764,7 +2772,7 @@ class Transaction:
                         for sub in self._working.geometry(item.geometry_id).subpaths
                         for n in sub.nodes
                     ):
-                        raise EditRejectedError(
+                        raise PinnedDeletionError(
                             "Cannot delete an object with pinned endpoints"
                         )
 
