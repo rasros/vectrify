@@ -58,11 +58,23 @@ def test_reused_guard_retains_frozen_absence_after_raw_identity_changes():
         )
 
 
-@pytest.mark.parametrize("tile", [8, 16, 64])
-@pytest.mark.parametrize("cap", ["round", "butt"])
+# Keep both stress extremes and every pair of options; avoid a full product.
 @pytest.mark.parametrize(
-    "path",
-    ["M20 28H76", "M20 28H42 M54 28H76", "M20 28H46", "M20 32H76V28"],
+    ("tile", "cap", "path"),
+    [
+        (8, "round", "M20 28H76"),
+        (64, "butt", "M20 32H76V28"),
+        (8, "butt", "M20 28H42 M54 28H76"),
+        (16, "round", "M20 28H42 M54 28H76"),
+        (16, "butt", "M20 28H76"),
+        (64, "round", "M20 28H46"),
+        (8, "round", "M20 32H76V28"),
+        (8, "butt", "M20 28H46"),
+        (16, "round", "M20 28H46"),
+        (16, "round", "M20 32H76V28"),
+        (64, "round", "M20 28H76"),
+        (64, "round", "M20 28H42 M54 28H76"),
+    ],
 )
 def test_native_query_tiles_match_full_stroke_including_seams_and_caps(
     monkeypatch, tile, cap, path

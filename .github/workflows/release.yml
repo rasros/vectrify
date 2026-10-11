@@ -38,7 +38,11 @@ jobs:
         run: uv sync --extra dev --extra vision
 
       - name: Run tests
-        run: uv run pytest -q
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+        run: uv run pytest -q -n 2 --dist=loadfile --durations=25
 
       - name: Build distribution
         run: uv build

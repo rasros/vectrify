@@ -283,10 +283,19 @@ def test_native_stroke_replaces_fragments_without_collapsing_existing_paint(alph
         )
 
 
-@pytest.mark.parametrize("alpha", [128, 64])
-@pytest.mark.parametrize("gap", [False, True])
-@pytest.mark.parametrize("layout", ["regions", "planes", "ink-planes"])
-@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "gap", "layout", "boundary_fit"),
+    [
+        (128, False, "regions", "curve"),
+        (64, True, "ink-planes", "anchored"),
+        (128, False, "planes", "anchored"),
+        (64, True, "planes", "curve"),
+        (128, False, "ink-planes", "curve"),
+        (128, True, "regions", "anchored"),
+        (64, False, "regions", "curve"),
+    ],
+)
 def test_material_compaction_composes_after_source_strokes(
     alpha, gap, layout, boundary_fit, monkeypatch
 ):
@@ -532,9 +541,17 @@ def styled_drawing(alpha, shared_owner):
     return replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
 
 
-@pytest.mark.parametrize("alpha", [128, 64])
-@pytest.mark.parametrize("shared_owner", [False, True])
-@pytest.mark.parametrize("affine", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "shared_owner", "affine"),
+    [
+        (128, False, False),
+        (64, True, True),
+        (128, False, True),
+        (128, True, False),
+        (64, False, False),
+    ],
+)
 def test_source_styles_are_one_atomic_edit_with_distinct_width_paint_and_caps(
     alpha, shared_owner, affine
 ):

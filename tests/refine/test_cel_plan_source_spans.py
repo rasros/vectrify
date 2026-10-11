@@ -72,11 +72,16 @@ def fixture(*, reverse=False, rotated=False, transform="matrix(1 0 0 1 0 0)", al
     return document, observed, former
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-@pytest.mark.parametrize("rotated", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
 @pytest.mark.parametrize(
-    ("transform", "alpha"),
-    [("matrix(1 0 0 1 0 0)", 1), ("matrix(.8 .6 -.6 .8 100 20)", 0.6)],
+    ("reverse", "rotated", "transform", "alpha"),
+    [
+        (False, False, "matrix(1 0 0 1 0 0)", 1),
+        (True, True, "matrix(.8 .6 -.6 .8 100 20)", 0.6),
+        (False, False, "matrix(.8 .6 -.6 .8 100 20)", 0.6),
+        (False, True, "matrix(1 0 0 1 0 0)", 1),
+        (True, False, "matrix(1 0 0 1 0 0)", 1),
+    ],
 )
 def test_discovery_copies_complete_original_curves_across_frames_and_svg_starts(
     reverse, rotated, transform, alpha

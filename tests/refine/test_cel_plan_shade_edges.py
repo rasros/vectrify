@@ -90,9 +90,18 @@ def raster_edge(alpha, angle, *, hole):
     )
 
 
-@pytest.mark.parametrize("alpha", [255, 128])
-@pytest.mark.parametrize("hole", [False, True])
-@pytest.mark.parametrize("angle", [0.07, 0.21, 0.67])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "hole", "angle"),
+    [
+        (255, False, 0.07),
+        (128, True, 0.67),
+        (255, True, 0.21),
+        (128, False, 0.21),
+        (255, False, 0.67),
+        (128, True, 0.07),
+    ],
+)
 def test_source_fit_compacts_fragments_and_avoids_shared_edge_core_seam(
     alpha, hole, angle
 ):

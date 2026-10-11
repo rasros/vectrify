@@ -9,7 +9,8 @@ from PIL import Image
 
 from scripts import bench_cel_pairs as bench
 from scripts.cel_pairs import cases, degrade
-from vectrify.refine.cel_plan.frontier import Observation
+from vectrify.refine.cel_plan.frontier import Frontier, Observation
+from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.score import render
 
 SVG = (
@@ -95,12 +96,18 @@ def test_paired_run_logs_actual_candidates_without_passing_clean_truth_to_planne
         "features": {"mark": [0.25, 0.3, 0.5, 0.3]},
     }
     monkeypatch.setattr(bench, "pair", lambda *_: (source, clean, degraded))
-    original = bench.vectorize
     supplied = []
 
     def observed_generator(image, **kwargs):
         supplied.append((image.tobytes(), set(kwargs)))
-        return original(image, **kwargs)
+        # Exercise real scoring and observation, without repeating the full
+        # search/fit pipeline just to check benchmark inputs and saved reports.
+        frontier = Frontier(
+            Policy(np.asarray(image, dtype=np.float32) / 255), kwargs["observe"]
+        )
+        assert frontier.add(source.replace("#e08080", "#e07878"), "Seed")
+        frontier.add(source.replace("#e08080", "#e09090"), "Alternative paint")
+        return frontier.select(kwargs["options"].complexity)
 
     monkeypatch.setattr(bench, "vectorize", observed_generator)
     row = bench.compare(

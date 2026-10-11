@@ -322,9 +322,17 @@ def test_continuing_both_sides_cannot_reorder_a_mark_across_unrelated_overlap(ov
     assert all(p.document.geometry_for("crossed-paint") == shape for p in edits)
 
 
-@pytest.mark.parametrize("alpha", [255, 128])
-@pytest.mark.parametrize("hole", [False, True])
-@pytest.mark.parametrize("gradient", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "hole", "gradient"),
+    [
+        (255, False, False),
+        (128, True, True),
+        (255, False, True),
+        (255, True, False),
+        (128, False, False),
+    ],
+)
 def test_joint_full_family_two_paints_exact_source_split_native_local_reload(
     alpha, hole, gradient
 ):
@@ -642,9 +650,17 @@ def indented_family(state):
     return replace(changed, svg=export_svg(changed.document)), ids
 
 
-@pytest.mark.parametrize("alpha", [255, 128])
-@pytest.mark.parametrize("hole", [False, True])
-@pytest.mark.parametrize("reflected", [False, True])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "hole", "reflected"),
+    [
+        (255, False, False),
+        (128, True, True),
+        (255, False, True),
+        (255, True, False),
+        (128, False, False),
+    ],
+)
 def test_supported_whole_boundary_removes_union_dents_preserving_core_holes(
     alpha, hole, reflected
 ):

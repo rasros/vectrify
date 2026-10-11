@@ -316,9 +316,17 @@ def test_a_folded_profile_can_retain_its_simple_anchored_source_chain(simple_sou
     assert crossings(Geometry("run", (model.contour,))) == 0
 
 
-@pytest.mark.parametrize("alpha", [128, 64])
-@pytest.mark.parametrize("matrix", [None, (1.2, 0.15, 0.2, 1.0, 6, -10)])
-@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
+# Keep both stress extremes and every pair of options; avoid a full product.
+@pytest.mark.parametrize(
+    ("alpha", "matrix", "layout"),
+    [
+        (128, None, "regions"),
+        (64, (1.2, 0.15, 0.2, 1.0, 6, -10), "ink-planes"),
+        (128, None, "ink-planes"),
+        (128, (1.2, 0.15, 0.2, 1.0, 6, -10), "regions"),
+        (64, None, "regions"),
+    ],
+)
 def test_component_replaces_ink_and_underpaint_together_with_true_stroke_paths(
     alpha, matrix, layout, monkeypatch
 ):
