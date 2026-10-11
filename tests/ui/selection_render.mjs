@@ -31,6 +31,7 @@ const context = vm.createContext({
   $, counts,
   document: {createElement: () => new Element(), createDocumentFragment: () => Object.assign(new Element(), {fragment: true})},
   overlay: new Element(),
+  clipConsumers: new Map(),
   renderDrawing: () => counts.drawing++,
   renderInspector: () => counts.inspector++, drawOverlay: () => {},
   fit: () => counts.fit++,

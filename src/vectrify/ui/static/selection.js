@@ -129,13 +129,22 @@ export function selectionStatus(level, objects, points) {
 // for them to be detached.
 export function pointTargets(selected, objects) {
   const chosen = new Set(selected), parent = new Map(objects.map(item => [item.id, item.parent]));
+  const clips = new Set(objects.filter(item => item.tag === 'clipPath').map(item => item.id));
+  const inClip = id => {
+    for (let at = id; at !== undefined && at !== null; at = parent.get(at)) if (clips.has(at)) return true;
+    return false;
+  };
   const inside = id => {
-    for (let at = id; at !== undefined && at !== null; at = parent.get(at)) if (chosen.has(at)) return true;
+    for (let at = id; at !== undefined && at !== null; at = parent.get(at)) {
+      if (chosen.has(at)) return true;
+      // Selecting Definitions does not select every clipping resource in it.
+      if (clips.has(at)) return false;
+    }
     return false;
   };
   const paths = [], instances = [];
   for (const item of objects) {
-    if (item.resource || !inside(item.id)) continue;
+    if ((item.resource && !inClip(item.id)) || !inside(item.id)) continue;
     if (item.tag === 'path') paths.push(item.id);
     else if (item.tag === 'use') instances.push(item.id);
   }

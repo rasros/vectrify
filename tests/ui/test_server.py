@@ -105,6 +105,8 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
     assert status == 200
     assert b"Drawing canvas" in html
     assert call(server, "/app.js")[0] == 200
+    assert call(server, "/app_files.js")[0] == 200
+    assert call(server, "/app_jobs.js")[0] == 200
     assert call(server, "/gestures.js")[0] == 200
     assert call(server, "/snap.js")[0] == 200
     assert call(server, "/tree.js")[0] == 200
@@ -115,6 +117,7 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
     assert call(server, "/strip.js")[0] == 200
     assert call(server, "/resize.js")[0] == 200
     assert call(server, "/lines.js")[0] == 200
+    assert call(server, "/clipping.js")[0] == 200
     assert call(server, "/style.css")[0] == 200
     status, state = call(server, "/api/session", {})
     assert status == 200

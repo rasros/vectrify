@@ -806,3 +806,22 @@ paint and stacking remain intact.
 Projects saved while the editor linked shared boundaries (version 2) still
 open; the links are dropped and the contours they joined are kept as they
 are.
+
+### Clipping boundaries
+
+**Definitions** starts collapsed when you open a drawing. Expand it to browse
+its contents; selecting a clipping contour on the canvas opens its branch
+automatically.
+
+Select a clipping boundary or one of its contours in **Objects** to see its
+actual outline in blue. The outline is shown wherever that boundary is used,
+including transformed objects and clips sized relative to an object's bounds.
+**Show clips** in the footer (also in Commands) reveals other boundaries as
+amber dashed outlines. Click an outline to select its contour, or drag a box
+around it; clicks inside the boundary still select the artwork.
+
+Use **Nodes** (`S`) to edit a selected clipping path's points. For a shared
+boundary, points appear on the instance you clicked, or the first instance
+when selected in the tree. Edits update every object using that boundary and
+can be undone. These outlines are editor guides and do not appear in SVG
+exports.

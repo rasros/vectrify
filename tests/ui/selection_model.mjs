@@ -83,6 +83,14 @@ assert.deepEqual(pointTargets(['d', 'pines'], drawing), {paths: ['a', 'b', 'd'],
 assert.deepEqual(pointTargets(['a', 'pines'], drawing), {paths: ['a', 'b'], instances: []});
 assert.deepEqual(pointTargets(['defs', 'e'], drawing), {paths: [], instances: []});
 assert.deepEqual(pointTargets([], drawing), {paths: [], instances: []});
+const clips = [...drawing,
+  {id: 'clip', tag: 'clipPath', parent: 'defs', resource: true},
+  {id: 'boundary', tag: 'path', parent: 'clip', resource: true},
+  {id: 'clip-use', tag: 'use', parent: 'clip', resource: true},
+];
+assert.deepEqual(pointTargets(['clip'], clips), {paths: ['boundary'], instances: ['clip-use']});
+assert.deepEqual(pointTargets(['boundary'], clips), {paths: ['boundary'], instances: []});
+assert.deepEqual(pointTargets(['defs'], clips), {paths: [], instances: []});
 
 // Paths a and b draw geometry G; c its own. A node picked in b is selected in
 // b alone, and a twin in a.

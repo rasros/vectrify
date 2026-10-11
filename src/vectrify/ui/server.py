@@ -256,6 +256,8 @@ class Handler(BaseHTTPRequestHandler):
         files = {
             "/": "index.html",
             "/app.js": "app.js",
+            "/app_files.js": "app_files.js",
+            "/app_jobs.js": "app_jobs.js",
             "/gestures.js": "gestures.js",
             "/snap.js": "snap.js",
             "/tree.js": "tree.js",
@@ -266,6 +268,7 @@ class Handler(BaseHTTPRequestHandler):
             "/strip.js": "strip.js",
             "/resize.js": "resize.js",
             "/lines.js": "lines.js",
+            "/clipping.js": "clipping.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }

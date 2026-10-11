@@ -10,10 +10,13 @@ import {canvasGestures} from './gestures.js';
 import {overflowLayout} from './strip.js';
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
 import {breakable, freeEnd, segmentAmong} from './lines.js';
+import {clippingFrames} from './clipping.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
 let reference = null;
+let showClipping = false;
+const clipConsumers = new Map();
 // Point tools show the points of every selected path: their geometry at this
 // revision, the unselected path under the pointer, the point last clicked,
 // and the points hidden while an object tool is active.
@@ -162,7 +165,12 @@ async function applyState(next) {
   $('undo').disabled = !state.undo.length; $('redo').disabled = !state.redo.length;
   $('undo').title = state.undo.length ? `Undo: ${state.undo.at(-1)}` : 'Nothing to undo';
   $('redo').title = state.redo.length ? `Redo: ${state.redo[0]}` : 'Nothing to redo';
-  if (replaced) { activeHandle = null; focusPoint = null; pointMemory = null; scope = null; collapsedGroups.clear(); fit(); }
+  if (replaced) {
+    activeHandle = null; focusPoint = null; pointMemory = null; scope = null;
+    collapsedGroups.clear();
+    for (const item of state.objects) if (item.tag === 'defs') collapsedGroups.add(item.id);
+    clipConsumers.clear(); fit();
+  }
   if (changed) { geometries = new Map(); pathHoles.clear(); clickCycle = null; lastPick = null; }
   if (scope && object(scope)?.tag !== 'g') scope = null;
   // Selection does not change the drawing or the tree's labels and swatches.
@@ -579,7 +587,7 @@ function renderRelationships(item) {
   section.hidden = false;
   let explanation = context.role;
   if (item.tag === 'defs') explanation = 'Reusable definitions. These entries do not draw anything by themselves.';
-  else if (context.inClip) explanation = 'This defines a clipping boundary, not a painted shape. Shapes using this boundary are only visible inside it.';
+  else if (context.inClip) explanation = 'This defines a clipping boundary. Shapes using it are only visible inside the blue outline. Use Nodes (S) to edit a clipping path’s points, or Show clips in the footer to reveal other boundaries.';
   else if (item.tag === 'linearGradient') explanation = 'This gradient supplies paint to the shapes that use it. Editing it updates all of them.';
   else if (item.resource) explanation = 'This geometry is stored for reuse, not drawn directly. Its instances supply the visible paint unless shared paint is set here.';
   else if (context.source) explanation = 'This draws an instance of the shared geometry below, using this instance’s paint and position.';
@@ -903,6 +911,7 @@ const COMMANDS = [
   {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'W', run: () => cycleReference(), disabled: noReference},
   {id: 'cycle-view-backward', name: 'Cycle the view backward', group: 'Reference', keys: 'Shift W', run: () => cycleReference(-1), disabled: noReference},
   {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', run: () => setView('drawing'), disabled: noReference},
+  {id: 'show-clips', name: 'Show clipping boundaries', label: () => showClipping ? 'Hide clipping boundaries' : 'Show clipping boundaries', group: 'View', keywords: 'clip contour outline mask', run: toggleClipping},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
   {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
     disabled: () => !tidyTargets() && !state.reference && 'Select one or more paths, or groups that contain them, or add a reference to tidy what is in view'},
@@ -1271,14 +1280,15 @@ function focusSelection() {
   const targets = new Set(state.selection.objects.flatMap(selectionTargets));
   const points = [];
   for (const element of targets) {
-    const matrix = localToOverlay(element);
-    if (!matrix || !element.getBBox) continue;
+    const clip = element.closest('clipPath');
+    const matrices = clip ? clippingFrames(element, drawing, overlay.getScreenCTM()).map(frame => frame.matrix) : [localToOverlay(element)];
+    if (!element.getBBox) continue;
     try {
       const b = element.getBBox();
       const style = getComputedStyle(element);
       const stroke = style.stroke === 'none' ? 0 : (parseFloat(style.strokeWidth) || 0) / 2;
       const x1 = b.x-stroke, y1 = b.y-stroke, x2 = b.x+b.width+stroke, y2 = b.y+b.height+stroke;
-      points.push(...[[x1,y1],[x2,y1],[x2,y2],[x1,y2]].map(p => new DOMPoint(...p).matrixTransform(matrix)));
+      for (const matrix of matrices.filter(Boolean)) points.push(...[[x1,y1],[x2,y1],[x2,y2],[x1,y2]].map(p => new DOMPoint(...p).matrixTransform(matrix)));
     } catch { /* Unrendered resources may have no display bounds. */ }
   }
   if (!points.length || points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return;
@@ -1309,7 +1319,7 @@ function hitStack(x, y) {
   // instances, including painted shapes hidden behind another painted shape.
   return [...new Set(document.elementsFromPoint(x, y).map(targetId).filter(id => {
     const item = object(id);
-    return item && !item.resource && !['g', 'svg', 'defs', 'clipPath'].includes(item.tag);
+    return item && (!item.resource || svgElement(id)?.closest('clipPath')) && !['g', 'svg', 'defs', 'clipPath'].includes(item.tag);
   }))];
 }
 function sameClickSpot(x, y, hits) {
@@ -1323,7 +1333,7 @@ function clickTargets(hits) {
   const map = parents();
   // A click outside the entered group leaves it.
   if (scope && pickTarget(hits[0], scope, map, state.root).scope !== scope) scope = null;
-  return [...new Set(hits.map(hit => pickTarget(hit, scope, map, state.root).id))];
+  return [...new Set(hits.map(hit => svgElement(hit)?.closest('clipPath') ? hit : pickTarget(hit, scope, map, state.root).id))];
 }
 async function selectAtPoint(finished) {
   const hits = finished.hits?.length ? clickTargets(finished.hits) : [];
@@ -1485,8 +1495,14 @@ let overlayFrame = null;
 function localToOverlay(element) {
   // Agent updates include paint resources such as gradients, which have no
   // canvas frame. Only graphics elements can be positioned in the overlay.
-  if (typeof element?.getScreenCTM !== 'function') return null;
   if (overlayFrame?.matrices.has(element)) return overlayFrame.matrices.get(element);
+  const clip = element?.closest?.('clipPath');
+  if (clip) {
+    const matrix = clippingFrames(element, drawing, overlayFrame ? overlayFrame.to : overlay.getScreenCTM(), clipConsumers.get(clip.dataset.objectId))[0]?.matrix || null;
+    overlayFrame?.matrices.set(element, matrix);
+    return matrix;
+  }
+  if (typeof element?.getScreenCTM !== 'function') return null;
   const from = element?.getScreenCTM(), to = overlayFrame ? overlayFrame.to : overlay.getScreenCTM();
   if (!from || !to) return null;
   try {
@@ -1494,6 +1510,11 @@ function localToOverlay(element) {
     overlayFrame?.matrices.set(element, matrix);
     return matrix;
   } catch { return null; }
+}
+function screenMatrix(element) {
+  if (!element?.closest?.('clipPath')) return element?.getScreenCTM();
+  const matrix = localToOverlay(element), screen = overlay.getScreenCTM();
+  return matrix && screen ? DOMMatrix.fromMatrix(screen).multiply(matrix) : null;
 }
 function selectionContour(source, seen = new Set(), inheritedPaint = null) {
   if (seen.has(source) || ['defs', 'clipPath'].includes(source.localName)) return null;
@@ -1533,10 +1554,7 @@ function selectionTargets(id) {
   const element = svgElement(id);
   if (!element) return [];
   const clip = element.closest('clipPath');
-  if (clip) {
-    return [...drawing.querySelectorAll('[clip-path]')].filter(item =>
-      !item.closest('defs') && item.getAttribute('clip-path') === `url(#${clip.id})`);
-  }
+  if (clip) return element === clip ? [...clip.querySelectorAll('path, rect, circle, ellipse, line, use')] : [element];
   // Definitions are not painted themselves; highlight their visible instances.
   if (element.closest('defs')) {
     return [...drawing.querySelectorAll('use')].filter(use => !use.closest('defs') &&
@@ -1575,6 +1593,8 @@ function drawOverlayContent() {
   const targets = new Set(state.selection.objects.flatMap(selectionTargets));
   selectionBox = selectionFrame();
   for (const element of targets) {
+    // Clip contours are drawn in all of their consumer frames below.
+    if (element.closest('clipPath')) continue;
     const matrix = localToOverlay(element);
     if (!element?.getBBox || !matrix) continue;
     try {
@@ -1596,6 +1616,7 @@ function drawOverlayContent() {
       overlayFrame.content.append(xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'selection-box'}));
     } catch { /* Resource elements may have no display bounds. */ }
   }
+  drawClippingBoundaries();
   drawFrame();
   drawPathDraft();
   drawKnife();
@@ -1605,6 +1626,43 @@ function drawOverlayContent() {
   if (level() === 'points') drawPoints();
   drawFlash();
   renderStatus();
+}
+function toggleClipping() {
+  showClipping = !showClipping;
+  $('clipping-toggle').setAttribute('aria-pressed', String(showClipping));
+  $('clipping-toggle').textContent = showClipping ? 'Hide clips' : 'Show clips';
+  clickCycle = null;
+  drawOverlay();
+}
+$('clipping-toggle').onclick = () => later(toggleClipping);
+function drawClippingBoundaries() {
+  const selected = new Set(state.selection.objects);
+  for (const item of state.objects) {
+    if (['defs', 'clipPath', 'g'].includes(item.tag)) continue;
+    const element = svgElement(item.id), clip = element?.closest('clipPath');
+    if (!clip) continue;
+    let picked = false;
+    for (let at = element; at; at = at.parentElement) {
+      if (selected.has(at.dataset.objectId)) picked = true;
+      if (at === clip) break;
+    }
+    if (!picked && !showClipping) continue;
+    const frames = clippingFrames(element, drawing, overlayFrame.to, clipConsumers.get(clip.dataset.objectId));
+    for (const {consumer, matrix} of frames) {
+      const contour = selectionContour(element);
+      if (!contour) continue;
+      contour.removeAttribute('transform');
+      // The boundary is a guide, even when the clip's geometry has no fill.
+      contour.removeAttribute('clip-path');
+      for (const child of contour.querySelectorAll('[clip-path]')) child.removeAttribute('clip-path');
+      const group = xmlElement('g', {transform: matrix.toString(), class: `clipping-boundary${picked ? ' selected' : ''}`,
+        'data-clip-object': item.id, 'data-clip-consumer': consumer.dataset.objectId, 'aria-hidden': 'true'});
+      const hit = contour.cloneNode(true);
+      const hitGroup = xmlElement('g', {class: 'clipping-hit'});
+      hitGroup.append(hit); group.append(hitGroup, contour);
+      overlayFrame.content.append(group);
+    }
+  }
 }
 // Select resizes the selection like a window: its frame is the bounding box
 // of the selected objects, with small ticks at the corners; the cursor shows
@@ -1740,7 +1798,7 @@ function drawPoints() {
   const occupied = new Set(); let count = 0, total = 0;
   const unpicked = !chosen.size && !twin.size;
   for (const id of paths) {
-    const element = svgElement(id), matrix = localToOverlay(element), screen = element?.getScreenCTM();
+    const element = svgElement(id), matrix = localToOverlay(element), screen = screenMatrix(element);
     if (!matrix || !screen || !geometries.has(id)) continue;
     const ghost = !selected.has(id);
     const nodes = geometryNodes(id); total += nodes.length;
@@ -2086,7 +2144,7 @@ function zoomAt(factor, x=stage.clientWidth/2, y=stage.clientHeight/2) {
   pan = {x:x-(x-pan.x)*ratio, y:y-(y-pan.y)*ratio}; zoom = next; updateView();
 }
 function point(event, element = overlay) {
-  const matrix = element.getScreenCTM();
+  const matrix = screenMatrix(element);
   if (!matrix) throw new Error('This object has no editable canvas position');
   return new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());
 }
@@ -2126,6 +2184,8 @@ async function setTool(value) {
   renderInspector(); drawOverlay();
 }
 function targetId(target) {
+  const boundary = overlay.contains(target) && target.closest('[data-clip-object]');
+  if (boundary) return boundary.dataset.clipObject;
   if (!drawing.contains(target)) return null;
   for(let element=target; element && element !== drawing; element=element.parentElement) if (element.dataset.objectId && object(element.dataset.objectId)) return element.dataset.objectId;
   return null;
@@ -2253,7 +2313,7 @@ async function finishBox(finished) {
   if (level() === 'points') {
     const found = [];
     for (const id of pointPaths()) {
-      const screen = svgElement(id)?.getScreenCTM(); if (!screen) continue;
+      const screen = screenMatrix(svgElement(id)); if (!screen) continue;
       for (const node of geometryNodes(id)) {
         const p = new DOMPoint(...node.values.slice(-2)).matrixTransform(screen);
         if (pointInside(p.x, p.y, box)) found.push(pointKey(id, node.id));
@@ -2266,6 +2326,9 @@ async function finishBox(finished) {
     const rect = svgElement(item.id)?.getBoundingClientRect();
     return rect && rect.width + rect.height > 0 && rectInside(rect, box);
   }).map(item => item.id);
+  for (const guide of overlay.querySelectorAll('[data-clip-object]')) {
+    if (rectInside(guide.getBoundingClientRect(), box)) found.push(guide.dataset.clipObject);
+  }
   focusPoint = null;
   return action('select', {objects: boxSelect(state.selection.objects, found, finished.shift)}, 'Selecting…');
 }
@@ -2349,6 +2412,11 @@ function pressStage(event) {
   const near = tool === 'nodes' && !middle && !space ? nearestPoint(event.clientX, event.clientY) : null;
   if (near) { pressPoint({target: near}, common); return; }
   const hits = hitStack(event.clientX, event.clientY);
+  const boundary = event.target?.closest?.('[data-clip-object]');
+  if (boundary) {
+    const clip = svgElement(boundary.dataset.clipObject)?.closest('clipPath');
+    if (clip) clipConsumers.set(clip.dataset.objectId, boundary.dataset.clipConsumer);
+  }
   common.hits = hits;
   const handle = ['select', 'move'].includes(tool) ? frameAt(event.clientX, event.clientY) : null;
   if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
@@ -2368,7 +2436,7 @@ function pressStage(event) {
     const selectedHit = !id || state.selection.objects.includes(picked) ||
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
     if (selectedHit && !common.shift) {
-      const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
+      const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || '', screenMatrix: () => screenMatrix(svgElement(oid)?.parentElement)})).filter(m=>m.element);
       startGesture('move', event, common, {id, members}); return;
     }
   }

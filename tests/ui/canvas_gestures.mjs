@@ -150,6 +150,16 @@ assert.deepEqual(b.offset, [5, 5]);
 assert.equal(a.element.attributes.get('transform'), 'translate(10 10) rotate(30)');
 await gestures.move.release(moved);
 assert.deepEqual(named('move'), [['move', {a: [10, 10], b: [5, 5]}]]);
+// A clipping contour moves in its consumer's frame, even though its
+// definition's parent has no rendered screen matrix of its own.
+const clipped = member('clip', '', 1);
+clipped.element.parentElement = {};
+clipped.screenMatrix = () => ({inverse: () => ({scale: 10})});
+const clipMove = begin('move', {members: [clipped]}); clipMove.moved = true;
+gestures.move.move(clipMove, event(30, 40));
+assert.deepEqual(clipped.offset, [2, 2]);
+await gestures.move.release(clipMove);
+assert.deepEqual(named('move'), [['move', {clip: [2, 2]}]]);
 // Both transform previews return to their original attributes on cancel.
 for (const kind of ['move', 'resize']) {
   a.element.setAttribute('transform', 'preview'); b.element.setAttribute('transform', 'preview');

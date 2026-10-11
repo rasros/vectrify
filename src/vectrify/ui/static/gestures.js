@@ -69,7 +69,7 @@ export function canvasGestures({view, path, selection, nodes, resize, knife, red
       move(gesture, event) {
         if (!gesture.moved) return;
         for (const member of gesture.members) {
-          const matrix = member.element.parentElement.getScreenCTM(); if (!matrix) continue;
+          const matrix = member.screenMatrix ? member.screenMatrix() : member.element.parentElement.getScreenCTM(); if (!matrix) continue;
           const inverse = matrix.inverse();
           const start = new DOMPoint(gesture.x, gesture.y).matrixTransform(inverse);
           const end = new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse);
