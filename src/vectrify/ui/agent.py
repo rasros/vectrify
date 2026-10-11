@@ -111,6 +111,7 @@ CONTOURS = 30
 # selection between calls, so there is no select tool.
 EDITS: dict[str, tuple[str, ...]] = {
     "linked_outline": (),
+    "clip": (),
     "protect_features": (),
     "isolate_components": (),
     "properties": ("paint", "rename", "locks"),
@@ -1575,6 +1576,37 @@ class Agent:
         reply.data["relationship"] = relationship
         return reply
 
+    def tool_clip(
+        self,
+        seen: Any,
+        ids: Any,
+        boundary: Any = None,
+        action: str = "set",
+        linked: bool = True,
+    ) -> Reply:
+        from vectrify.ui.agent_clipping import apply
+
+        targets = _targets(ids)
+        if action not in {"set", "remove"}:
+            raise DocumentError("Clip action is set or remove")
+        if not isinstance(linked, bool):
+            raise DocumentError("linked must be true or false")
+        sources = _targets(boundary) if boundary is not None else []
+        if action == "set" and not sources:
+            raise DocumentError("Give boundary paths to clip to")
+        if action == "remove" and sources:
+            raise DocumentError("Remove clipping without a boundary")
+        relationships = []
+
+        def edit() -> None:
+            relationships.extend(apply(self, targets, sources, action, linked))
+
+        reply = self._edit(
+            seen, [edit], "Set clipping" if sources else "Remove clipping"
+        )
+        reply.data["clipping"] = relationships
+        return reply
+
     def tool_properties(
         self,
         seen: Any,
@@ -2027,7 +2059,23 @@ class Agent:
             (oid,) = self.session.editor.snapshot.selection.object_ids
             return oid
 
+        direct = False
+
         def where() -> None:
+            nonlocal direct
+            document = self.session.editor.snapshot.document
+            if parent is not None and parent in {e.id for e in document.elements()}:
+                direct = any(
+                    a.get("clip-path", "none") != "none"
+                    for a in document.ancestry(parent)
+                )
+                if direct:
+                    count = len(document.element(parent).children)
+                    placed.update(
+                        parent=parent,
+                        index=count if index is None else index,
+                        why="as given",
+                    )
             # Before the path exists: what is drawn under it.
             if parent is None and index is None:
                 spot = self._spot(d)
@@ -2042,7 +2090,19 @@ class Agent:
             }
             return {"command": "paint", "changes": changes} if changes else None
 
+        def draw() -> dict:
+            payload = {
+                "command": "add_path",
+                "d": d,
+                "stroke_width": 2 if stroke_width is None else stroke_width,
+            }
+            if direct:
+                payload.update(parent=placed["parent"], index=placed["index"])
+            return payload
+
         def place() -> dict | None:
+            if direct:
+                return None
             document = self.session.editor.snapshot.document
             root = document.root
             if parent is None and index is None:
@@ -2084,11 +2144,7 @@ class Agent:
             seen,
             [
                 where,
-                {
-                    "command": "add_path",
-                    "d": d,
-                    "stroke_width": 2 if stroke_width is None else stroke_width,
-                },
+                draw,
                 paint,
                 place,
                 rename,

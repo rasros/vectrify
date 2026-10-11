@@ -781,6 +781,62 @@ class Transaction:
                 replace(element, attributes=tuple(attrs.items()))
             )
 
+    def set_clip(
+        self,
+        object_id: str,
+        boundary: Element | None,
+        geometries: tuple[Geometry, ...] = (),
+    ) -> None:
+        """Replace or remove clipping without changing painted geometry or stacking.
+
+        A supplied clipPath is a fresh definition owned by this target. Imported
+        or shared definitions are retained when their consumer stops using them.
+        """
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            target = document.element(object_id)
+            if target.tag not in DRAWN | {"g", "use"} or any(
+                a.tag in {"defs", "clipPath"} for a in document.ancestry(object_id)
+            ):
+                raise EditRejectedError("Clip a drawn object or group")
+            self._authorize(document.dependents({object_id}), EditKind.STRUCTURE)
+            old = target.get("clip-path")
+            attrs = dict(target.attributes)
+            if boundary is None:
+                attrs.pop("clip-path", None)
+            else:
+                if boundary.tag != "clipPath" or boundary.id in {
+                    e.id for e in document.elements()
+                }:
+                    raise DocumentError("Give a new clipPath definition")
+                definitions = next(
+                    (e for e in document.root.children if e.tag == "defs"), None
+                )
+                if definitions is not None:
+                    self._check_locks(definitions.id, EditKind.STRUCTURE)
+                self._add_geometries(geometries)
+                boundary = replace(
+                    boundary,
+                    attributes=(
+                        *boundary.attributes,
+                        ("data-vectrify-clip-owner", object_id),
+                    ),
+                )
+                document = _add_definition(self._working, boundary)
+                attrs["clip-path"] = f"url(#{boundary.id})"
+            document = document.replace_element(
+                replace(target, attributes=tuple(attrs.items()))
+            )
+            if old and old != "none":
+                previous = document.element(old[5:-1])
+                used = any(previous.id in references(e) for e in document.elements())
+                if not used and previous.get("data-vectrify-clip-owner") == object_id:
+                    for item in Document(previous).elements():
+                        self._check_locks(item.id, EditKind.STRUCTURE)
+                    document = _without(document, previous.id)
+            self._working = document
+
     def set_gradient(
         self,
         gradient_id: str,

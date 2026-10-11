@@ -12,10 +12,49 @@ from typing import Any
 
 import cairosvg
 import numpy as np
+import pathops
 from cairosvg import surface as surfaces
 from cairosvg.parser import Tree
 from cairosvg.path import path
 from PIL import Image
+
+
+def _clip_rules(root: ET.Element) -> None:
+    """Normalize managed boundaries for CairoSVG's single nonzero clip path.
+
+    SVG unions its child shapes, each with its own clip-rule. CairoSVG instead
+    accumulates all their contours using nonzero winding. Resolve that union
+    for rendering only; editable geometry, transforms and IDs remain untouched.
+    """
+    from vectrify.document.hit_test import transform
+    from vectrify.document.join import curve_path, path_geometry
+    from vectrify.document.svg import parse_path
+
+    for clip in root.iter():
+        if clip.tag.rsplit("}", 1)[-1] != "clipPath" or not clip.get(
+            "data-vectrify-clip-owner"
+        ):
+            continue
+        if len(clip) == 0 or any(s.tag.rsplit("}", 1)[-1] != "path" for s in clip):
+            continue
+        combined = None
+        for shape in clip:
+            geometry = parse_path(shape.get("d", ""))
+            rule = shape.get("clip-rule", "nonzero")
+            path = curve_path(geometry, rule).transform(
+                *transform(shape.get("transform"))
+            )
+            combined = (
+                pathops.simplify(path)
+                if combined is None
+                else pathops.op(combined, path, pathops.PathOp.UNION)
+            )
+        assert combined is not None
+        rendered = ET.Element(clip[0].tag)
+        rendered.set("d", path_geometry(combined).path_data())
+        rendered.set("clip-rule", "nonzero")
+        clip[:] = [rendered]
+
 
 # Cairo paths are compiled in their viewport's transform. Keep the cache local
 # to an operation, bounded, and separate from CairoSVG's normal path handler.
@@ -117,10 +156,14 @@ def render_image(
     alpha: bool = False,
 ) -> Image.Image:
     """Cairo pixels directly, optionally retaining the SVG's transparency."""
-    if box is not None:
-        assert size is not None
+    if box is not None or "data-vectrify-clip-owner" in (
+        svg.decode() if isinstance(svg, bytes) else svg
+    ):
         root = ET.fromstring(svg)
-        frame(root, box, size)
+        _clip_rules(root)
+        if box is not None:
+            assert size is not None
+            frame(root, box, size)
         svg = ET.tostring(root)
     tree = Tree(bytestring=svg.encode() if isinstance(svg, str) else svg)
     cache = _cache.get()
@@ -179,6 +222,7 @@ def render_png(
     so preview marks use the same user space as the original drawing.
     """
     root = ET.fromstring(svg)
+    _clip_rules(root)
     frame(root, box, size)
     if overlay is not None:
         overlay(root)
