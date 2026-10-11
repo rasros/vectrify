@@ -316,6 +316,16 @@ def _join(
         control = _cubic(start, first, second, end, old)
         if control is None:
             return None
+        # Measure the actual constrained join: retracting these only after
+        # simplification could move the outline beyond its tolerance.
+        if before.pinned and (
+            middle.command == "L" or middle.values[:2] == before.endpoint
+        ):
+            control[1] = start
+        if after.pinned and (
+            after.command == "L" or after.values[2:4] == after.endpoint
+        ):
+            control[2] = end
         command = "C"
     moved = _apart(old, _bezier(control, np.linspace(0, 1, 2 * SAMPLES))[0], bound)
     values = frame.local(control[1:])

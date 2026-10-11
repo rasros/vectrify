@@ -8,7 +8,12 @@ from PIL import Image
 from vectrify.document import Editor, import_svg
 from vectrify.operations.generate import Region
 from vectrify.refine.frozen import Paths, frozen
-from vectrify.refine.simplify import curved, simplify, straightened
+from vectrify.refine.simplify import (
+    curved,
+    simplified_geometry,
+    simplify,
+    straightened,
+)
 
 
 def circle(parts: int) -> str:
@@ -70,6 +75,28 @@ def test_pinned_points_stay():
     ed.pin_node("p", middle)
     ids = [n.id for n in simplified(ed.snapshot.document, 0.5)]
     assert middle in ids
+
+
+@pytest.mark.parametrize(
+    ("path", "position", "offset"),
+    [
+        ("M0 0 L15 0 C20 0 25 5 30 5", 0, 0),
+        ("M0 0 C5 0 10 0 15 0 L30 0", 2, 2),
+    ],
+)
+def test_a_join_cannot_add_a_missing_handle_at_a_pinned_end(path, position, offset):
+    ed = Editor(document(path))
+    point = ed.snapshot.document.geometry_for("p").subpaths[0].nodes[position]
+    ed.pin_node("p", point.id)
+    geometry = ed.snapshot.document.geometry_for("p")
+    nodes = (
+        simplified_geometry(geometry, frozen(Paths({"p": geometry})), 20)
+        .subpaths[0]
+        .nodes
+    )
+    assert len(nodes) == 2
+    assert nodes[1].command == "C"
+    assert nodes[1].values[offset : offset + 2] == point.endpoint
 
 
 def test_pinned_endpoints_stay_through_snap_and_simplify():
