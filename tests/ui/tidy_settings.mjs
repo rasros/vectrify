@@ -25,7 +25,7 @@ let state = {reference:true, epoch:'e', revision:0, selection:{objects:['path']}
 const region = [10, 20, 80, 60];
 const calls = [];
 globalThis.document = {getElementById:$, querySelectorAll:() => []};
-const dialogs = operationDialogs({getState:() => state, getObject:id => ({tag:id === 'rect' ? 'rect' : id === 'group' ? 'g' : 'path'}),
+const dialogs = operationDialogs({getState:() => state, getObject:id => ({tag:id === 'rect' ? 'rect' : id === 'group' ? 'g' : id === 'use' ? 'use' : 'path'}),
   waitForEdits:() => Promise.resolve(), selectionBounds:() => [0, 0, 100, 100],
   viewReport:() => ({region}), applyResult:async () => {}, toast() {},
   operation:async (command, body) => {
@@ -112,6 +112,7 @@ const context = {dialogs, state, openTidy:() => {}};
 const tidy = runInNewContext(`${binding}\n(${command})`, context);
 for (const [objects, reference, enabled] of [
   [[], false, false], [['path'], false, true], [['group'], false, true],
+  [['use'], false, true],
   [['rect'], false, false], [[], true, true], [['rect'], true, true],
 ]) {
   state = {...state, reference, selection:{objects}};

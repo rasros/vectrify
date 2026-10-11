@@ -150,23 +150,24 @@ def selected_paths(request: OperationRequest, polygon=None) -> list[str]:
     pending = [document.element(oid) for oid in sorted(selection.object_ids)]
     while pending:
         element = pending.pop(0)
-        if element.tag == "path" and element.id not in found:
+        if element.tag in {"defs", "clipPath", "mask"}:
+            continue
+        if element.tag in {"path", "use"} and element.id not in found:
+            try:
+                document.geometry_for(element.id)
+            except DocumentError:
+                continue
             found.append(element.id)
         pending.extend(element.children)
     if not found:
         raise DocumentError("Select the paths to optimize")
-    for oid in found:
-        geometry = document.geometry_for(oid)
-        if document.geometry_users(geometry.id) != {oid}:
-            raise DocumentError("Detach shared geometry before optimizing its nodes")
     chosen = set(found)
     return [e.id for e in document.elements() if e.id in chosen]
 
 
 def _paths_in(request: OperationRequest, polygon) -> list[str]:
     """The paths painting inside *polygon*: of the selection, or of the
-    whole drawing without one, leaving out those whose geometry is shared
-    or locked."""
+    whole drawing without one, leaving out locked geometry."""
     from shapely.geometry import Polygon
 
     from vectrify.document.hit_test import HitIndex
@@ -184,7 +185,11 @@ def _paths_in(request: OperationRequest, polygon) -> list[str]:
         element = roots.pop(0)
         if element.tag in {"defs", "clipPath", "mask"}:
             continue
-        if element.tag == "path" and element.id not in pool:
+        if element.tag in {"path", "use"} and element.id not in pool:
+            try:
+                document.geometry_for(element.id)
+            except DocumentError:
+                continue
             pool.append(element.id)
         roots.extend(element.children)
     shape = Polygon(polygon)
@@ -194,9 +199,12 @@ def _paths_in(request: OperationRequest, polygon) -> list[str]:
         painted = index.area(oid)
         if painted is None or not painted.intersects(shape):
             continue
-        if document.geometry_users(document.geometry_for(oid).id) != {oid}:
-            continue
-        if any(EditKind.GEOMETRY in a.locks for a in document.ancestry(oid)):
+        users = document.geometry_users(document.geometry_for(oid).id)
+        if any(
+            EditKind.GEOMETRY in a.locks
+            for user in users
+            for a in document.ancestry(user)
+        ):
             continue
         found.append(oid)
     if not found:
@@ -210,7 +218,7 @@ def _outside(document: Document, oids, polygon) -> frozenset[str]:
     import shapely
     from shapely.geometry import Polygon
 
-    from vectrify.document.regions import object_matrix
+    from vectrify.document.transforms import object_matrix
 
     shape = Polygon(polygon)
     held = set()
@@ -712,9 +720,21 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 corners=line_knots(original),
             )
         except (DocumentError, UnsupportedPathError) as exc:
-            # A path the fit cannot take, a gradient's say, is left as it is.
-            skipped[oid] = str(exc)
             document = document.replace_geometry(original)
+            # The fast fitter assumes one independently painted path. Shared
+            # clipping boundaries, instances and other paint use the actual
+            # SVG instead, so their consumers keep following the same asset.
+            contextual = (
+                document.geometry_users(original.id) != {oid}
+                or document.element(oid).tag == "use"
+                or any(a.get("clip-path") for a in document.ancestry(oid))
+            )
+            if contextual:
+                document, current = _context_fit(
+                    task, document, oid, current, path_stop, progress
+                )
+            else:
+                skipped[oid] = str(exc)
             continue
         if not fit.values:
             document = document.replace_geometry(original)
@@ -787,6 +807,130 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         if document == before and raw != candidate:
             document, current = _improvement(final_task, before, raw, current)
     return document, skipped
+
+
+def _context_fit(task: _Task, document, oid, current, stop, progress):
+    """Bounded coordinate search judged in the complete SVG context.
+
+    Unlike the differentiable single-path response, exact rendering includes
+    changing clips and every copy of shared geometry. Try edge-seeking first,
+    then whole-outline and individual-node moves at decreasing distances.
+    """
+    from vectrify.refine.frozen import Frozen, Paths, frozen
+    from vectrify.refine.lines import fit_lines, is_line
+    from vectrify.refine.snap import snap
+
+    stop = stop or _Until(task.deadline)
+    original = document.geometry_for(oid)
+    origins = {
+        n.id: np.asarray(n.values).reshape(-1, 2)
+        for s in original.subpaths
+        for n in s.nodes
+    }
+    fixed = Frozen(frozen(Paths({oid: original})).endpoints | task.held)
+    movement = task.settings["movement"]
+
+    def bounded(geometry):
+        subpaths = []
+        for sub in geometry.subpaths:
+            nodes = []
+            for node in sub.nodes:
+                origin = origins.get(node.id, np.asarray(node.values).reshape(-1, 2))
+                values = np.asarray(node.values).reshape(-1, 2)
+                delta = values - origin
+                if node.id in task.held:
+                    delta[:] = 0
+                elif node.pinned:
+                    delta[-1] = 0
+                length = np.linalg.norm(delta, axis=1)
+                values = (
+                    origin
+                    + delta
+                    * np.minimum(1, movement / np.maximum(length, 1e-12))[:, None]
+                )
+                nodes.append(
+                    replace(node, values=tuple(float(v) for v in values.ravel()))
+                )
+            subpaths.append(replace(sub, nodes=tuple(nodes)))
+        return replace(geometry, subpaths=tuple(subpaths))
+
+    if progress:
+        progress(0, "Fitting shared geometry and clipping in the drawing…")
+    if task.settings["snap"] and not stop.is_set():
+        if is_line(document, oid):
+            candidate = fit_lines(
+                document, [oid], task.region, fixed, False
+            ).geometry_for(oid)
+        else:
+            candidate = snap(
+                document,
+                Paths({oid: original}),
+                task.region,
+                fixed,
+                detail=task.settings["detail"] and area(task.settings) is None,
+                deadline=min(
+                    getattr(stop, "deadline", task.deadline), time.monotonic() + 0.25
+                ),
+            ).geometries[oid]
+        document, current = _improvement(
+            task, document, document.replace_geometry(bounded(candidate)), current
+        )
+        for sub in document.geometry_for(oid).subpaths:
+            for node in sub.nodes:
+                origins.setdefault(node.id, np.asarray(node.values).reshape(-1, 2))
+    distance = min(movement, 1.0)
+    for _ in range(task.settings["steps"]):
+        if stop.is_set() or distance < 0.05:
+            break
+        improved = False
+        # Moving the outline together is cheap and helps displaced copies;
+        # individual knots then correct local errors without breaking links.
+        targets = [
+            None,
+            *(n.id for sub in document.geometry_for(oid).subpaths for n in sub.nodes),
+        ]
+        for target in targets:
+            for dx, dy in (
+                (distance, 0),
+                (-distance, 0),
+                (0, distance),
+                (0, -distance),
+            ):
+                if stop.is_set():
+                    return document, current
+                geometry = document.geometry_for(oid)
+                candidate = replace(
+                    geometry,
+                    subpaths=tuple(
+                        replace(
+                            sub,
+                            nodes=tuple(
+                                replace(
+                                    node,
+                                    values=tuple(
+                                        v + (dx if i % 2 == 0 else dy)
+                                        for i, v in enumerate(node.values)
+                                    ),
+                                )
+                                if target is None or node.id == target
+                                else node
+                                for node in sub.nodes
+                            ),
+                        )
+                        for sub in geometry.subpaths
+                    ),
+                )
+                before = document
+                document, current = _improvement(
+                    task,
+                    document,
+                    document.replace_geometry(bounded(candidate)),
+                    current,
+                )
+                improved |= document != before
+        if not improved:
+            distance /= 2
+    return document, current
 
 
 def _span_lines(task: _Task, document: Document, current: _Scored, stop):
@@ -874,16 +1018,74 @@ class OptimizeNodes:
         rounds = request.budget.steps or DEFAULT_ROUNDS
         start = request.snapshot.document
         polygon = area(settings)
-        oids = tuple(selected_paths(request, polygon))
+        selected = selected_paths(request, polygon)
+        # Optimize each asset once even when a fill, its outline and its
+        # clipping boundaries all draw it. Definitions remain definitions.
+        from vectrify.document.model import EditKind
+
+        assets = {}
+        locked = {}
+        for oid in selected:
+            geometry = start.geometry_for(oid)
+            users = start.geometry_users(geometry.id)
+            if any(
+                lock in a.locks
+                for user in users
+                for a in start.ancestry(user)
+                for lock in needed_permissions(settings)
+                & {EditKind.GEOMETRY, EditKind.STRUCTURE}
+            ):
+                locked[oid] = "Shared geometry or a dependent object is locked"
+            else:
+                assets.setdefault(geometry.id, oid)
+        oids = tuple(assets.values())
+        affected = frozenset(
+            user for gid in assets for user in start.geometry_users(gid)
+        )
+        score_request = replace(
+            request,
+            snapshot=replace(
+                request.snapshot,
+                selection=Selection(
+                    object_ids=affected | request.snapshot.selection.object_ids
+                ),
+            ),
+        )
         margin = settings["margin"] / 100
         if polygon is not None:
             region = _area_region(request, polygon, margin, settings["resolution"])
-            held = _outside(start, oids, polygon)
+            appearances = [
+                e.id
+                for e in start.elements()
+                if e.tag in {"path", "use"}
+                and not any(
+                    a.tag in {"defs", "clipPath", "mask"} for a in start.ancestry(e.id)
+                )
+                and e.id in affected
+            ]
+            held = _outside(start, appearances, polygon)
+            if affected - set(selected):
+                # A moved shared asset can affect artwork outside the view.
+                # Judge those consumers too, while keeping the region holds.
+                from vectrify.operations.generate import selected_bounds
+
+                left, top, right, bottom = selected_bounds(score_request, margin)
+                left, top = min(left, region.x), min(top, region.y)
+                right, bottom = (
+                    max(right, region.x + region.width),
+                    max(bottom, region.y + region.height),
+                )
+                region = _area_region(
+                    request,
+                    [(left, top), (right, top), (right, bottom), (left, bottom)],
+                    0,
+                    settings["resolution"],
+                )
         else:
             region = (
-                target_region(request, margin)
+                target_region(score_request, margin)
                 if request.reference is not None
-                else drawing_region(request, settings["resolution"], margin)
+                else drawing_region(score_request, settings["resolution"], margin)
             )
             held = frozenset()
         shared = _shared_edges(start, oids) if settings["shared"] else []
@@ -917,7 +1119,7 @@ class OptimizeNodes:
         first, before = current.pixels, current.difference
         points = _count(document, oids)
         taken: list[str] = []
-        skipped: dict[str, str] = {}
+        skipped: dict[str, str] = dict(locked)
         # How often each step's result crossed itself more and was not kept.
         folded: dict[str, int] = {}
         workers = min(settings["workers"], len(steps))
@@ -959,7 +1161,12 @@ class OptimizeNodes:
                     left / (len(steps) + 1),
                     held,
                     tuple(shared),
-                    "paint" in request.permissions.allowed,
+                    "paint" in request.permissions.allowed
+                    and not any(
+                        {"paint", "stroke-width"} & a.locks
+                        for user in affected
+                        for a in start.ancestry(user)
+                    ),
                     current.pixels,
                     held - region_held,
                 )
@@ -1011,25 +1218,24 @@ class OptimizeNodes:
             for oid in neighbours
             if document.geometry_for(oid) != start.geometry_for(oid)
         ]
-        tx = (
-            request.transaction(LABEL)
-            if polygon is None and not followed
-            # A region's tidy, or one whose neighbours followed, edits and
-            # then selects the paths it changed along with the selection.
-            else request.editor.transaction(
-                LABEL,
-                selection=Selection(
-                    object_ids=frozenset(oids)
-                    | frozenset(followed)
-                    | (
-                        request.snapshot.selection.object_ids
-                        if polygon is None
-                        else frozenset()
-                    )
-                ),
-                allowed=request.permissions.allowed,
-                base=request.snapshot,
-            )
+        tx = request.editor.transaction(
+            LABEL,
+            selection=Selection(
+                object_ids=affected
+                | frozenset(
+                    user
+                    for oid in followed
+                    for user in start.geometry_users(start.geometry_for(oid).id)
+                )
+                | (
+                    request.snapshot.selection.object_ids
+                    if polygon is None
+                    else frozenset()
+                )
+            ),
+            allowed=request.permissions.allowed,
+            base=request.snapshot,
+            rebase=True,
         )
         for oid in (*oids, *followed):
             geometry = document.geometry_for(oid)
@@ -1071,6 +1277,7 @@ class OptimizeNodes:
                     "folded": folded,
                     # Neighbours whose shared edges moved with the paths.
                     "followed": len(followed),
+                    "linked": len(affected - set(selected)),
                     "reference": request.reference is not None,
                 },
                 # The renders the steps were judged by.

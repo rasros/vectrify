@@ -1450,3 +1450,279 @@ def test_simplifys_budget_includes_an_unselected_shared_neighbour():
     # The selected transparent path's pixels cannot expose the budget violation;
     # its opaque neighbour following the simpler edge does.
     assert result == original
+
+
+def shared_clip_editor(*ids):
+    # Like arena: a visible body supplies both clipping and its outline.
+    document = import_svg(
+        '<svg width="64" height="64"><defs><clipPath id="clip">'
+        '<path id="boundary" d="M0 0H64V64H0Z"/></clipPath></defs>'
+        '<path id="p" fill="#a0b384" d="M14 14L24 14L34 14L50 14'
+        'L50 32L50 50L32 50L14 50L14 32Z"/>'
+        '<path id="shade" fill="#658678" clip-path="url(#clip)" '
+        'd="M0 32H64V64H0Z"/>'
+        '<path id="outline" fill="none" stroke="#4e5f4b" '
+        'stroke-width="1" d="M0 0H64V64H0Z"/></svg>'
+    )
+    ed = Editor(document, selection=Selection(whole_document=True))
+    with ed.transaction("Share body") as tx:
+        tx.share_geometry("boundary", "p")
+        tx.share_geometry("outline", "p")
+    ed.select(Selection(object_ids=frozenset(ids)))
+    return ed
+
+
+@pytest.mark.parametrize("region", [None, [0, 0, 64, 64]])
+def test_tidy_simplifies_shared_clipping_and_outline_without_detaching(region):
+    ed = shared_clip_editor("p")
+    original = ed.snapshot.document
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            with_reference=False,
+            shape=False,
+            simplify=True,
+            tolerance=0.1,
+            region=region,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"]
+    assert state["result"]["metrics"]["after"]["nodes"] == 4
+    job.apply()
+    after = ed.snapshot.document
+    for oid in ("p", "boundary", "outline"):
+        assert after.element(oid) == original.element(oid)
+        assert after.geometry_for(oid).id == original.geometry_for("p").id
+        assert after.geometry_for(oid) == after.geometry_for("p")
+    assert after.element("shade") == original.element("shade")
+    assert np.array_equal(
+        np.asarray(render_image(export_svg(original), (0, 0, 64, 64), (64, 64))),
+        np.asarray(render_image(export_svg(after), (0, 0, 64, 64), (64, 64))),
+    )
+    ed.undo()
+    assert ed.snapshot.document == original
+
+
+def test_tidy_fits_a_shared_body_and_its_changing_clips_in_context():
+    ed = shared_clip_editor("p")
+    original = ed.snapshot.document
+    geometry = original.geometry_for("p")
+    moved = replace(
+        geometry,
+        subpaths=tuple(
+            replace(
+                sub,
+                nodes=tuple(
+                    replace(
+                        node,
+                        values=tuple(
+                            v + (1 if i % 2 == 0 else -1)
+                            for i, v in enumerate(node.values)
+                        ),
+                    )
+                    for node in sub.nodes
+                ),
+            )
+            for sub in geometry.subpaths
+        ),
+    )
+    target = render_image(
+        export_svg(original.replace_geometry(moved)), (0, 0, 64, 64), (64, 64)
+    )
+    job = Job(
+        method("improve", "nodes"),
+        replace(
+            request(ed, steps=1, seconds=3, gain=0, snap=False),
+            reference=target,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    result = state["result"]
+    assert result["changed"], state
+    assert not result["metrics"]["skipped"]
+    assert (
+        result["metrics"]["after"]["difference"]
+        < result["metrics"]["before"]["difference"]
+    )
+    job.apply()
+    after = ed.snapshot.document
+    assert after.root == original.root
+    assert (
+        after.geometry_for("p")
+        == after.geometry_for("boundary")
+        == after.geometry_for("outline")
+    )
+    assert {n.id for s in after.geometry_for("p").subpaths for n in s.nodes} == set(
+        nodes_of(original)
+    )
+
+
+def test_tidy_respects_locks_on_a_shared_clipping_consumer():
+    ed = shared_clip_editor("p", "shade")
+    ed.set_locks("shade", frozenset({"geometry"}))
+    original = ed.snapshot.document
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            with_reference=False,
+            shape=False,
+            simplify=True,
+            tolerance=0.1,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert not state["result"]["changed"]
+    assert "locked" in state["result"]["metrics"]["skipped"]["p"]
+    assert ed.snapshot.document == original
+
+
+def test_tidy_deduplicates_selected_shared_assets():
+    ed = shared_clip_editor("p", "outline")
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            with_reference=False,
+            shape=False,
+            simplify=True,
+            tolerance=0.1,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["metrics"]["before"]["nodes"] == 9
+    assert state["result"]["metrics"]["after"]["nodes"] == 4
+    job.apply()
+
+
+def test_tidy_simplifies_an_instance_without_detaching():
+    ed = Editor(
+        import_svg(
+            '<svg width="64" height="64"><defs><path id="source" '
+            'transform="scale(2)" d="M0 0L4 0L8 0L8 8L0 8Z"/></defs>'
+            '<use id="instance" href="#source" x="20" y="10"/></svg>'
+        ),
+        selection=Selection(object_ids=frozenset({"instance"})),
+    )
+    original = ed.snapshot.document
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            with_reference=False,
+            shape=False,
+            simplify=True,
+            tolerance=0.1,
+            region=[16, 6, 24, 24],
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"], state
+    assert state["result"]["metrics"]["after"]["nodes"] == 4
+    job.apply()
+    assert ed.snapshot.document.element("instance") == original.element("instance")
+    assert (
+        ed.snapshot.document.geometry_for("instance").id
+        == original.geometry_for("source").id
+    )
+
+
+@pytest.mark.parametrize("region", [None, [0, 0, 28, 28]])
+def test_tidy_scores_linked_artwork_outside_the_selection(monkeypatch, region):
+    source = (
+        '<svg width="96" height="48"><path id="p" '
+        'd="M4 4L20 4L20 20L4 20Z"/>'
+        '<path id="copy" transform="translate(40) scale(2)" '
+        'd="M4 4L20 4L20 20L4 20Z"/></svg>'
+    )
+    # Only the small first copy needs to move. Moving the shared geometry
+    # improves it but damages the larger copy, beyond the old scoring crop.
+    target = render_image(
+        source.replace('id="p"', 'id="p" transform="translate(1)"'),
+        (0, 0, 96, 48),
+        (96, 48),
+    )
+    ed = Editor(import_svg(source), selection=Selection(whole_document=True))
+    with ed.transaction("Share") as tx:
+        tx.share_geometry("copy", "p")
+    ed.select(Selection(object_ids=frozenset({"p"})))
+    original = ed.snapshot.document
+
+    def propose(_steps, task, _pool, _stop, _report):
+        geometry = task.document.geometry_for("p")
+        moved = replace(
+            geometry,
+            subpaths=tuple(
+                replace(
+                    sub,
+                    nodes=tuple(
+                        replace(
+                            node,
+                            values=tuple(
+                                v + (1 if i % 2 == 0 else 0)
+                                for i, v in enumerate(node.values)
+                            ),
+                        )
+                        for node in sub.nodes
+                    ),
+                )
+                for sub in geometry.subpaths
+            ),
+        )
+        candidate = task.document.replace_geometry(moved)
+        return {"shape": (candidate, nodes_method._pixels(candidate, task.region), {})}
+
+    monkeypatch.setattr(nodes_method, "_round", propose)
+    job = Job(
+        method("improve", "nodes"),
+        replace(
+            request(ed, steps=1, gain=0, allowance=0, region=region),
+            reference=target,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert not state["result"]["changed"], state
+    assert ed.snapshot.document == original
+
+
+def test_tidy_region_holds_shared_nodes_visible_outside_the_region():
+    ed = Editor(
+        import_svg(
+            '<svg width="64" height="32"><defs><path id="source" '
+            'd="M2 2L6 2L10 2L10 10L2 10Z"/></defs>'
+            '<use id="first" href="#source"/>'
+            '<use id="second" href="#source" x="32"/></svg>'
+        ),
+        selection=Selection(object_ids=frozenset({"first"})),
+    )
+    original = ed.snapshot.document
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            with_reference=False,
+            shape=False,
+            simplify=True,
+            tolerance=0.1,
+            region=[0, 0, 20, 20],
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert not state["result"]["changed"], state
+    assert ed.snapshot.document == original
