@@ -290,5 +290,5 @@ export function operationDialogs({getState, getObject, waitForEdits,
     applied: 'Geometry cleaned up. Undo restores the original paths.',
   }).wire();
   async function openCleanup() { await waitForEdits(); cleanupDialog.open(selectionSummary()); }
-  return {openTidy, openSnapEdges, openGenerate, openColours, openCleanup};
+  return {tidyTargets, openTidy, openSnapEdges, openGenerate, openColours, openCleanup};
 }

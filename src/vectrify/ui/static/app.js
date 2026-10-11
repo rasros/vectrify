@@ -2858,6 +2858,7 @@ const dialogs = operationDialogs({
   operation: (command, body) => request('/api/operation', {command, ...body}),
   applyResult: async result => { dirty = true; await applyState(result); }, toast,
 });
+function tidyTargets() { return dialogs.tidyTargets(); }
 function openTidy() { return dialogs.openTidy(); }
 function openSnapEdges() { return dialogs.openSnapEdges(); }
 function openGenerate() { return dialogs.openGenerate(); }

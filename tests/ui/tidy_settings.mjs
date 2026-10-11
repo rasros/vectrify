@@ -1,6 +1,7 @@
 // Exercise the actual Tidy dialog request and change handlers with its HTML defaults.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
 
 const app = readFileSync(new URL('../../src/vectrify/ui/static/app_jobs.js', import.meta.url), 'utf8');
 const {operationDialogs} = await import(`data:text/javascript;base64,${Buffer.from(app).toString('base64')}`);
@@ -24,14 +25,15 @@ let state = {reference:true, epoch:'e', revision:0, selection:{objects:['path']}
 const region = [10, 20, 80, 60];
 const calls = [];
 globalThis.document = {getElementById:$, querySelectorAll:() => []};
-await operationDialogs({getState:() => state, getObject:() => ({tag:'path'}),
+const dialogs = operationDialogs({getState:() => state, getObject:id => ({tag:id === 'rect' ? 'rect' : id === 'group' ? 'g' : 'path'}),
   waitForEdits:() => Promise.resolve(), selectionBounds:() => [0, 0, 100, 100],
   viewReport:() => ({region}), applyResult:async () => {}, toast() {},
   operation:async (command, body) => {
     calls.push({command, body});
     return command === 'start' ? {id:'job', status:'running'} : {status:'cancelled'};
   },
-}).openTidy();
+});
+await dialogs.openTidy();
 const request = async () => {
   await $('nodes-run').onclick();
   return [...calls].reverse().find(call => call.command === 'start').body;
@@ -99,3 +101,20 @@ assert.equal(live.revision, 0);
 assert.equal($('nodes-detail').disabled, true);
 $('nodes-shape').handlers.change();
 assert.equal($('nodes-detail').disabled, false, 'settings read the new reference');
+
+// Startup evaluates the real command availability callback in app.js.
+// Exercise the integration binding, not just the dialog's private helper.
+const main = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
+const binding = main.match(/^function tidyTargets\(\).*$/m)?.[0] || '';
+const command = main.match(/\{id: 'tidy',[\s\S]*?disabled:[^\n]*\}/)?.[0];
+assert.ok(command, 'Tidy command is present');
+const context = {dialogs, state, openTidy:() => {}};
+const tidy = runInNewContext(`${binding}\n(${command})`, context);
+for (const [objects, reference, enabled] of [
+  [[], false, false], [['path'], false, true], [['group'], false, true],
+  [['rect'], false, false], [[], true, true], [['rect'], true, true],
+]) {
+  state = {...state, reference, selection:{objects}};
+  context.state = state;
+  assert.equal(Boolean(tidy.disabled()), !enabled, `${objects}: reference=${reference}`);
+}
