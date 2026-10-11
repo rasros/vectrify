@@ -51,7 +51,9 @@ def test_proposed_handles_cannot_bypass_transaction_constraints(constraint):
     target = geometry.subpaths[0].nodes[1]
     selection = select("p", "q")
     if constraint == "node selection":
-        selection = Selection(object_ids=selection.object_ids, node_ids=frozenset({target.id}))
+        selection = Selection(
+            object_ids=selection.object_ids, node_ids=frozenset({target.id})
+        )
     elif constraint == "shared consumer":
         selection = select("p")
     editor = Editor(document, selection=selection)
