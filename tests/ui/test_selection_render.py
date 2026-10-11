@@ -8,7 +8,9 @@ import pytest
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-@pytest.mark.parametrize("script", ["selection_render.mjs", "overlay_render.mjs"])
+@pytest.mark.parametrize(
+    "script", ["selection_render.mjs", "overlay_render.mjs", "clipping_render.mjs"]
+)
 def test_selection_rendering_keeps_work_bounded(script):
     result = subprocess.run(
         ["node", str(Path(__file__).with_name(script))],

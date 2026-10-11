@@ -28,6 +28,7 @@ const context = vm.createContext({
   overlay: {getScreenCTM: () => matrix},
   $: () => ({getBoundingClientRect: () => bounds}),
   svgElement: () => element,
+  screenMatrix: element => element.getScreenCTM(),
   object: id => ({id, tag: 'path', attributes: {}}),
   level: () => 'objects', clickTargets: ids => ids,
   hitStack: () => [...hits], topSelection: () => vm.runInContext('state.selection.objects', context),

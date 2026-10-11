@@ -124,6 +124,7 @@ const pointContext = vm.createContext({
  tool: 'nodes', hoverPath: null, nearPoint: null, nearAnchor: null, zoom: 1,
  geometries: new Map([['p', {}]]),
  svgElement: () => ({getScreenCTM: () => ({a:1,b:0,c:0,d:1,e:0,f:0})}),
+ screenMatrix: element => element.getScreenCTM(),
  localToOverlay: () => ({a:2,b:1,c:3,d:4,e:5,f:6}),
  geometryNodes: () => allNodes, pointKey: (id, node) => `${id} ${node}`,
  xmlElement: (_name, attrs) => ({...attrs, dataset: {}}),
