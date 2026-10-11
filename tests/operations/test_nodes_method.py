@@ -316,6 +316,49 @@ def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
     assert "C" in commands
 
 
+@pytest.mark.parametrize(
+    ("shape", "snap", "simplify", "detail"),
+    [
+        (True, False, False, False),
+        (True, True, False, True),
+        (False, True, False, True),
+        (False, False, True, False),
+    ],
+)
+def test_tidy_does_not_add_handles_to_pinned_nodes(shape, snap, simplify, detail):
+    ed = editor("p")
+    pins = ed.snapshot.document.geometry_for("p").subpaths[0].nodes[:2]
+    for node in pins:
+        ed.pin_node("p", node.id)
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            steps=2,
+            shape=shape,
+            snap=snap,
+            simplify=simplify,
+            detail=detail,
+            seconds=1.0,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    if state["result"]["changed"]:
+        job.apply()
+    nodes = ed.snapshot.document.geometry_for("p").subpaths[0].nodes
+    for original in pins:
+        i = next(i for i, node in enumerate(nodes) if node.id == original.id)
+        point = nodes[i]
+        assert point.pinned
+        assert point.endpoint == original.endpoint
+        if point.command == "C":
+            assert point.values[2:4] == point.endpoint
+        if i + 1 < len(nodes) and nodes[i + 1].command == "C":
+            assert nodes[i + 1].values[:2] == point.endpoint
+
+
 def bow_tie(document):
     """*document* with the square turned into a bow-tie."""
     twisted = import_svg(

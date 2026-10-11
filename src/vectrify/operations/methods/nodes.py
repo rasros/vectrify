@@ -338,9 +338,11 @@ class _Until(threading.Event):
 
 def _with(document: Document, geometries: dict[str, Geometry]) -> Document:
     from vectrify.document.features import held_nodes
+    from vectrify.refine.frozen import without_new_handles
 
     for geometry in geometries.values():
         original = document.geometry(geometry.id)
+        geometry = without_new_handles(original, geometry)
         held = held_nodes(original)
         if held:
             old = {n.id: n for sp in original.subpaths for n in sp.nodes}
@@ -356,6 +358,19 @@ def _with(document: Document, geometries: dict[str, Geometry]) -> Document:
             )
         document = document.replace_geometry(geometry)
     return document
+
+
+def _pinned_handles(before: Document, candidate: Document) -> Document:
+    """Constrain every changed asset, including followed neighbours."""
+    from vectrify.refine.frozen import without_new_handles
+
+    for geometry in candidate.geometries:
+        original = before.geometry(geometry.id)
+        if geometry != original:
+            candidate = candidate.replace_geometry(
+                without_new_handles(original, geometry)
+            )
+    return candidate
 
 
 def _paths(document: Document, oids):
@@ -504,6 +519,7 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
             document,
             list(_fit_shared(task, document) if step == "shape" else task.shared),
         )
+    document = _pinned_handles(task.document, document)
     pixels = (
         task.pixels
         if task.pixels is not None and document == task.document
@@ -517,6 +533,7 @@ def _improvement(task: _Task, before: Document, candidate: Document, current: _S
     from vectrify.refine.shared import follow
 
     candidate, _ = follow(candidate, list(task.shared))
+    candidate = _pinned_handles(before, candidate)
     if candidate == before:
         return before, current
     watched = set(task.oids) | {link.neighbour for link in task.shared}
@@ -601,6 +618,7 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
         proposed, _ = follow(
             _with(document, dict(candidate.geometries)), list(task.shared)
         )
+        proposed = _pinned_handles(document, proposed)
         after = _Scored.of(_pixels(proposed, region), region)
         allowed = after.fixed(start) >= -budget
         judged.append((candidate, allowed))
@@ -699,7 +717,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                     for n in s.nodes
                     if n.id not in task.held
                 )
-        document = document.replace_geometry(prepared)
+        document = _with(document, {prepared.id: prepared})
         polygon = area(settings)
         if settings["detail"] and polygon is not None:
             # A curve can leave the view even when both original endpoints
