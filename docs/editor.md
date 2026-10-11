@@ -542,9 +542,10 @@ run is dimmed, with the reason as its tooltip. Each is also in the command
 palette.
 
 **Tidy…** is also available above the canvas, beside the active tool's name,
-including when the Reference panel is hidden. Its compact dialog keeps the
-steps and **Only what is in view** visible; expand **Advanced settings** for
-the tolerances, fitting controls and run limits. The action buttons stay
+including when the Reference panel is hidden. Its compact dialog keeps
+**Fit path**, **Add detail**, **Simplify** and **Only what is in view** visible;
+expand **Advanced settings** for the tolerances, fitting controls and run
+limits. The action buttons stay
 visible while the settings or preview scroll.
 The dialog runs one round by default, with up to 20 internal steps per
 path fit and 1 worker. Each round tries the enabled steps and keeps the best
