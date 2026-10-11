@@ -6,16 +6,22 @@ from dataclasses import replace
 from typing import Any
 
 from vectrify.document import DocumentError, Selection
+from vectrify.document.clipping import INSET, SOURCE, inset_geometry
 from vectrify.document.hit_test import multiply
 from vectrify.document.join import path_style
 from vectrify.document.model import Element, new_id
 from vectrify.document.regions import object_matrix
 from vectrify.document.topology import inverse_matrix
 
-SOURCE = "data-vectrify-clip-source"
 
-
-def apply(agent, targets: list[str], sources: list[str], action: str, linked: bool):
+def apply(
+    agent,
+    targets: list[str],
+    sources: list[str],
+    action: str,
+    linked: bool,
+    inset: float,
+):
     editor = agent.session.editor
     document = editor.snapshot.document
     for oid in targets:
@@ -31,6 +37,8 @@ def apply(agent, targets: list[str], sources: list[str], action: str, linked: bo
         geometry = document.geometry_for(oid)
         if not geometry.subpaths or any(not s.closed for s in geometry.subpaths):
             raise DocumentError("Boundary paths must have closed contours")
+        if inset:
+            inset_geometry(geometry, inset, path_style(document, element)["fill-rule"])
         boundaries.append((element, geometry, object_matrix(document, oid)))
     result: list[dict[str, Any]] = []
     # Scope is explicit; the transaction's structural command checks target
@@ -74,6 +82,8 @@ def apply(agent, targets: list[str], sources: list[str], action: str, linked: bo
                 }
                 if linked:
                     attrs[SOURCE] = element.id
+                if inset:
+                    attrs[INSET] = str(inset)
                 children.append(
                     Element(
                         new_id("boundary"),
@@ -92,7 +102,13 @@ def apply(agent, targets: list[str], sources: list[str], action: str, linked: bo
             )
             tx.set_clip(oid, clip, tuple(geometries))
             result.append(
-                {"target": oid, "clip": clip.id, "sources": sources, "linked": linked}
+                {
+                    "target": oid,
+                    "clip": clip.id,
+                    "sources": sources,
+                    "linked": linked,
+                    "inset": inset,
+                }
             )
     editor.select(Selection(frozenset(targets)))
     return result

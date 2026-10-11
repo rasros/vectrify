@@ -278,7 +278,9 @@ def clip_outline(
         return float(element.get(name, str(default)) or default)
 
     if element.tag == "path":
-        path = curve_path(document.geometry_for(element.id), rule).transform(*matrix)
+        from vectrify.document.clipping import clip_geometry
+
+        path = curve_path(clip_geometry(document, element), rule).transform(*matrix)
     elif element.tag == "use":
         offset = (1, 0, 0, 1, number("x"), number("y"))
         path = clip_outline(

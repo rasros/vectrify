@@ -2261,9 +2261,15 @@ function previewPointDrag(target) {
         }
       }
     }
-    element.setAttribute('d', pathData(g));
+    // Inset clips are derived by the server when this drag is committed.
+    // Keep their inset d during the preview rather than replacing it with
+    // the editable perimeter and temporarily painting over the outline.
+    if (!element.hasAttribute('data-vectrify-clip-inset')) element.setAttribute('d', pathData(g));
     // The other paths drawing this geometry follow it.
-    for (const other of sharingPaths(id)) if (!drag.saved.has(other)) svgElement(other)?.setAttribute('d', pathData(g));
+    for (const other of sharingPaths(id)) if (!drag.saved.has(other)) {
+      const shared = svgElement(other);
+      if (!shared?.hasAttribute('data-vectrify-clip-inset')) shared?.setAttribute('d', pathData(g));
+    }
   }
 }
 // Press on a point: select it (with Shift, add or remove it), selecting its

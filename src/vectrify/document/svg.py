@@ -166,7 +166,11 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
         return
     allowed = GEOMETRY[tag] | PAINT | {"transform", "clip-path"}
     if tag == "path":
-        allowed |= {"data-vectrify-outline-source", "data-vectrify-clip-source"}
+        allowed |= {
+            "data-vectrify-outline-source",
+            "data-vectrify-clip-source",
+            "data-vectrify-clip-inset",
+        }
     if tag == "clipPath":
         allowed |= {"data-vectrify-clip-owner"}
     if tag == "g":
@@ -174,6 +178,12 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
     for name, value in attributes.items():
         if name not in allowed:
             raise DocumentError(f"Unsupported attribute: {name}")
+        if name == "data-vectrify-clip-inset" and (
+            not re.fullmatch(NUMBER, value)
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise DocumentError("Clipping inset must be a finite nonnegative number")
         if name in NUMERIC:
             if not re.fullmatch(NUMBER, value) or not math.isfinite(float(value)):
                 raise DocumentError(f"{name} must be a finite number in document units")
@@ -403,6 +413,8 @@ def _inline_gradient_links(root: ET.Element, issues: list[str]) -> None:
 
 
 def import_svg(svg: str) -> Document:
+    from vectrify.document.clipping import BASE, INSET, SOURCE
+
     if "<!DOCTYPE" in svg.upper() or "<!ENTITY" in svg.upper():
         raise UnsupportedSvgError(["XML document types and entities"])
     try:
@@ -442,6 +454,12 @@ def import_svg(svg: str) -> Document:
                 )
             tag = "path"
         data = attrs.pop("d", "") if tag == "path" else ""
+        # The standard SVG d is the rendered inset. Preserve its editable
+        # perimeter separately so reopening never applies the inset twice.
+        if tag == "path" and BASE in attrs:
+            if INSET not in attrs or parent != "clipPath":
+                issues.append(f"{object_id}: clip base requires an inset boundary")
+            data = attrs.pop(BASE)
         if (node.text and node.text.strip()) or (node.tail and node.tail.strip()):
             issues.append(f"{object_id}: text content is unsupported")
         try:
@@ -479,11 +497,29 @@ def import_svg(svg: str) -> Document:
     document = Document(read(root), tuple(geometries))
     if issues:
         raise UnsupportedSvgError(issues)
+    # Exported linked insets retain the source's perimeter. Restore sharing,
+    # but do not trust stale metadata when a source was changed externally.
+    for element in document.elements():
+        source = element.get(SOURCE)
+        if not element.get(INSET) or not source:
+            continue
+        try:
+            original = document.geometry_for(source)
+        except DocumentError:
+            continue
+        if document.geometry_for(element.id).path_data() == original.path_data():
+            from dataclasses import replace
+
+            document = document.replace_element(
+                replace(element, geometry_id=original.id)
+            )
     document.validate()
     return document
 
 
 def export_svg(document: Document) -> str:
+    from vectrify.document.clipping import BASE, INSET, clip_geometry
+
     document.validate()
 
     def write(element: Element) -> ET.Element:
@@ -495,7 +531,11 @@ def export_svg(document: Document) -> str:
         if element.paint_owner is not None:
             attrs["data-vectrify-paint-owner"] = element.paint_owner
         if element.geometry_id:
-            attrs["d"] = document.geometry(element.geometry_id).path_data()
+            if element.get(INSET):
+                attrs[BASE] = document.geometry(element.geometry_id).path_data()
+                attrs["d"] = clip_geometry(document, element).path_data()
+            else:
+                attrs["d"] = document.geometry(element.geometry_id).path_data()
         if "href" in attrs:
             attrs["xlink:href"] = attrs.pop("href")
         node = ET.Element(element.tag, attrs)

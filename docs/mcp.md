@@ -619,13 +619,26 @@ a different layer name.
 
 ### Clipping objects and groups
 
-`clip(ids, boundary, action="set", linked=true)` makes the selected objects
+`clip(ids, boundary, action="set", linked=true, inset=0)` makes the selected objects
 or groups visible only inside the union of the supplied closed paths. It
 keeps the target IDs, contents, paint and stacking. The boundary paths remain
 painted in their original locations; their strokes do not enlarge the clip.
 Fill-rule holes are preserved, and boundaries may be inside their target group.
 For example, an existing body shape can clip a group of shading paths, allowing
 those paths to extend beyond the body's edge.
+
+`inset` is a finite nonnegative distance in each source boundary's local units.
+It removes a band from each filled boundary before their union, expands holes,
+and may eliminate narrow parts. To keep later shading off an outline that stays
+on the body itself, use half its stroke width: for a 0.85-wide stroke, use
+`inset=0.425`. The outline does not need another drawing layer. Node edits still
+update a linked inset; changing the stroke width requires updating the inset.
+The inset uses mitered corners with a miter limit of 4. Saved projects retain the
+editable source geometry; exported SVGs contain ordinary inset clip paths and
+metadata that restores their editable boundaries when reopened in Vectrify.
+Only the derived clip approximates curves, within 0.01 local units; the source's
+curves remain intact. During a node drag its previous inset preview stays in
+place until release, when the server regenerates the inset.
 
 Every target receives a separate boundary in its own coordinate system.
 `linked=true` shares path geometry: changing the source's nodes updates the

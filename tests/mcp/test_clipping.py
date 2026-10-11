@@ -226,13 +226,15 @@ def test_mcp_tool_schema_and_file_target(tmp_path):
             tools = {t.name: t for t in (await client.list_tools()).tools}
             assert "clip" in tools
             assert "linked" in tools["clip"].input_schema["properties"]
+            assert "inset" in tools["clip"].input_schema["properties"]
             await client.call_tool("open", {"path": str(path)})
             clipped = await client.call_tool(
-                "clip", {"ids": ["paint"], "boundary": ["body"]}
+                "clip", {"ids": ["paint"], "boundary": ["body"], "inset": 2}
             )
             assert not clipped.is_error
             await client.call_tool("save", {})
             assert 'clip-path="url(#' in path.read_text()
+            assert 'data-vectrify-clip-inset="2.0"' in path.read_text()
 
     anyio.run(run)
 
@@ -291,9 +293,10 @@ def test_new_path_in_transformed_clipped_group_keeps_root_coordinates_and_index(
     assert tuple(p[22, 40, :3]) == (0, 0, 255)
 
 
-def test_persons_node_drag_updates_linked_boundary_and_keeps_selection():
+@pytest.mark.parametrize("inset", [0, 2])
+def test_persons_node_drag_updates_linked_boundary_and_keeps_selection(inset):
     agent = make()
-    call(agent, "clip", ids=["paint"], boundary=["body"])
+    call(agent, "clip", ids=["paint"], boundary=["body"], inset=inset)
     doc = agent.session.editor.snapshot.document
     node = doc.geometry_for("body").subpaths[0].nodes[1]
     selection = Selection(frozenset({"body"}), frozenset({node.id}))
@@ -312,3 +315,125 @@ def test_persons_node_drag_updates_linked_boundary_and_keeps_selection():
     clip = doc.element(doc.element("paint").get("clip-path")[5:-1])
     assert doc.geometry_for(clip.children[0].id).node(node.id).endpoint == (75, 10)
     assert agent.session.editor.snapshot.selection == selection
+
+
+def test_inset_keeps_body_outline_visible_below_shadows_and_expands_holes():
+    from shapely.geometry import Point
+
+    from vectrify.document.hit_test import HitIndex
+    from vectrify.document.join import clip_outline
+
+    agent = make()
+    call(agent, "properties", ids=["body"], stroke="black", stroke_width=4)
+    # The fixture's separate outline is unnecessary; keep only the body's stroke.
+    call(agent, "delete", ids=["outline"])
+    before = agent.session.editor.snapshot.document
+    reply = call(agent, "clip", ids=["paint"], boundary=["body"], inset=2)
+    doc = agent.session.editor.snapshot.document
+    assert doc.element("body") == before.element("body")
+    assert doc.element("region").children[-1].id == "paint"
+    p = pixels(doc)
+    assert tuple(p[16, 40, :3]) == (0, 0, 0)  # inner half of the body's top stroke
+    assert tuple(p[20, 40, :3]) == (0, 0, 255)
+    assert tuple(p[29, 40, :3]) == (0, 0, 0)  # inner-hole outline
+    index = HitIndex(doc, tolerance=0.01)
+    area = index.area("shade")
+    assert area is not None
+    assert not area.covers(Point(40, 16))
+    assert not area.covers(Point(40, 29))
+    assert area.covers(Point(40, 20))
+    clip = doc.element(reply["clipping"][0]["clip"])
+    assert clip_outline(doc, clip).area == pytest.approx(46 * 46 - 24 * 24)
+
+
+@pytest.mark.parametrize("linked", [True, False])
+def test_inset_follows_source_edits_only_when_linked_and_survives_round_trips(linked):
+    from vectrify.document.clipping import clip_geometry
+
+    agent = make()
+    reply = call(
+        agent, "clip", ids=["paint"], boundary=["body"], inset=2, linked=linked
+    )
+    doc = agent.session.editor.snapshot.document
+    boundary_id = doc.element(reply["clipping"][0]["clip"]).children[0].id
+    prior = clip_geometry(doc, doc.element(boundary_id)).path_data()
+    node = doc.geometry_for("body").subpaths[0].nodes[1]
+    call(agent, "set_points", coords="local", changes={"body": {node.id: [75, 10]}})
+    doc = agent.session.editor.snapshot.document
+    assert (clip_geometry(doc, doc.element(boundary_id)).path_data() != prior) == linked
+    reopened = Session(import_svg(SVG))
+    reopened.open(agent.session.project(), "inset.vectrify")
+    assert export_svg(reopened.editor.snapshot.document) == export_svg(doc)
+    svg = export_svg(doc)
+    loaded = import_svg(svg)
+    assert export_svg(loaded) == svg  # no double inset
+    assert np.array_equal(pixels(doc), pixels(loaded))
+    if linked:
+        assert loaded.geometry_for(boundary_id) is loaded.geometry_for("body")
+        again = Agent(Session(loaded))
+        node = loaded.geometry_for("body").subpaths[0].nodes[2]
+        call(again, "set_points", coords="local", changes={"body": {node.id: [80, 60]}})
+        changed = again.session.editor.snapshot.document
+        assert clip_geometry(changed, changed.element(boundary_id)).path_data() != (
+            clip_geometry(loaded, loaded.element(boundary_id)).path_data()
+        )
+
+
+@pytest.mark.parametrize("large", [20, 30, 100, 1e300])
+def test_large_inset_collapses_curved_shapes_without_inverting(large):
+    agent = make("""<svg width="100" height="100"><path id="body"
+    d="M10 30 C10 5 60 5 60 30 C60 55 10 55 10 30 Z"/>
+    <path id="shade" fill="blue" d="M0 0 L100 0 L100 100 L0 100 Z"/></svg>""")
+    reply = call(agent, "clip", ids=["shade"], boundary=["body"], inset=2)
+    doc = agent.session.editor.snapshot.document
+    boundary = doc.element(reply["clipping"][0]["clip"]).children[0]
+    assert doc.geometry_for(boundary.id) is doc.geometry_for("body")
+    assert any(
+        n.command == "C" for s in doc.geometry_for("body").subpaths for n in s.nodes
+    )
+    p = pixels(doc)
+    assert tuple(p[14, 35, :3]) == (0, 0, 255)
+    assert tuple(p[12, 35, :3]) == (0, 0, 0)
+    call(agent, "clip", ids=["shade"], boundary=["body"], inset=large)
+    assert not np.any(
+        np.all(
+            pixels(agent.session.editor.snapshot.document)[:, :, :3] == [0, 0, 255],
+            axis=2,
+        )
+    )
+
+
+@pytest.mark.parametrize("inset", [-1, float("nan"), float("inf")])
+def test_invalid_insets_refuse_atomically(inset):
+    agent = make()
+    before = agent.session.editor.snapshot.document
+    with pytest.raises(DocumentError):
+        call(agent, "clip", ids=["paint"], boundary=["body"], inset=inset)
+    assert agent.session.editor.snapshot.document == before
+
+
+def test_inset_transforms_with_source_and_batch_undo_restores_original():
+    agent = make("""<svg width="100" height="100">
+    <g transform="translate(10 10) scale(2 3)"><path id="body"
+      fill="green" stroke="black" stroke-width="2"
+      d="M0 0 L20 0 L20 20 L0 20 Z"/></g>
+    <g id="paint" transform="translate(5 0)"><path id="shade" fill="blue"
+      d="M0 0 L100 0 L100 100 L0 100 Z"/></g></svg>""")
+    before = agent.session.editor.snapshot.document
+    stage = call(
+        agent,
+        "edit_batch",
+        edits=[
+            {
+                "tool": "clip",
+                "args": {"ids": ["paint"], "boundary": ["body"], "inset": 1},
+            }
+        ],
+    )
+    assert agent.session.editor.snapshot.document == before
+    reply = call(agent, "edit_batch", action="apply", id=stage["id"])
+    p = pixels(agent.session.editor.snapshot.document)
+    assert tuple(p[11, 30, :3]) == (0, 0, 0)
+    assert tuple(p[15, 30, :3]) == (0, 0, 255)
+    call(agent, "undo", ids=[reply["edit_id"]])
+    assert agent.session.editor.snapshot.document == before

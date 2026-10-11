@@ -24,7 +24,7 @@ const context = vm.createContext({
   point: event => new Point(event.clientX, event.clientY),
   snapTargets: () => snapIndex(targets, 8), selectedPoints: () => selected, pointPaths: () => ['p'],
   selectPoints: (objects, points) => { selected = points; },
-  svgElement: () => ({setAttribute() {}}), localToOverlay: () => ({inverse() { return this; }}),
+  svgElement: () => ({hasAttribute() { return false; }, setAttribute() {}}), localToOverlay: () => ({inverse() { return this; }}),
   sharingPaths: () => [],
   startGesture: (kind, event, common, details) => { context.drag = {kind, ...common, ...details}; },
 });
@@ -60,6 +60,18 @@ gestures.node.move(context.drag, event(65, 36));
 assert.deepEqual(nodes.map(n => [...n.values]), [[65, 30], [85, 50]]);
 await gestures.node.release(context.drag);
 assert.deepEqual(committed, [[[65, 30], [85, 50]]]);
+
+// A linked inset's rendered perimeter must not be overwritten by its base
+// geometry during the optimistic drag. The server derives it on release.
+const writes = [], element = {hasAttribute: () => false, setAttribute: (...args) => writes.push(['body', ...args])};
+const insetElement = {hasAttribute: name => name === 'data-vectrify-clip-inset', setAttribute: (...args) => writes.push(['clip', ...args])};
+context.svgElement = id => id === 'clip' ? insetElement : element;
+context.sharingPaths = () => ['clip'];
+gestures.node.move(context.drag, event(70, 36));
+assert.ok(writes.some(write => write[0] === 'body'));
+assert.ok(!writes.some(write => write[0] === 'clip'));
+context.svgElement = () => element;
+context.sharingPaths = () => [];
 
 // A Shift-click still removes the selected node, including the last one.
 press();
