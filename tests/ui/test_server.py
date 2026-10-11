@@ -118,6 +118,7 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
     assert call(server, "/resize.js")[0] == 200
     assert call(server, "/lines.js")[0] == 200
     assert call(server, "/clipping.js")[0] == 200
+    assert call(server, "/reference_error.js")[0] == 200
     assert call(server, "/style.css")[0] == 200
     status, state = call(server, "/api/session", {})
     assert status == 200
@@ -246,8 +247,6 @@ def test_compressed_download_reopens_with_reference_and_recovery_metadata(server
         opened = restored.sessions[fresh["session"]]
         assert opened.reference == reference
         assert opened.project() == original
-
-
 
 
 def test_hole_inspection_fill_and_cleanup_follow_session_revision(server):

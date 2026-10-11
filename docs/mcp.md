@@ -282,7 +282,7 @@ be a polygon `[[x, y], ...]`.
   inside it, front to back, each path with the contours of it that do.
   It also reports what the person is looking at: the visible `region`,
   `zoom`, canvas `pixels`, active `tool`, `entered_group`, `reference_view`
-  (drawing, overlay or reference) and how long ago the window reported it.
+  (drawing, overlay, reference or error) and how long ago the window reported it.
   Headless (or before the window reports) it returns `window=false` and the
   whole artboard as the visible region. This viewport is independent of the
   object filter's `region`. `objects=false` skips object lookup and omits
@@ -299,9 +299,9 @@ be a polygon `[[x, y], ...]`.
   a unit) and their `difference` (RGB distance, 0 to 1).
 - `render(region?, overlay?, max_side?, grid?)`: the drawing; `region` in
   document units, or `"view"` for exactly what the window shows (its region
-  at its pixel size, with the reference over it or alone as the window
-  shows it); `overlay="side"` puts the reference beside it, `"over"` blends
-  them, `"reference"` shows the reference alone. `grid=true` draws lines
+  at its pixel size, with the reference over it, alone, or the shared error
+  map as the window shows it); `overlay="side"` puts the reference beside it,
+  `"over"` blends them, `"reference"` shows the reference alone. `grid=true` draws lines
   labelled with document coordinates.
 - `compare(region?, max_side?, grid?)`: mean squared error against the
   reference (RGB in 0..1, on white), the worst four cells of a 4 x 4 grid as

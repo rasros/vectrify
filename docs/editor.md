@@ -74,10 +74,15 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Enter runs, Escape closes. A command that cannot run now shows why instead.
 - The footer shows the artboard size, the reference overlay toggle (`W`),
   with its opacity and an amber canvas border while it is visible, and zoom.
-  `W` cycles the view: the drawing, the reference over it, and the reference
-  alone at full strength in place of the drawing, to compare by flipping
-  between them; `Shift+W` cycles through the same views backward. The
-  Reference panel picks the same three views.
+  `W` cycles the view: the drawing, the reference over it, the reference
+  alone at full strength, and the reference error. `Shift+W` cycles backward.
+  The Reference panel picks the same four views. Error shows matching pixels
+  in black and increasing differences through red and yellow to white,
+  comparing both images on white at the reference's detail (up to 2048 pixels
+  on the longer side). It ignores overlay opacity and refreshes after edits;
+  selection outlines and node handles stay available for editing. MCP's
+  `render(region="view")` crops this same map, and `describe(objects=false)`
+  reports the mode in `reference_view`.
 - The footer's **Agents** toggle (also *Allow agents to edit* in the command
   palette) lets an agent edit this window's drawing ([the MCP server](mcp.md)).
   Turning it on makes the editor host the MCP server at

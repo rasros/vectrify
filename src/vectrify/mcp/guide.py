@@ -95,11 +95,13 @@ for `coords="local"`.
    (`page`, `page_size`, or `within` a group id).
 2. `describe` also gives the person's selection (objects, points), and in
    the editor window the visible region, zoom, canvas pixels, active tool,
-   entered group and reference view. `describe(objects=false)` skips object
+   entered group and `reference_view` (drawing, overlay, reference or error).
+   `describe(objects=false)` skips object
    lookup and pagination for a lightweight context read. Without a reported
    window it returns `window=false` and the whole artboard as the region.
    Once a window has reported, `render(region="view")` renders exactly
-   what it shows. You never change the person's selection or view.
+   what it shows, including the same error map in error mode. You never
+   change the person's selection or view.
 3. Find things by place, not by paging: `pick(x, y, radius)` lists what
    paints at a spot, front to back, each with its groups and, for a path,
    the contours there (index, first node, node count, bounds). Strokes

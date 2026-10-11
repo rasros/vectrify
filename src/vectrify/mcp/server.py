@@ -494,7 +494,8 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         grid: bool = False,
     ) -> CallToolResult:
         """A PNG of the drawing, optionally of region [x, y, w, h] only, or
-        region="view": exactly what the person's window shows.
+        region="view": what the person's window shows, including its
+        drawing, overlay, reference-only or shared reference-error mode.
 
         overlay="side" puts the reference beside it, "over" blends the two,
         "reference" shows the reference alone. max_side caps the longer side

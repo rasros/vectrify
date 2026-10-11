@@ -338,6 +338,12 @@ def test_describe_reads_what_the_window_shows_and_render_draws_it(tmp_path):
             # The eye's left stroke at x 70 is 160 pixels in.
             grey = np.asarray(image.convert("L"))
         assert grey[220, 160] < 60
+        # The same user-view mode is explicit in the MCP description.
+        assert target.session.view is not None
+        target.session.set_view({**target.session.view, "reference_view": "error"})
+        error_view = data(await call("describe", objects=False))
+        assert error_view["reference_view"] == "error"
+        assert error_view["region"] == seen["region"]
 
     run(tmp_path, body, state)
 

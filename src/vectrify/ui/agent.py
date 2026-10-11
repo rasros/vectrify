@@ -1013,6 +1013,24 @@ class Agent:
             size = _size(box, side)
         if overlay == "reference":
             return self._cached("reference", box, size), size
+        if overlay == "error":
+            image = self.session.reference_error()
+            artboard = self.session.editor.snapshot.document.artboard()
+            x, y, w, h = artboard
+            left, top, width, height = box
+            image = image.transform(
+                size,
+                Image.Transform.EXTENT,
+                (
+                    (left - x) * image.width / w,
+                    (top - y) * image.height / h,
+                    (left + width - x) * image.width / w,
+                    (top + height - y) * image.height / h,
+                ),
+                Image.Resampling.BILINEAR,
+                fillcolor="black",
+            )
+            return image, size
         drawing = self._cached("drawing", box, size)
         if overlay == "none":
             return drawing, size
@@ -1041,10 +1059,10 @@ class Agent:
         if region == "view":
             view = self._view()
             mode = view["reference_view"] if self.session.reference else None
-            if overlay == "none" and mode in {"overlay", "reference"}:
+            if overlay == "none" and mode in {"overlay", "reference", "error"}:
                 # As the window shows it: the reference over the drawing at its
-                # opacity there, or the reference alone.
-                overlay = "over" if mode == "overlay" else "reference"
+                # opacity there, the reference alone, or their pixel error.
+                overlay = "over" if mode == "overlay" else mode
                 opacity = view.get("reference_opacity") or 0.5
         image, size = self._compose(box, side, overlay, opacity)
         if grid:
@@ -1064,6 +1082,7 @@ class Agent:
                 "what the person's window shows"
                 + (", the reference over the drawing" if overlay == "over" else "")
                 + (", the reference alone" if overlay == "reference" else "")
+                + (", the reference error" if overlay == "error" else "")
             )
         name = "reference" if overlay == "reference" else "render"
         return Reply(data, [(name, _png(image))])
