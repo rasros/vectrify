@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 import {gzipSync, gunzipSync} from 'node:zlib';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const fileControls = source.slice(source.indexOf("$('restore-saved').onclick"), source.indexOf('// The Reference panel'));
+const source = readFileSync(new URL('../../src/vectrify/ui/static/app_files.js', import.meta.url), 'utf8');
+const {projectFiles} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const original = JSON.stringify({vectrify_editor: 1, document: {
   root: {children: [{children: []}]}, geometries: [{subpaths: [{nodes: [1, 2, 3]}]}],
 }, reference: {name: 'räven.png', data_url: 'data:image/png;base64,abcd', opacity: 0.35}});
@@ -17,12 +16,11 @@ function element() {
     append(child) {this.children.push(child);}, showModal() {}, close() {},
     click() {filename = this.download;}};
 }
-const context = vm.createContext({
+const context = {
   $: id => {if (!controls.has(id)) controls.set(id, element()); return controls.get(id);},
   state: {name: 'drawing.svg', epoch: 'e', revision: 3}, session: 's', dirty: true,
   queue: Promise.resolve(), bridge: null, setBusy() {},
   request: async (path, body) => {requests.push({path, ...body}); return body.project ? result : {content: '<svg/>'};},
-  recoveryStore: async (mode, key, value) => {if (mode === 'readonly') return stored; recovery.push(value);},
   toast: (text, error) => {if (error) errors.push(text);},
   document: {createElement: () => element()}, window: {confirm: () => true},
   Blob, atob, setTimeout: fn => fn(),
@@ -32,8 +30,41 @@ const context = vm.createContext({
   FileReader: class {
     readAsDataURL(file) {this.result = `data:application/octet-stream;base64,${file.bytes.toString('base64')}`; this.onload();}
   },
+};
+// Exercise the controller's IndexedDB transactions, including the session key.
+const savedBySession = new Map();
+let closedDatabases = 0;
+globalThis.indexedDB = {open(name, version) {
+  assert.equal(name, 'vectrify-recovery'); assert.equal(version, 1);
+  const opening = {result: {
+    close() {closedDatabases++;},
+    transaction(storeName, mode) {
+      assert.equal(storeName, 'projects');
+      const tx = {objectStore() {return {
+        getAll: () => ({result:stored}),
+        get: key => ({result:savedBySession.get(key)}),
+        put(value, key) {
+          assert.equal(mode, 'readwrite');
+          recovery.push(value); savedBySession.set(key, value);
+          return {result:key};
+        },
+      };}};
+      queueMicrotask(() => tx.oncomplete());
+      return tx;
+    },
+  }};
+  queueMicrotask(() => opening.onsuccess());
+  return opening;
+}};
+for (const name of ['document', 'window', 'FileReader', 'URL', 'setTimeout']) globalThis[name] = context[name];
+const files = projectFiles({
+  getState: () => context.state, getSession: () => context.session,
+  getBridge: () => context.bridge, waitForEdits: () => context.queue,
+  isDirty: () => context.dirty, markSaved: () => {context.dirty = false;},
+  request: context.request, action: context.action, setBusy: context.setBusy,
+  toast: context.toast, refreshDrawing: context.loadReference,
 });
-vm.runInContext(fileControls, context);
+context.download = files.download;
 
 await context.download(true);
 assert.equal(filename, 'drawing.vectrify');
@@ -82,3 +113,48 @@ for (const button of buttons) {
   assert.equal(actions.at(-1).encoding, entry.encoding);
 }
 assert.deepEqual(errors, []);
+
+// A queued save reads the drawing left by the edit instead of a copied state.
+context.bridge = null;
+let releaseEdit;
+context.queue = new Promise(resolve => {releaseEdit = resolve;});
+const requestCount = requests.length;
+const saving = files.download(false);
+await Promise.resolve();
+assert.equal(requests.length, requestCount);
+context.state = {name:'edited.json', epoch:'new', revision:9};
+releaseEdit();
+await saving;
+assert.equal(filename, 'edited.svg');
+assert.equal(requests.at(-1).epoch, 'new');
+assert.equal(requests.at(-1).revision, 9);
+
+// A restart restores only the previous tab's saved bytes into the new session.
+const saved = recovery[0];
+savedBySession.set('old-window', saved);
+context.session = 'new-window';
+const initial = {epoch:'fresh', revision:0};
+await files.recover('old-window', initial);
+assert.equal(requests.at(-1).path, '/api/action');
+assert.equal(requests.at(-1).source, content);
+assert.equal(requests.at(-1).encoding, 'base64');
+assert.equal(requests.at(-1).epoch, 'fresh');
+assert.equal(requests.at(-1).revision, 0);
+assert.equal(savedBySession.get('new-window'), saved);
+const before = requests.length;
+assert.equal(await files.recover('new-window', initial), initial);
+assert.equal(await files.recover('missing-window', initial), initial);
+assert.equal(requests.length, before);
+assert.ok(closedDatabases > 0);
+
+// Cancelled picking and refused opens retain unsaved edits and skip recovery.
+context.dirty = true;
+context.window.confirm = () => false;
+const previousActions = actions.length;
+await controls.get('svg-file').onchange({target:{files:[{name:'other.svg', size:1}], value:'other.svg'}});
+assert.equal(actions.length, previousActions);
+assert.equal(context.dirty, true);
+context.window.confirm = () => true;
+await controls.get('svg-file').onchange({target:{files:[{name:'large.svg', size:128*1024*1024+1}], value:'large.svg'}});
+assert.equal(actions.length, previousActions);
+assert.match(errors.at(-1), /128 MB/);
