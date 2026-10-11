@@ -114,6 +114,7 @@
   <fieldset id="nodes-settings" aria-label="Tidy settings">
     <div class="tidy-steps">
       <fieldset class="step-card" data-step="shape"><legend><label class="toggle"><input id="nodes-shape" type="checkbox" checked> Fit path</label></legend><p class="muted">Follow nearby edges and fit points and curves to match.</p></fieldset>
+      <fieldset class="step-card" data-step="detail"><legend><label class="toggle" title="Keep existing points and split long spans so local curves can follow the reference smoothly"><input id="nodes-detail" type="checkbox" checked> Add detail</label></legend><p class="muted">Add points where needed to follow the reference while fitting paths.</p></fieldset>
       <fieldset class="step-card" data-step="simplify"><legend><label class="toggle"><input id="nodes-simplify" type="checkbox"> Simplify</label></legend><p class="muted">Optionally remove points the outline does not need.</p></fieldset>
     </div>
     <label class="toggle" title="Tidy only the points inside the part of the drawing the window shows, of the selected paths or, with none selected, of every path painting there"><input id="nodes-in-view" type="checkbox"> Only what is in view</label>
@@ -124,7 +125,7 @@
     <fieldset class="step-card" data-step="shape">
       <legend>Fit path</legend>
       <div class="two-fields"><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
-      <div class="two-fields"><label class="toggle" title="Keep existing points and split long spans so local curves can follow the reference smoothly"><input id="nodes-detail" type="checkbox" checked> Add detail</label><label title="Without gradient fitting, each extra feature point must fix this many reference pixels. Lower adds more features.">Fallback pixels per added point<input id="nodes-detail-gain" type="number" min="1" max="500" step="1" value="12"></label></div>
+      <div class="two-fields"><label title="Without gradient fitting, each extra feature point must fix this many reference pixels. Lower adds more features.">Fallback pixels per added point<input id="nodes-detail-gain" type="number" min="1" max="500" step="1" value="12"></label></div>
       <div class="two-fields"><label title="How far past the selected paths the reference is read, as a share of their size. Points can only be snapped or added within it, so raise it for a strand or spike that sticks out further.">Search beyond the path (%)<input id="nodes-margin" type="number" min="0" max="200" step="5" value="10"></label></div>
     </fieldset>
     <fieldset class="step-card" data-step="simplify">
