@@ -22,7 +22,7 @@ const context = {
   queue: Promise.resolve(), bridge: null, setBusy() {},
   request: async (path, body) => {requests.push({path, ...body}); return body.project ? result : {content: '<svg/>'};},
   toast: (text, error) => {if (error) errors.push(text);},
-  document: {createElement: () => element()}, window: {confirm: () => true},
+  document: {getElementById: id => context.$(id), createElement: () => element()}, window: {confirm: () => true},
   Blob, atob, setTimeout: fn => fn(),
   URL: {createObjectURL: value => {blob = value; return 'blob:download';}, revokeObjectURL() {}},
   action: async (command, body) => {actions.push({command, ...body}); return true;},
