@@ -184,6 +184,7 @@ class Session:
         self._svg = ""
         self._objects_document: Document | None = None
         self._objects: list[dict] = []
+        self._reference_error: tuple[tuple, Image.Image] | None = None
         self.jobs: dict[str, Job] = {}
         # What the person's window last said it shows (see set_view), and when.
         self.view: dict[str, Any] | None = None
@@ -219,7 +220,7 @@ class Session:
             "tool": str(view.get("tool", ""))[:40],
             "entered": str(entered) if entered else None,
             "reference_view": reference
-            if reference in {"drawing", "overlay", "reference"}
+            if reference in {"drawing", "overlay", "reference", "error"}
             else None,
             "reference_opacity": min(1.0, max(0.0, number(opacity)))
             if opacity is not None
@@ -319,6 +320,38 @@ class Session:
         with Image.open(io.BytesIO(data)) as image:
             image.load()
             return image.copy()
+
+    def reference_error(self) -> Image.Image:
+        """One error map shared by the canvas and MCP's current-view render."""
+        import numpy as np
+
+        from vectrify.image_utils import on_white
+        from vectrify.ui.agent import _size, crop_reference, heat_map, render_document
+
+        with self.lock:
+            if not self.reference:
+                raise DocumentError("Load a reference image first")
+            document = self.editor.snapshot.document
+            key = (
+                self.epoch,
+                self.editor.snapshot.revision,
+                self.reference["data_url"],
+            )
+            if self._reference_error and self._reference_error[0] == key:
+                return self._reference_error[1]
+            reference = self.reference_image()
+            assert reference is not None
+            bounds = document.artboard()
+            size = _size(bounds, min(2048, max(reference.size)))
+            drawing = render_document(export_svg(document), bounds, size)
+            expected = crop_reference(on_white(reference), bounds, bounds, size)
+            difference = (
+                np.asarray(drawing, dtype=np.float64)
+                - np.asarray(expected, dtype=np.float64)
+            ) / 255
+            image = heat_map(np.sqrt((difference**2).mean(axis=2)))
+            self._reference_error = (key, image)
+            return image
 
     def _object_state(self, document: Document) -> list[dict]:
         # Documents are immutable. Selection changes keep this metadata

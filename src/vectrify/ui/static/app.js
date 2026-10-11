@@ -11,6 +11,7 @@ import {overflowLayout} from './strip.js';
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
 import {breakable, freeEnd, segmentAmong} from './lines.js';
 import {clippingFrames} from './clipping.js';
+import {errorView, loadErrorImage} from './reference_error.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -149,6 +150,7 @@ function renderDrawing() {
   root.setAttribute('viewBox', state.bounds.join(' ')); root.setAttribute('preserveAspectRatio', 'none');
   root.setAttribute('aria-label', state.name);
   drawing.replaceChildren(root);
+  refreshErrorView();
 }
 async function applyState(next) {
   const changed = !state || next.epoch !== state.epoch || next.revision !== state.revision;
@@ -908,7 +910,7 @@ const COMMANDS = [
     disabled: () => level() === 'points' ? selectedHandle() ? false : noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them') : noSelection()},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
-  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'W', run: () => cycleReference(), disabled: noReference},
+  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only, error', group: 'Reference', keys: 'W', run: () => cycleReference(), disabled: noReference},
   {id: 'cycle-view-backward', name: 'Cycle the view backward', group: 'Reference', keys: 'Shift W', run: () => cycleReference(-1), disabled: noReference},
   {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', run: () => setView('drawing'), disabled: noReference},
   {id: 'show-clips', name: 'Show clipping boundaries', label: () => showClipping ? 'Hide clipping boundaries' : 'Show clipping boundaries', group: 'View', keywords: 'clip contour outline mask', run: toggleClipping},
@@ -2726,10 +2728,19 @@ const files = projectFiles({
 function download(project) { return files.download(project); }
 // The Reference panel, below the objects, holds the reference image, the
 // view and the tools that match the drawing to it. The view is the drawing
-// alone, the reference over it, or the reference alone at full strength in
-// place of the drawing.
-const VIEWS = ['drawing', 'overlay', 'reference'];
+// alone, the reference over it, the reference alone, or their pixel error.
+const VIEWS = ['drawing', 'overlay', 'reference', 'error'];
 let referenceView = 'overlay';
+const errorStatus = {loading: 'Reference error · loading…', ready: 'Reference error · black matches; red → white differs', failed: 'Reference error · unavailable'};
+const referenceError = errorView($('reference-error'), phase => {
+  $('reference-status').textContent = errorStatus[phase];
+}, error => toast(error.message, true), async () => {
+  const {image} = await request('/api/reference-error', {epoch: state.epoch, revision: state.revision, view: viewReport()});
+  return loadErrorImage(image);
+});
+function refreshErrorView() {
+  referenceError.update(state?.svg, state?.bounds, reference && referenceView === 'error' ? reference.data_url : null);
+}
 function showReference() {
   reportView();
   $('reference-controls').hidden=!reference; $('remove-reference').hidden=!reference;
@@ -2737,21 +2748,25 @@ function showReference() {
   $('reference-name').title=reference?.name || '';
   $('add-reference').textContent=reference ? 'Replace…' : 'Load…';
   $('reference-thumb').hidden=!reference; $('reference-thumb-empty').hidden=!!reference;
-  const only = !!reference && referenceView === 'reference', enabled = !!reference && referenceView !== 'drawing';
-  const visible = enabled && (only || reference.opacity > 0);
-  $('reference-image').hidden=!enabled;
+  const only = !!reference && referenceView === 'reference', error = !!reference && referenceView === 'error';
+  const enabled = !!reference && referenceView !== 'drawing';
+  const visible = enabled && (only || error || reference.opacity > 0);
+  $('reference-image').hidden=!(only || (enabled && !error));
   $('drawing').style.visibility = only ? 'hidden' : '';
+  $('drawing').style.opacity = error ? '0' : '';
+  stage.classList.toggle('reference-error-visible', error);
   const toggle = $('reference-toggle');
   toggle.hidden=!reference;
   toggle.setAttribute('aria-pressed', String(enabled));
-  toggle.title=(only ? 'Show the drawing only' : enabled ? 'Show the reference only' : 'Show the reference overlay') + ' (W; Shift+W cycles backward)';
-  const status = only ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Drawing only';
-  $('reference-status').textContent=status;
-  $('reference-state').textContent=reference ? {drawing: 'Hidden', overlay: `${Math.round(reference.opacity*100)}%`, reference: 'Alone'}[referenceView] : 'None';
+  toggle.title=`Show ${{drawing: 'the reference overlay', overlay: 'the reference only', reference: 'the reference error', error: 'the drawing only'}[referenceView]} (W; Shift+W cycles backward)`;
+  toggle.setAttribute('aria-label', toggle.title);
+  if (!error) $('reference-status').textContent=only ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Drawing only';
+  $('reference-state').textContent=reference ? {drawing: 'Hidden', overlay: `${Math.round(reference.opacity*100)}%`, reference: 'Alone', error: 'Error'}[referenceView] : 'None';
   for (const button of document.querySelectorAll('[data-view]')) button.setAttribute('aria-pressed', String(button.dataset.view === referenceView));
   stage.classList.toggle('reference-visible', visible);
   if(reference){$('reference-image').src=reference.data_url;$('reference-thumb').src=reference.data_url;$('reference-image').style.opacity=only ? 1 : reference.opacity;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
   else{$('reference-image').removeAttribute('src');$('reference-thumb').removeAttribute('src');}
+  refreshErrorView();
   scheduleStrip();
 }
 function setView(view) { referenceView = view; showReference(); }

@@ -135,6 +135,16 @@ class Backend:
                         result = self.agents.disable(session_id or "")
                 elif path == "/api/reference":
                     result = {"reference": session.reference}
+                elif path == "/api/reference-error":
+                    session.check_revision(data)
+                    if data.get("view") is not None:
+                        session.set_view(data["view"])
+                    from vectrify.ui.agent import _png
+
+                    result = {
+                        "image": "data:image/png;base64,"
+                        + base64.b64encode(_png(session.reference_error())).decode(),
+                    }
                 elif path == "/api/export":
                     session.check_revision(data)
                     result = {
@@ -269,6 +279,7 @@ class Handler(BaseHTTPRequestHandler):
             "/resize.js": "resize.js",
             "/lines.js": "lines.js",
             "/clipping.js": "clipping.js",
+            "/reference_error.js": "reference_error.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }
