@@ -4,16 +4,14 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+import pathops
 from shapely.errors import GEOSException
-from shapely.geometry import Polygon
 
 from vectrify.document.model import (
     Document,
     DocumentError,
     Element,
     Geometry,
-    PathNode,
-    Subpath,
     new_id,
 )
 
@@ -24,15 +22,24 @@ SOURCE = "data-vectrify-clip-source"
 
 @lru_cache(maxsize=256)
 def inset_geometry(geometry: Geometry, distance: float, rule: str) -> Geometry:
-    """Remove a boundary band before placement, expanding holes as well.
+    """Remove an SVG-style boundary band before placement, expanding holes.
 
-    Resolve fill rules before offsetting, so overlapping contours do not leave
-    interior cuts. Only the derived clip is flattened, within 0.01 local units;
-    the editable source's curves, IDs and shared geometry remain untouched.
+    Resolve fill rules first so overlapping contours leave no interior cuts.
+    SVG bevels miters exceeding its limit; GEOS's clipped miters instead leave
+    unshaded tabs at acute inward corners. Stroke the resolved perimeter with
+    SVG's joins and subtract it, keeping the editable source untouched.
     """
     from vectrify.document.hit_test import _filled, _flatten
+    from vectrify.document.join import curve_path, path_geometry
 
     try:
+        area = pathops.simplify(curve_path(geometry, rule))
+        left, top, right, bottom = area.bounds
+        # A huge but finite inset is an empty clip, not a float32 overflow.
+        if not area.verbs or distance >= min(right - left, bottom - top) / 2:
+            return Geometry(new_id("geometry"), ())
+        # Very wide curved strokes can produce inverted inner offset loops in
+        # Skia. Check collapse independently before subtracting the stroke.
         contours = []
         for sub in geometry.subpaths:
             points = [sub.nodes[0].endpoint]
@@ -48,31 +55,14 @@ def inset_geometry(geometry: Geometry, distance: float, rule: str) -> Geometry:
                 else:
                     points.append(node.endpoint)
             contours.append((tuple(points), sub.closed))
-        area = _filled(tuple(contours), rule)
-        # A huge but finite inset is a valid empty clip, not an overflow in GEOS.
-        if area.is_empty or distance >= max(
-            area.bounds[2] - area.bounds[0], area.bounds[3] - area.bounds[1]
-        ):
+        if _filled(tuple(contours), rule).buffer(-distance).is_empty:
             return Geometry(new_id("geometry"), ())
-        inset = area.buffer(-distance, join_style="mitre", mitre_limit=4)
-        polygons = [inset] if isinstance(inset, Polygon) else list(inset.geoms)
-        subpaths = []
-        for polygon in polygons:
-            if polygon.is_empty:
-                continue
-            for ring in (polygon.exterior, *polygon.interiors):
-                subpaths.append(
-                    Subpath(
-                        new_id("subpath"),
-                        tuple(
-                            PathNode(new_id("node"), "M" if i == 0 else "L", (x, y))
-                            for i, (x, y) in enumerate(list(ring.coords)[:-1])
-                        ),
-                        closed=True,
-                    )
-                )
-        return Geometry(new_id("geometry"), tuple(subpaths))
-    except (GEOSException, OverflowError, ValueError) as exc:
+        band = pathops.Path(area)
+        band.stroke(
+            distance * 2, pathops.LineCap.BUTT_CAP, pathops.LineJoin.MITER_JOIN, 4
+        )
+        return path_geometry(pathops.op(area, band, pathops.PathOp.DIFFERENCE))
+    except (pathops.PathOpsError, GEOSException, OverflowError, ValueError) as exc:
         raise DocumentError("Cannot inset this clipping boundary") from exc
 
 

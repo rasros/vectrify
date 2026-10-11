@@ -82,6 +82,23 @@ def test_boundary_can_be_inside_target_without_cyclic_references():
     assert export_svg(loaded.editor.snapshot.document) == export_svg(doc)
 
 
+def test_inset_matches_beveled_stroke_at_acute_inward_corner():
+    agent = make("""<svg width="100" height="100">
+    <path id="body" fill="green" stroke="black" stroke-width="2"
+      d="M10 10 L45 10 L50 70 L55 10 L90 10 L90 90 L10 90 Z"/>
+    <path id="shade" fill="blue" d="M0 0 L100 0 L100 100 L0 100 Z"/>
+    </svg>""")
+    before = agent.session.editor.snapshot.document
+    call(agent, "clip", ids=["shade"], boundary=["body"], inset=1)
+    after = agent.session.editor.snapshot.document
+    assert after.element("body") == before.element("body")
+    p = pixels(after)
+    assert tuple(p[68, 50, :3]) == (0, 0, 0)  # outline stays visible
+    # SVG bevels a miter exceeding its limit; the clip must stop there too,
+    # rather than extending a rectangular unshaded tab below the notch.
+    assert tuple(p[72, 50, :3]) == (0, 0, 255)
+
+
 @pytest.mark.parametrize("linked", [True, False])
 def test_boundary_node_updates_follow_only_linked_geometry(linked):
     agent = make()
