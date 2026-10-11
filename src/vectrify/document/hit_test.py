@@ -365,8 +365,13 @@ class HitIndex:
         tag = element.tag
         if tag == "path":
             assert element.geometry_id is not None  # Document.validate checked this.
+            geometry = self._geometries[element.geometry_id]
+            if element.get("data-vectrify-clip-inset"):
+                from vectrify.document.clipping import clip_geometry
+
+                geometry = clip_geometry(self.document, element)
             contours = []
-            for subpath in self._geometries[element.geometry_id].subpaths:
+            for subpath in geometry.subpaths:
                 if len(subpath.nodes) < 2:
                     continue
                 points = [subpath.nodes[0].endpoint]

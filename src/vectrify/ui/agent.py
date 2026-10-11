@@ -1602,6 +1602,7 @@ class Agent:
         boundary: Any = None,
         action: str = "set",
         linked: bool = True,
+        inset: float = 0.0,
     ) -> Reply:
         from vectrify.ui.agent_clipping import apply
 
@@ -1610,15 +1611,20 @@ class Agent:
             raise DocumentError("Clip action is set or remove")
         if not isinstance(linked, bool):
             raise DocumentError("linked must be true or false")
+        inset = _finite(inset, "inset")
+        if inset < 0:
+            raise DocumentError("Clipping inset cannot be negative")
         sources = _targets(boundary) if boundary is not None else []
         if action == "set" and not sources:
             raise DocumentError("Give boundary paths to clip to")
         if action == "remove" and sources:
             raise DocumentError("Remove clipping without a boundary")
+        if action == "remove" and inset:
+            raise DocumentError("Remove clipping without an inset")
         relationships = []
 
         def edit() -> None:
-            relationships.extend(apply(self, targets, sources, action, linked))
+            relationships.extend(apply(self, targets, sources, action, linked, inset))
 
         reply = self._edit(
             seen, [edit], "Set clipping" if sources else "Remove clipping"

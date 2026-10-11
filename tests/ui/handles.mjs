@@ -25,7 +25,7 @@ const context = vm.createContext({
   contourAt: () => ({nodes, closed}), selectedPoints: () => selected, pointPaths: () => ['p'],
   selectPoints: (_objects, points) => { selected = points; vm.runInContext('activeHandle = null', context); },
   geometryNodes: () => nodes,
-  svgElement: () => ({setAttribute() {}}), localToOverlay: () => ({inverse() { return this; }}), sharingPaths: () => [], renderDrawing() {},
+  svgElement: () => ({hasAttribute() { return false; }, setAttribute() {}}), localToOverlay: () => ({inverse() { return this; }}), sharingPaths: () => [], renderDrawing() {},
   startGesture: (_kind, _event, _common, details) => { context.drag = details; },
   renderNodeInspector() {}, renderInspector() {}, drawOverlay() {},
   action: (command, data) => { sent.push({command, data}); },

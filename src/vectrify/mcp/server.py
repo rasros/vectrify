@@ -392,6 +392,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         boundary: Ids | None = None,
         action: Literal["set", "remove"] = "set",
         linked: bool = True,
+        inset: float = 0.0,
     ) -> CallToolResult:
         """Clip objects or groups to the union of closed boundary paths.
 
@@ -400,12 +401,22 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         be inside its target group. Each target gets its own transformed clip.
         linked=true shares path geometry, so node edits update the boundary;
         false copies it. Placement is captured: call again after transforming
-        or reparenting a source. set replaces existing clipping; remove clears
-        it (omit boundary). Use edit_batch to preview and apply as one undo step.
+        or reparenting a source. inset >= 0 removes a band from each boundary
+        before their union, in source-local units; holes grow and narrow areas
+        can disappear. Use half a body's stroke width to protect its outline
+        from later shading. Linked insets follow node edits. set replaces
+        existing clipping; remove clears it (omit boundary and inset). Use
+        edit_batch to preview and apply as one undo step.
         """
         return state.call(
             "clip",
-            {"ids": ids, "boundary": boundary, "action": action, "linked": linked},
+            {
+                "ids": ids,
+                "boundary": boundary,
+                "action": action,
+                "linked": linked,
+                "inset": inset,
+            },
         )
 
     @tool(structured_output=False)

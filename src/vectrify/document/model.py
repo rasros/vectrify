@@ -415,6 +415,15 @@ class Document:
             if element.tag == "path":
                 if element.geometry_id not in known_geometries:
                     raise DocumentError("Path must reference existing geometry")
+                if element.get("data-vectrify-clip-inset") is not None:
+                    assert element.geometry_id is not None
+                    geometry = self.geometry(element.geometry_id)
+                    if parents.get(element.id) != "clipPath" or any(
+                        not sub.closed for sub in geometry.subpaths
+                    ):
+                        raise DocumentError(
+                            "Clipping inset requires a closed clip boundary path"
+                        )
             elif element.geometry_id is not None:
                 raise DocumentError("Only paths may own geometry")
             if element.paint_owner is not None:
