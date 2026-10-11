@@ -76,6 +76,43 @@ def test_follow_does_not_skip_a_small_actual_shared_edge_change():
     assert (10.000001, 5) in points(followed, "b")
 
 
+@pytest.mark.parametrize("selected", ["a", "b"])
+@pytest.mark.parametrize("aligned", [False, True])
+def test_follow_preserves_surviving_points_handle_alignment(selected, aligned):
+    document = import_svg(SIDE)
+    neighbour = "b" if selected == "a" else "a"
+    geometry = document.geometry_for(neighbour)
+    geometry = replace(
+        geometry,
+        subpaths=tuple(
+            replace(
+                s, nodes=tuple(replace(n, handles_aligned=aligned) for n in s.nodes)
+            )
+            for s in geometry.subpaths
+        ),
+    )
+    document = document.replace_geometry(geometry)
+    found = links(document, [selected], [neighbour])
+    updated = reshaped(
+        document,
+        selected,
+        lambda nodes: [
+            replace(n, command="C", values=(11, 2, 11, 4, 10, 5))
+            if n.endpoint == (10, 5)
+            else n
+            for n in nodes
+        ],
+    )
+    followed, changed = follow(updated, found)
+    assert changed == {neighbour}
+    assert followed.geometry_for(neighbour) != geometry
+    for subpath in geometry.subpaths:
+        for node in subpath.nodes:
+            assert followed.geometry_for(neighbour).node(node.id).handles_aligned == (
+                aligned
+            )
+
+
 def test_an_overlap_stops_being_an_intact_shared_run():
     document = import_svg(SIDE)
     forward = links(document, ["a"], ["b"])[0]

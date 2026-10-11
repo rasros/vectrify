@@ -796,6 +796,51 @@ def neighbours_reference():
     return image
 
 
+@pytest.mark.parametrize("selected", [("left",), ("left", "right")])
+def test_tidy_keeps_straighten_handles_enabled_on_shared_points(selected):
+    from vectrify.refine.simplify import curved
+
+    document = import_svg(NEIGHBOURS)
+    checked = {}
+    for oid in ("left", "right"):
+        geometry = curved(document.geometry_for(oid))
+        point = next(
+            n for s in geometry.subpaths for n in s.nodes if n.endpoint == (32, 24)
+        )
+        checked[oid] = point.id
+        document = document.replace_geometry(
+            geometry.replace_node(replace(point, handles_aligned=True))
+        )
+    ed = Editor(document, selection=Selection(object_ids=frozenset(selected)))
+    job = Job(
+        method("improve", "nodes"),
+        OperationRequest(
+            "improve",
+            "nodes",
+            ed.snapshot,
+            ed,
+            Permissions(geometry=True, structure=True),
+            settings={"shape": False, "simplify": False, "workers": 1},
+            budget=Budget(steps=2),
+            reference=neighbours_reference(),
+        ),
+    )
+    job.run()
+    assert job.state()["result"]["changed"]
+    job.apply()
+    for oid, node_id in checked.items():
+        point = ed.snapshot.document.geometry_for(oid).node(node_id)
+        assert point.endpoint != (32, 24)
+        assert point.handles_aligned
+    ed.undo()
+    assert ed.snapshot.document == document
+    ed.redo()
+    assert all(
+        ed.snapshot.document.geometry_for(oid).node(node_id).handles_aligned
+        for oid, node_id in checked.items()
+    )
+
+
 def test_shared_edges_follow_when_both_paths_are_selected():
     ed = Editor(
         import_svg(NEIGHBOURS),

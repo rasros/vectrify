@@ -413,20 +413,25 @@ def _redrawn(geometry: Geometry, link: Link, segments) -> Geometry | None:
     old = nodes[first + 1 : first + steps + 1]
     if len(old) != steps:
         return None
-    # The run's end keeps its point's ID; its points in between keep theirs
-    # as far as they go.
-    spare = [n.id for n in old[:-1]]
+    # Surviving points keep their own handle settings and other metadata,
+    # including at the run's end. Only newly inserted points use defaults.
+    spare = list(old[:-1])
     new = []
     for i, points in enumerate(segments):
         if i == len(segments) - 1:
-            node_id = old[-1].id
+            original = old[-1]
         else:
-            node_id = spare.pop(0) if spare else new_id("node")
+            original = spare.pop(0) if spare else None
         end = points[-1]
         if len(points) == 2:
-            new.append(PathNode(node_id, "L", (end[0], end[1])))
+            command, values = "L", (end[0], end[1])
         else:
-            new.append(PathNode(node_id, "C", tuple(v for p in points[1:] for v in p)))
+            command, values = "C", tuple(v for p in points[1:] for v in p)
+        new.append(
+            replace(original, command=command, values=values)
+            if original is not None
+            else PathNode(new_id("node"), command, values)
+        )
     if any(n.pinned for n in old):
         return None
     nodes[first + 1 : first + steps + 1] = new
