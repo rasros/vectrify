@@ -29,11 +29,11 @@ const context = vm.createContext({
   $: () => ({getBoundingClientRect: () => bounds}),
   svgElement: () => element,
   screenMatrix: element => element.getScreenCTM(),
-  object: id => ({id, tag: 'path', attributes: {}}),
+  object: id => ({id, parent: 'root', tag: 'path', attributes: {}}),
   level: () => 'objects', clickTargets: ids => ids,
   hitStack: () => [...hits], topSelection: () => vm.runInContext('state.selection.objects', context),
   point: event => new Point(event.clientX, event.clientY), localToOverlay: () => matrix,
-  resizeRefusal: () => refusal, toast: message => warnings.push(message), drawOverlay() {}, revealObject() {},
+  resizeRefusal: () => refusal, toast: message => warnings.push(message), drawOverlay() {}, revealObject() {}, focusSelection() {},
   selectedPoints: () => [],
   action: async (command, data) => {
     if (command === 'select') {
@@ -45,7 +45,7 @@ const context = vm.createContext({
   },
 });
 vm.runInContext(`
-  let state = {selection: {objects: []}}, clickCycle = null, lastPick = null;
+  let state = {root: 'root', selection: {objects: []}}, clickCycle = null, lastPick = null;
   let drag = null, tool = 'select', space = false, scope = null, focusPoint = null;
   let selectionBox = null;
   const DOUBLE_CLICK = 400, FRAME_REACH = 6;
@@ -80,6 +80,39 @@ const click = async (x, y, timeStamp, extra = {}) => {
   const event = {clientX: x, clientY: y, timeStamp, pointerId: 1, button: 0, ...extra};
   press(event); await release(event);
 };
+
+// Ordinary clicks toggle a lone object in either object tool, even at its frame.
+for (const tool of ['select', 'move']) {
+  for (const [x, y] of [[200, 150], [300, 150], [300, 200]]) {
+    reset(); hits = ['front']; context.tool = tool; context.frame = frame;
+    vm.runInContext('tool = globalThis.tool', context);
+    await click(x, y, 0);
+    vm.runInContext('selectionBox = frame', context);
+    await click(x, y, 600);
+    await click(x, y, 1200);
+    assert.deepEqual(picked, [['front'], [], ['front']]);
+    assert.equal(edits.length, 0);
+  }
+}
+vm.runInContext("tool = 'select'", context);
+
+// Clicking a selected member removes only that member; a new object replaces.
+reset(); hits = ['front'];
+vm.runInContext("state.selection.objects = ['front', 'middle']", context);
+await click(200, 150, 0);
+assert.deepEqual(picked, [['middle']]);
+await click(200, 150, 600);
+assert.deepEqual(picked.at(-1), ['front']);
+
+// Tree clicks use the same toggle without changing explicit selection requests.
+reset();
+const selectObject = vm.runInContext('selectObject', context);
+await selectObject('front', false, true, true);
+await selectObject('front', false, true, true);
+assert.deepEqual(picked, [['front'], []]);
+await selectObject('front');
+await selectObject('front');
+assert.deepEqual(picked.slice(-2), [['front'], ['front']]);
 
 // Once a frame appears under the click, its edges and corners still cycle.
 for (const [x, y] of [[100, 150], [300, 150], [200, 100], [200, 200], [100, 100], [300, 100], [300, 200], [100, 200]]) {
