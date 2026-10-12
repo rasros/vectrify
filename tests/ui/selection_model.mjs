@@ -1,6 +1,6 @@
 // Checks the two-level selection's transitions; run by test_selection_model.py.
 import assert from 'node:assert/strict';
-import {boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
+import {boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionContains, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
 
 // The drawing holds group trees (group pines (a, b), c) and d.
 const parents = new Map([['trees', 'root'], ['pines', 'trees'], ['a', 'pines'], ['b', 'pines'], ['c', 'trees'], ['d', 'root']]);
@@ -21,14 +21,22 @@ assert.deepEqual(switchTool({objects: ['a'], points: [], memory: hidden.memory},
 assert.deepEqual(switchTool({objects: ['a', 'b'], points: [], memory: hidden.memory}, 'select', 'move'), {points: [], memory: hidden.memory});
 assert.deepEqual(switchTool({objects: ['a', 'b'], points: [], memory: hidden.memory}, 'move', 'nodes'), {points: ['a n1', 'b n2'], memory: null});
 
-// Clicks pick the outermost group, or within the entered one.
-assert.deepEqual(pickTarget('a', null, parents, 'root'), {id: 'trees', scope: null});
-assert.deepEqual(pickTarget('a', 'trees', parents, 'root'), {id: 'pines', scope: 'trees'});
+// Clicks pick the deepest shape whether or not a containing group was entered.
+assert.deepEqual(pickTarget('a', null, parents, 'root'), {id: 'a', scope: null});
+assert.deepEqual(pickTarget('a', 'trees', parents, 'root'), {id: 'a', scope: 'trees'});
 assert.deepEqual(pickTarget('a', 'pines', parents, 'root'), {id: 'a', scope: 'pines'});
 assert.deepEqual(pickTarget('d', null, parents, 'root'), {id: 'd', scope: null});
 // A click outside the entered group leaves it.
 assert.deepEqual(pickTarget('d', 'pines', parents, 'root'), {id: 'd', scope: null});
+assert.deepEqual(pickTarget('c', 'pines', parents, 'root'), {id: 'c', scope: null});
 assert.deepEqual(scopeChain('pines', parents, 'root'), ['trees', 'pines']);
+
+// Dragging a shape in a selected group still moves that group.
+assert.ok(selectionContains(['trees'], 'a', parents, 'root'));
+assert.ok(selectionContains(['pines'], 'a', parents, 'root'));
+assert.ok(selectionContains(['a'], 'a', parents, 'root'));
+assert.ok(!selectionContains(['pines'], 'c', parents, 'root'));
+assert.ok(!selectionContains([], 'a', parents, 'root'));
 
 // Escape: points to their paths, a path to its group, out of the entered
 // group, then to nothing.

@@ -36,15 +36,18 @@ function ancestry(id, parents, root) {
   return chain;
 }
 
-// What a click on *hit* (a painted leaf) picks in an object tool: the
-// outermost object inside the entered group *scope*, or inside the drawing.
+// A click on a painted leaf picks that leaf, including inside nested groups.
 // A hit outside the entered group leaves it. Returns {id, scope}.
 export function pickTarget(hit, scope, parents, root) {
   const chain = ancestry(hit, parents, root);
   if (!chain.length) return {id: null, scope};
-  const inside = scope ? chain.indexOf(scope) : chain.length;
-  if (inside < 0) return {id: chain.at(-1), scope: null};
-  return {id: chain[Math.max(0, inside - 1)], scope};
+  return {id: hit, scope: scope && !chain.includes(scope) ? null : scope};
+}
+
+// A selected group carries its descendants when dragged, even though clicking
+// one of those descendants selects the leaf itself.
+export function selectionContains(objects, hit, parents, root) {
+  return ancestry(hit, parents, root).some(id => objects.includes(id));
 }
 
 // The groups from the drawing down to the entered group, outermost first.
