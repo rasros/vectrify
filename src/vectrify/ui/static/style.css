@@ -319,3 +319,5 @@ button[data-command="straighten-handles"][aria-pressed=mixed] { border-color: #6
 #overlay .clipping-boundary.selected .clipping-hit .selection-contour{stroke:transparent}
 #clipping-toggle{font-size:10px;padding:5px 7px;white-space:nowrap}
 #clipping-toggle[aria-pressed=true]{border-color:#e6b879;color:#e6b879}
+
+.two-fields select{display:block;width:100%;margin-top:7px;padding:7px;font-size:11px}#path-end-controls>select{width:100%}

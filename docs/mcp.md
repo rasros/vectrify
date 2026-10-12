@@ -340,7 +340,8 @@ undo are no longer accepted. Edit replies include `edit_id`. Restoring an
 older entry preserves unrelated later edits and refuses conflicts atomically.
 
 **Objects**: `properties(ids, fill?, stroke?, stroke_width?, opacity?,
-fill_opacity?, stroke_opacity?, name?, locks?)` (paint; a name, with one id
+fill_opacity?, stroke_opacity?, stroke_linecap?, stroke_linejoin?,
+stroke_miterlimit?, start_arrow?, end_arrow?, name?, locks?)` (paint; a name, with one id
 only; locks, an empty list unlocking; unlocking runs before the other
 changes and locking after them, all one step), `transform(ids, dx?, dy?,
 scale?, anchor?, box?)` (move and/or scale about an anchor, or fit the
@@ -659,3 +660,13 @@ Use `add_path(parent=clipped_group, ...)` to create further paint inside the
 boundary. Path coordinates retain the usual root-space convention, and the
 new path inherits the group's clipping. Keep any outer stroke as a sibling
 above the clipped group when it should straddle the visible edge.
+
+### Stroke endpoint styles
+
+`properties` accepts `stroke_linecap="butt" | "round" | "square"`,
+`stroke_linejoin="miter" | "round" | "bevel"`, and `stroke_miterlimit >= 1`.
+`start_arrow` and `end_arrow` each accept `"none"` or `"arrow"`. Arrowheads
+follow every open contour's editable endpoints and inherit stroke colour and
+width. They are included in painted bounds and hit testing; closed contours
+have no arrowheads. All settings use the existing paint permissions, locks,
+undo, and staged-batch behavior.

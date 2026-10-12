@@ -13,6 +13,7 @@ import pathops
 from shapely import make_valid
 from shapely.geometry import Polygon
 
+from vectrify.document.arrows import ARROWS
 from vectrify.document.components import disconnected_parts
 from vectrify.document.editor_handles import (
     carry_handles,
@@ -400,7 +401,7 @@ class Editor:
     def set_locks(self, object_id: str, locks: frozenset[str]) -> Snapshot:
         """Explicit user command; operation transactions cannot unlock objects."""
         element = self._document.element(object_id)
-        known = set(EditKind) | PAINT | GEOMETRY[element.tag] | {"transform"}
+        known = set(EditKind) | PAINT | ARROWS | GEOMETRY[element.tag] | {"transform"}
         if not locks <= known:
             raise DocumentError("Unknown property lock")
         document = self._document.replace_element(
@@ -764,7 +765,7 @@ class Transaction:
                     continue
                 kind = (
                     EditKind.PAINT
-                    if key in PAINT
+                    if key in PAINT | ARROWS
                     else EditKind.TRANSFORM
                     if key == "transform"
                     else EditKind.GEOMETRY

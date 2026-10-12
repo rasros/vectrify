@@ -31,6 +31,7 @@ from vectrify.document import (
     load_project,
     save_project,
 )
+from vectrify.document.arrows import ARROWS, is_open
 from vectrify.document.clipboard import copy_objects, paste_objects
 from vectrify.document.editor import Transaction
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
@@ -421,6 +422,7 @@ class Session:
                     "parent": ancestors[-2].id,
                     "depth": len(ancestors) - 2,
                     "resource": any(e.tag in {"defs", "clipPath"} for e in ancestors),
+                    "open_path": is_open(document, element),
                     "shared": element.geometry_id is not None
                     and users[element.geometry_id] > 1,
                     "attributes": dict(element.attributes),
@@ -1174,14 +1176,22 @@ class Session:
         selected = self._object_selection().object_ids
         with self._object_transaction(payload["command"]) as tx:
             changes = payload["changes"]
-            if not isinstance(changes, dict) or not changes.keys() <= {
-                "fill",
-                "stroke",
-                "stroke-width",
-                "opacity",
-                "fill-opacity",
-                "stroke-opacity",
-            }:
+            if (
+                not isinstance(changes, dict)
+                or not changes.keys()
+                <= {
+                    "fill",
+                    "stroke",
+                    "stroke-width",
+                    "opacity",
+                    "fill-opacity",
+                    "stroke-opacity",
+                    "stroke-linecap",
+                    "stroke-linejoin",
+                    "stroke-miterlimit",
+                }
+                | ARROWS
+            ):
                 raise DocumentError("Unsupported paint property")
             fill = changes.get("fill")
             if isinstance(fill, dict):
@@ -1495,6 +1505,7 @@ class Session:
                         "stroke-linecap": None,
                         "stroke-linejoin": None,
                         "stroke-miterlimit": None,
+                        **dict.fromkeys(ARROWS),
                     }
                 tx.replace_geometry(path.id, line)
                 tx.set_attributes(path.id, changes)

@@ -9,6 +9,7 @@ import math
 import re
 from xml.etree import ElementTree as ET
 
+from vectrify.document.arrows import ARROWS, OWNER
 from vectrify.document.model import (
     Document,
     DocumentError,
@@ -165,6 +166,8 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
         _validate_gradient(tag, attributes)
         return
     allowed = GEOMETRY[tag] | PAINT | {"transform", "clip-path"}
+    if tag in {"path", "line"}:
+        allowed |= ARROWS
     if tag == "path":
         allowed |= {
             "data-vectrify-outline-source",
@@ -184,9 +187,13 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
             or float(value) < 0
         ):
             raise DocumentError("Clipping inset must be a finite nonnegative number")
+        if name in ARROWS and value not in {"none", "arrow"}:
+            raise DocumentError(f"Unsupported {name}: {value}")
         if name in NUMERIC:
             if not re.fullmatch(NUMBER, value) or not math.isfinite(float(value)):
                 raise DocumentError(f"{name} must be a finite number in document units")
+            if name == "stroke-miterlimit" and float(value) < 1:
+                raise DocumentError("Stroke miter limit must be at least 1")
             if (
                 name
                 in {
@@ -424,6 +431,52 @@ def import_svg(svg: str) -> Document:
     issues: list[str] = []
     geometries: list[Geometry] = []
     _inline_gradient_links(root, issues)
+    owners = {n.get("id"): n for n in root.iter() if n.get("id")}
+    for parent in list(root.iter()):
+        for child in list(parent):
+            owner = child.get(OWNER)
+            if owner is None:
+                continue
+            source = owners.get(owner)
+            if (
+                child.tag.rsplit("}", 1)[-1] != "path"
+                or len(child)
+                or source is None
+                or not any(source.get(k) == "arrow" for k in ARROWS)
+                or set(child.attrib)
+                - {
+                    "id",
+                    "d",
+                    OWNER,
+                    "fill",
+                    "stroke",
+                    "fill-opacity",
+                    "opacity",
+                    "transform",
+                    "clip-path",
+                }
+            ):
+                issues.append("Invalid generated arrow decoration")
+            else:
+                try:
+                    validate_attributes(
+                        "path",
+                        {
+                            k: v
+                            for k, v in child.attrib.items()
+                            if k not in {"id", "d", OWNER}
+                        },
+                    )
+                    parse_path(child.get("d", ""))
+                    if (
+                        child.tag not in {"path", "{" + SVG + "}path"}
+                        or (child.text and child.text.strip())
+                        or (child.tail and child.tail.strip())
+                    ):
+                        raise DocumentError("Invalid arrow decoration content")
+                except DocumentError as exc:
+                    issues.append(str(exc))
+                parent.remove(child)
 
     def read(node: ET.Element, parent: str | None = None) -> Element:
         if node.tag.startswith("{") and not node.tag.startswith("{" + SVG + "}"):
@@ -539,7 +592,32 @@ def export_svg(document: Document) -> str:
         if "href" in attrs:
             attrs["xlink:href"] = attrs.pop("href")
         node = ET.Element(element.tag, attrs)
-        node.extend(write(child) for child in element.children)
+        for child in element.children:
+            node.append(write(child))
+            if any(child.get(key) == "arrow" for key in ARROWS) and not any(
+                a.tag in {"defs", "clipPath"} for a in document.ancestry(child.id)
+            ):
+                from vectrify.document.arrows import triangles
+                from vectrify.document.join import path_style
+
+                style = path_style(document, child)
+                width = float(style["stroke-width"])
+                if style["stroke"] != "none":
+                    for _, triangle in triangles(document, child, width):
+                        arrow = {
+                            OWNER: child.id,
+                            "fill": style["stroke"],
+                            "stroke": "none",
+                            "fill-opacity": style["stroke-opacity"],
+                            "d": "M"
+                            + " L".join(f"{x:.12g} {y:.12g}" for x, y in triangle)
+                            + " Z",
+                        }
+                        for key in ("transform", "clip-path", "opacity"):
+                            value = child.get(key)
+                            if value is not None:
+                                arrow[key] = value
+                        node.append(ET.Element("path", arrow))
         return node
 
     root = write(document.root)

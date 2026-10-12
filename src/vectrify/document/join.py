@@ -38,6 +38,12 @@ def path_style(document: Document, element: Element) -> dict[str, str]:
         style.update(
             (k, v) for k, v in ancestor.attributes if k in PAINT and k != "opacity"
         )
+    from vectrify.document.arrows import ARROWS
+
+    for key in ARROWS:
+        value = element.get(key)
+        if value is not None:
+            style[key] = value
     style["opacity"] = element.get("opacity", "1") or "1"
     return style
 
