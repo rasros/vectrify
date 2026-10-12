@@ -896,7 +896,7 @@ const COMMANDS = [
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
   {id: 'join', name: 'Join', label: () => joinOpensDialog() ? 'Join…' : 'Join', group: 'Actions', keys: 'Ctrl/⌘ J', keywords: 'merge union connect ends dashed broken lines strokes gaps close points', run: join,
     disabled: () => !twoEnds() && (level() === 'points' ? 'Select the two points to join, or paths in Select'
-      : joinCandidates().length < 2 && !linePaths().length && 'Select two or more paths, or lines whose ends to join')},
+      : joinCandidates().length < 2 && !linePaths().length && !fillPaths().length && 'Select a filled path, paths to merge, or lines whose ends to join')},
   {id: 'combine-paths', name: 'Combine paths', group: 'Actions', keywords: 'compound collect contours preserve geometry combine',
     run: () => action('combine_paths', {}, 'Combining paths…'),
     disabled: () => joinCandidates().length < 2 && 'Select two or more paths, or groups containing them'},
@@ -2707,7 +2707,7 @@ function openJoin() {
     toast('Select paths or groups containing at least two paths in total.',true); return;
   }
   joinContext = {key:joinSelectionKey(), candidates};
-  $('join-summary').textContent = `Combine ${candidates.length} paths into one geometry.`;
+  $('join-summary').textContent = `Join ${candidates.length} paths into one outline. Overlapping filled areas merge into their union.`;
   $('join-error').hidden = true;
   const options = document.createDocumentFragment();
   function option(value, title, detail, item = null) {
@@ -2755,10 +2755,12 @@ $('join-confirm').onclick = async () => {
   } finally { $('join-confirm').disabled = false; $('join-cancel').disabled = false; }
 };
 // Join: two selected points join each other; lines join the ends that
-// continue them nearby; filled paths merge by area, after choosing colours.
+// continue them nearby; a filled path unions its contours; multiple filled
+// paths merge by area, after choosing colours.
 const joinOpensDialog = () => !twoEnds() && joinCandidates().length > 1 && linePaths().length < joinCandidates().length;
 function join() {
   if (twoEnds()) return action('join_two_ends', {points: pointPairs()}, 'Joining ends…');
+  if (joinCandidates().length === 1 && fillPaths().length === 1) return action('join_paths', {}, 'Joining overlapping contours…');
   return joinOpensDialog() ? openJoin() : joinEnds();
 }
 // Every selected line joins the ends that continue it nearby.

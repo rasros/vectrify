@@ -17,7 +17,7 @@ from vectrify.document.hit_test import (
     multiply,
     transform,
 )
-from vectrify.document.model import Document, DocumentError, Element, Geometry
+from vectrify.document.model import Document, DocumentError, Element, Geometry, Subpath
 from vectrify.document.paint import solid_paint
 from vectrify.document.svg import PAINT, parse_path
 
@@ -150,9 +150,47 @@ def union_geometry(
             )
         if result is None:
             raise DocumentError("No regions to join")
+        if len(geometries) == 1:
+            result = pathops.simplify(result)
         return path_geometry(result)
     except pathops.PathOpsError as exc:
         raise DocumentError("Could not resolve the selected region contours") from exc
+
+
+def union_contours(geometry: Geometry, rule: str) -> Geometry:
+    """Union a compound path's regions, keeping nested hole rings with theirs."""
+    from shapely import STRtree, make_valid
+    from shapely.geometry import Polygon
+
+    from vectrify.document.components import disconnected_parts
+    from vectrify.document.holes import ring_points
+
+    rings = [ring_points(s) for s in geometry.subpaths]
+    polygons = [Polygon(points) if len(points) >= 3 else Polygon() for points in rings]
+    if all(p.is_valid for p in polygons) and all(
+        len(part) < 2 for part in disconnected_parts(geometry, filled=True)
+    ):
+        return geometry
+    shapes = [make_valid(polygon) for polygon in polygons]
+    tree = STRtree(shapes)
+    parents = []
+    for i, shape in enumerate(shapes):
+        # A nested contour belongs to its smallest containing ring. Partial
+        # overlaps are separate regions to union, regardless of their winding.
+        containers = [
+            int(j)
+            for j in tree.query(shape)
+            if shapes[int(j)].area > shape.area and shapes[int(j)].covers(shape)
+        ]
+        parents.append(min(containers, key=lambda j: shapes[j].area, default=i))
+    regions: dict[int, list[Subpath]] = {}
+    for i, sub in enumerate(geometry.subpaths):
+        root = i
+        while parents[root] != root:
+            root = parents[root]
+        regions.setdefault(root, []).append(sub)
+    geometries = [replace(geometry, subpaths=tuple(subs)) for subs in regions.values()]
+    return union_geometry(geometries, [{"fill-rule": rule}] * len(geometries))
 
 
 def transformed_geometry(geometry: Geometry, matrix: Matrix) -> Geometry:

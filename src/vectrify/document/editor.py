@@ -47,6 +47,7 @@ from vectrify.document.join import (
     path_geometry,
     path_style,
     transformed_geometry,
+    union_contours,
     union_geometry,
 )
 from vectrify.document.knife import cut_geometry, cut_strokes
@@ -1763,7 +1764,7 @@ class Transaction:
     def join_paths(
         self, object_ids: frozenset[str], *, color_source: str | None = None
     ) -> str:
-        """Join regions at the frontmost position with mixed or source colors."""
+        """Union one path's contours, or join paths with mixed or source colors."""
         return self._merge_paths(object_ids, color_source)
 
     def combine_paths(
@@ -1837,12 +1838,18 @@ class Transaction:
     ) -> str:
         document = self._working
         paths = [document.element(oid) for oid in object_ids]
-        if len(paths) < 2 or any(p.tag != "path" for p in paths):
+        if (
+            not paths
+            or (combine and len(paths) < 2)
+            or any(p.tag != "path" for p in paths)
+        ):
             raise EditRejectedError(
                 "Select at least two paths, or a group containing only paths"
             )
         if color_source is not None and color_source not in {p.id for p in paths}:
             raise EditRejectedError("Choose a color source from the paths being joined")
+        if len(paths) == 1:
+            return self._join_contours(paths[0])
         parents = {document.ancestry(p.id)[-2].id for p in paths}
         if len(parents) != 1:
             return self._join_across_groups(paths, color_source, combine=combine)
@@ -1963,6 +1970,41 @@ class Transaction:
         self._ids = (self._ids - removed) | {joined.id}
         self._record_object_remap({oid: {joined.id} for oid in removed})
         return joined.id
+
+    def _join_contours(self, path: Element) -> str:
+        document = self._working
+        if any(a.tag in {"defs", "clipPath"} for a in document.ancestry(path.id)):
+            raise EditRejectedError("Join drawing paths, not definitions or instances")
+        style = path_style(document, path)
+        if style["fill"] == "none":
+            raise EditRejectedError("Select a filled path to union its contours")
+        original = document.geometry_for(path.id)
+        affected = document.dependents({path.id})
+        self._authorize(affected, EditKind.STRUCTURE)
+        self._authorize(affected, EditKind.GEOMETRY)
+        if len(document.geometry_users(original.id)) > 1:
+            raise EditRejectedError("Detach shared geometry before joining")
+        if any(path.id in references(e) for e in document.elements()):
+            raise EditRejectedError("Detach references to this object before joining")
+        geometry = union_contours(original, style["fill-rule"])
+        if geometry is original:
+            return path.id
+        if any(n.pinned for s in original.subpaths for n in s.nodes):
+            raise EditRejectedError(
+                "Unpin selected regions before joining overlapping contours"
+            )
+        if style["fill-rule"] != "nonzero":
+            self._authorize(affected, EditKind.PAINT, "fill-rule")
+            attrs = dict(path.attributes)
+            attrs["fill-rule"] = "nonzero"
+            self._working = document.replace_element(
+                replace(path, attributes=tuple(attrs.items()))
+            )
+        self._working = self._working.replace_geometry(
+            replace(geometry, id=original.id)
+        )
+        self._record_removed_nodes(original.subpaths, geometry.subpaths)
+        return path.id
 
     def _join_across_groups(
         self,

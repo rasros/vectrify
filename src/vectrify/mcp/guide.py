@@ -143,8 +143,9 @@ for `coords="local"`.
   geometry into an editable path of its own), `delete(ids)`, `knife`.
 - `join` is the editor's Join: `join(points=[a, b])` joins two points;
   `join(ids)` joins stroked lines at their ends within `reach`, or merges
-  filled paths into one outline (`color_source` picks the paint). `joined`
-  in the answer says which it did.
+  filled paths into one outline (`color_source` picks the paint). With one
+  filled path, it unions overlapping contours while preserving holes and
+  paint. `joined` in the answer says which it did.
 - `combine(ids, paint_source?)` collects paths or path-only groups into one
   compound path, preserving all contours without connecting or unioning them.
   The entire paint comes from the frontmost path, or `paint_source`.

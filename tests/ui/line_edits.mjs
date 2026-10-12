@@ -70,3 +70,35 @@ assert.ok(!group.disabled());
 const combineStart = source.indexOf("{id: 'combine-paths'");
 const combine = vm.runInContext(`(${source.slice(combineStart, source.indexOf(",\n  {id: 'convert-lines'", combineStart))})`, context);
 assert.ok(!combine.disabled());
+
+// A filled compound path can already be one object: Join must remain visible
+// and union its contours directly, without routing to line ends or a colour dialog.
+const edits = [];
+let candidates = [{id: 'a'}], fills = candidates, lines = [], points = false;
+const joinContext = vm.createContext({
+  joinCandidates: () => candidates,
+  fillPaths: () => fills,
+  linePaths: () => lines,
+  twoEnds: () => points,
+  level: () => 'objects',
+  action: (...args) => edits.push(args),
+  pointPairs: () => [['a', 'n1'], ['a', 'n2']],
+  joinEnds: () => edits.push(['join_ends']),
+  openJoin: () => edits.push(['dialog']),
+});
+vm.runInContext(source.slice(source.indexOf('// Join: two selected points'), source.indexOf('// Every selected line')), joinContext);
+const joinStart = source.indexOf("{id: 'join'");
+const joinCommand = vm.runInContext(`(${source.slice(joinStart, source.indexOf(",\n  {id: 'combine-paths'", joinStart))})`, joinContext);
+assert.ok(!joinCommand.disabled());
+assert.equal(joinCommand.label(), 'Join');
+joinCommand.run();
+assert.equal(edits.at(-1)[0], 'join_paths');
+candidates = [{id: 'a'}, {id: 'b'}]; fills = candidates;
+assert.equal(joinCommand.label(), 'Join…');
+joinCommand.run(); assert.equal(edits.at(-1)[0], 'dialog');
+candidates = [{id: 'a'}]; fills = []; lines = candidates;
+joinCommand.run(); assert.equal(edits.at(-1)[0], 'join_ends');
+points = true;
+joinCommand.run(); assert.equal(edits.at(-1)[0], 'join_two_ends');
+points = false; candidates = []; lines = [];
+assert.ok(joinCommand.disabled());

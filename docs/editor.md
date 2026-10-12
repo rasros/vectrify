@@ -371,6 +371,13 @@ and saved projects restore it.
   selected points join each other, as above; lines join at their ends, below;
   and filled paths merge by area, through a dialog (**Join…**). In a point
   tool it needs the two points.
+- With a single filled path selected, **Join** unions overlapping contours
+  inside that path and resolves self-intersections, removing internal seams.
+  Nested hole rings stay with their surrounding regions; a region overlapping
+  a hole fills only the portion it covers. The path keeps its identity, paint,
+  transform, clipping and stacking. This runs directly, without a color dialog,
+  and is one undoable step. Pins must be removed before contours are rewritten.
+  A simple outline or disjoint contours are left unchanged.
 - Joining filled paths combines selected paths and groups, recursively
   including paths in nested groups and counting overlapping selections only
   once, even if other objects sit between them. The result always occupies the
