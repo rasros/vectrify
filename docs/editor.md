@@ -32,11 +32,11 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   (**Restore saved…**, then **Open…**, then **Save project**), so
   **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
-  **Reference** panel. The rail holds the object tools **Select** (`V`) and
-  **Knife** (`C`), the point tools **Nodes** (`A`) and **Redraw outline**
-  (`R`), **Draw path** (`D`), which creates and ignores the selection, and
-  **Pan** (hold Space). The Reference panel holds the reference image and the
-  tools that match the drawing to it (see Operations); its heading folds it
+  **Reference** panel. The rail holds the object tools **Select** (`A`),
+  **Move** (`V`) and **Knife** (`C`), the point tools **Nodes** (`S`) and
+  **Redraw outline** (`R`), **Draw path** (`D`), which creates and ignores the
+  selection, and **Pan** (hold Space). The Reference panel holds the reference
+  image and the tools that match the drawing to it (see Operations); its heading folds it
   away, and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
   controls, and on the right the selection's level and count, such as "Objects
@@ -140,9 +140,10 @@ The selection always has objects, and optionally points inside them. Points
 may span several paths, say five points in three paths; point commands act on
 all of them as one undoable edit.
 
-- In an object tool (Select, Knife) a click picks the outermost group
-  under the pointer, as in most editors. Only Select moves and resizes
-  objects by dragging; in Knife a drag cuts. **Double-click** a group to enter it:
+- In an object tool (Select, Move, Knife) a click picks the outermost group
+  under the pointer, as in most editors. Select only picks and box-selects;
+  Move moves and resizes objects by dragging; in Knife a drag cuts.
+  **Double-click** a group to enter it:
   clicks then pick within it, and the breadcrumb shows where you are. A click
   outside the entered group leaves it. Double-click a path to switch to Nodes
   on it. Picking an object in the tree enters the group it is in.
@@ -157,10 +158,11 @@ all of them as one undoable edit.
 - **Box select**: drag on the canvas, from empty space or from an unselected
   object, to select what lies wholly inside the box: objects at the entered
   group's level in an object tool, points of the selected paths in a point
-  tool. Shift toggles what the box finds. In Select, dragging a selected
-  object, or empty canvas inside the selection's frame, moves the selection
-  instead.
-- **Resize** in Select works like resizing a window. The selection's frame is
+  tool. Shift toggles what the box finds. In Select, every drag box-selects,
+  even when it starts on a selected object or its frame. In Move, dragging a
+  selected object, or empty canvas inside the selection's frame, moves the
+  selection instead.
+- **Resize** in Move works like resizing a window. The selection's frame is
   the bounding box of the selected objects on the page, with small ticks at
   its corners; the tool strip gives its size. Within 6 screen pixels of an
   edge the cursor shows ↔ or ↕, and dragging resizes along that axis only; at
@@ -271,12 +273,13 @@ and saved projects restore it.
   and redo together.
 - Fill/stroke/opacity, dragging and resizing the selected objects, and
   numeric offsets (**Move by**).
-- **Move (V)** selects and drags objects without resizing. Click to select,
-  then drag the object or any part of its selection frame. This works even
-  for horizontal, vertical or very thin lines whose frames leave no room
-  inside for dragging in Select. Shift adds or removes objects; dragging on
-  empty canvas outside the frame box-selects. **Select (M)** keeps its resize
-  edges and corners.
+- **Select (A)** only picks and box-selects objects. Dragging on a selected
+  object or its frame also box-selects, without moving or resizing anything.
+- **Move (V)** selects, moves and resizes objects. Click to select, then drag
+  the selected object or inside its frame to move it; drag a frame edge or
+  corner to resize. A horizontal or vertical line's whole frame moves it.
+  Shift adds or removes objects; dragging on empty canvas outside the frame
+  box-selects.
 - **Nodes (S)** edits the points of every selected path. Delete/Backspace
   deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points
@@ -518,7 +521,7 @@ and saved projects restore it.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 
 Keyboard shortcuts are available from the `?` button. They come in three
-layers that never collide. Tool and view keys: `M`
+layers that never collide. Tool and view keys: `A`
 Select, `V` Move, `S` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
