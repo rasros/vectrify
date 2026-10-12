@@ -174,16 +174,19 @@ geometry edits. They participate in the same preview/apply/abort transaction.
 - `move_objects(object_ids, parent_id, index)` moves objects, in their paint
   order, to an index among the container's other children (zero is the back).
   Across groups it writes the inherited transform and paint onto each object
-  so it looks the same; group opacity or clipping on the way, instances of the
-  objects, shared edges under a changed transform, locks, definitions and
-  moves into the objects themselves return an explicit error.
-- `group_objects(object_ids)` wraps consecutive selected siblings in a neutral
-  group, preserving IDs, paint order and appearance. Nonconsecutive objects
-  require an explicit reorder first.
-- `ungroup_object(object_id)` transfers inherited paint and composes transforms
-  onto children. Groups with nontrivial opacity, clipping, locks or references
-  that cannot be transferred safely return an explicit error. Group opacity
-  cannot generally be distributed without changing overlapping children.
+  to preserve placement and paint; clipping and group opacity follow the
+  destination's ancestry. Instances follow changes to their source. Shared
+  edges under a changed transform, locks, definitions and moves into the
+  objects themselves return an explicit error.
+- `group_objects(object_ids)` gathers selected objects in their nearest common
+  container, at the frontmost selected branch's position. Selected descendants
+  travel with their selected ancestor once. Placement, inherited paint and IDs
+  are retained; stacking, ancestor clipping and opacity may change.
+- `ungroup_object(object_id)` transfers inherited paint, composes transforms,
+  multiplies each child's opacity by the group's and distributes clipping in
+  each child's coordinate system, intersecting it with existing child clips.
+  Overlapping children may become more opaque. Locks and references that would
+  dangle still return an explicit error. Each command is one undoable edit.
 
 - `cut_paths(start, end)` cuts every filled drawing path in scope that the
   line from `start` to `end` (root SVG user space) crosses from outside to

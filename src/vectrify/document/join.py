@@ -350,17 +350,47 @@ def clip_outline(
         path = path.transform(*matrix)
     clipping = element.get("clip-path", "none") or "none"
     if clipping != "none":
-        definition = document.element(clipping[5:-1])
-        if definition.get("clipPathUnits") == "objectBoundingBox":
-            raise DocumentError(
-                "Resolve objectBoundingBox clipping before joining across groups"
-            )
-        path = clip_intersection(path, clip_outline(document, definition, matrix))
+        clip = element_clip(document, element, matrix)
+        if clip is not None:
+            path = clip_intersection(path, clip)
     return path
 
 
-def bake_group_path(
+def element_clip(
+    document: Document, element: Element, matrix: Matrix = IDENTITY
+) -> pathops.Path | None:
+    """An element's own clip, mapped from its user space into *matrix*."""
+    clipping = element.get("clip-path", "none") or "none"
+    if clipping == "none":
+        return None
+    definition = document.element(clipping[5:-1])
+    if definition.get("clipPathUnits") == "objectBoundingBox":
+        raw = HitIndex(document)._raw(element, 0.01)
+        if raw.is_empty:
+            return pathops.Path()
+        x, y, right, bottom = raw.bounds
+        matrix = multiply(matrix, (right - x, 0, 0, bottom - y, x, y))
+    return clip_outline(document, definition, matrix)
+
+
+def group_clipping(
     document: Document, element: Element, container_id: str
+) -> pathops.Path | None:
+    """Intersect clipping below a container, in the container's user space."""
+    ancestry = document.ancestry(element.id)
+    start = next(i for i, a in enumerate(ancestry) if a.id == container_id) + 1
+    matrix = IDENTITY
+    result = None
+    for ancestor in ancestry[start:]:
+        matrix = multiply(matrix, transform(ancestor.get("transform")))
+        clip = element_clip(document, ancestor, matrix)
+        if clip is not None:
+            result = clip if result is None else clip_intersection(result, clip)
+    return result
+
+
+def bake_group_path(
+    document: Document, element: Element, container_id: str, *, clipping: bool = True
 ) -> tuple[Geometry, dict[str, str], bool]:
     """Resolve the groups below the common container before reparenting a path."""
     ancestry = document.ancestry(element.id)
@@ -374,31 +404,18 @@ def bake_group_path(
             style["opacity"] = str(
                 float(style["opacity"]) * float(ancestor.get("opacity", "1") or 1)
             )
-        clipping = ancestor.get("clip-path", "none") or "none"
-        if clipping != "none":
-            definition = document.element(clipping[5:-1])
-            if definition.get("clipPathUnits") == "objectBoundingBox":
-                raise DocumentError(
-                    "Resolve objectBoundingBox clipping before joining across groups"
-                )
-            clips.append(clip_outline(document, definition, matrix))
+        if clipping:
+            clip = element_clip(document, ancestor, matrix)
+            if clip is not None:
+                clips.append(clip)
     if style["stroke"] != "none":
         a, b, c, d, _, _ = matrix
-        scale = math.hypot(a, b)
-        if not math.isclose(
-            scale, math.hypot(c, d), rel_tol=1e-9, abs_tol=1e-9
-        ) or not math.isclose(a * c + b * d, 0, abs_tol=1e-9):
-            raise DocumentError(
-                "Convert non-uniformly scaled strokes to outlines "
-                "before joining across groups"
-            )
+        # A compound path has one scalar stroke width. Use the area scale
+        # when a non-uniform transform cannot be represented by that width.
+        scale = math.sqrt(abs(a * d - b * c))
         style["stroke-width"] = str(float(style["stroke-width"]) * scale)
     geometry = transformed_geometry(document.geometry_for(element.id), matrix)
-    if clips:
-        if style["fill"] == "none":
-            raise DocumentError(
-                "Resolve clipping on stroke-only paths before joining across groups"
-            )
+    if clips and style["fill"] != "none":
         path = curve_path(geometry, style["fill-rule"])
         for clip in clips:
             path = clip_intersection(path, clip)

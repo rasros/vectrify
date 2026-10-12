@@ -751,6 +751,56 @@ def test_tree_drag_moves_objects_into_a_group_as_one_undoable_edit():
     assert session.editor.snapshot.document == before
 
 
+def test_tree_drag_into_a_clipped_group_applies_clipping_and_is_undoable():
+    session = Session(
+        import_svg(
+            SVG.replace(
+                "</svg>",
+                '<defs><clipPath id="clip"><rect x="35" width="10" height="20"/>'
+                '</clipPath></defs><g id="clipped" clip-path="url(#clip)"/></svg>',
+            )
+        )
+    )
+    before = session.editor.snapshot.document
+    state = send(session, "move_objects", objects=["b"], parent="clipped", index=0)
+    after = session.editor.snapshot.document
+    assert after.ancestry("b")[-2].id == "clipped"
+    assert after.element("clipped").get("clip-path") == "url(#clip)"
+    assert after.element("b") == before.element("b")
+    assert state["undo"] == ["Move into group"]
+    assert state["selection"]["objects"] == ["b"]
+    send(session, "undo")
+    assert session.editor.snapshot.document == before
+    send(session, "redo")
+    assert session.editor.snapshot.document == after
+
+
+@pytest.mark.parametrize(
+    ("command", "selected"),
+    [("group", ["a", "b"]), ("ungroup", ["g"]), ("combine_paths", ["a", "b"])],
+)
+def test_object_commands_accept_clipped_faded_groups_and_undo(command, selected):
+    session = Session(
+        import_svg("""<svg width="100" height="100">
+    <defs><clipPath id="clip"><rect width="20" height="20"/></clipPath></defs>
+    <g id="g" transform="translate(10 10)" opacity=".5" clip-path="url(#clip)">
+      <path id="a" d="M0 0H30V30H0Z"/>
+    </g><path id="b" d="M50 0H60V10H50Z"/>
+    </svg>""")
+    )
+    send(session, "select", objects=selected)
+    before = session.editor.snapshot.document
+    state = send(session, command)
+    after = session.editor.snapshot.document
+    after.validate()
+    assert len(state["undo"]) == 1
+    assert state["selection"]["objects"]
+    send(session, "undo")
+    assert session.editor.snapshot.document == before
+    send(session, "redo")
+    assert session.editor.snapshot.document == after
+
+
 def test_bring_to_front_and_send_to_back_move_the_selection_together():
     session = Session(
         import_svg(
@@ -777,6 +827,61 @@ def node_ids(session, oid):
     return [
         n["id"] for s in session.nodes(oid)["geometry"]["subpaths"] for n in s["nodes"]
     ]
+
+
+@pytest.mark.parametrize("position", [0, -1])
+@pytest.mark.parametrize("segment", ["L20 0", "C5 10 15 10 20 0"])
+def test_add_node_at_either_open_endpoint_preserves_the_curve_and_is_undoable(
+    position, segment
+):
+    from tests.document.test_document import render
+
+    session = Session(
+        import_svg(
+            f'<svg width="30" height="20"><path id="p" fill="none" '
+            f'stroke="black" d="M0 0 {segment}"/></svg>'
+        )
+    )
+    ids = node_ids(session, "p")
+    send(session, "select", objects=["p"], nodes=[ids[position]])
+    send(session, "pin", points=[["p", ids[position]]], pinned=True)
+    before = session.editor.snapshot.document
+    image = render(session.state()["svg"])
+    send(session, "split", points=[["p", ids[position]]])
+    after = session.editor.snapshot.document
+    nodes = after.geometry_for("p").subpaths[0].nodes
+    assert len(nodes) == 3
+    assert [nodes[0].id, nodes[-1].id] == ids
+    assert nodes[position].pinned
+    assert nodes[1].endpoint == pytest.approx((10, 7.5 if segment[0] == "C" else 0))
+    assert (render(session.state()["svg"]) == image).all()
+    assert session.state()["undo"][-1] == "Add node"
+    send(session, "undo")
+    assert session.editor.snapshot.document == before
+    send(session, "redo")
+    assert session.editor.snapshot.document == after
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_add_node_splits_the_first_edge_once_when_both_ends_are_selected(reverse):
+    session = Session(import_svg('<svg><path id="p" d="M0 0 L20 0 L40 0"/></svg>'))
+    ids = node_ids(session, "p")[:2]
+    if reverse:
+        ids.reverse()
+    send(session, "select", objects=["p"], nodes=ids)
+    send(session, "split", points=[["p", nid] for nid in ids])
+    nodes = session.editor.snapshot.document.geometry_for("p").subpaths[0].nodes
+    assert [n.endpoint for n in nodes] == [(0, 0), (10, 0), (20, 0), (40, 0)]
+
+
+def test_add_node_to_a_lone_point_reports_the_missing_edge_without_changing_it():
+    session = Session(import_svg('<svg><path id="p" d="M0 0"/></svg>'))
+    nid = node_ids(session, "p")[0]
+    send(session, "select", objects=["p"], nodes=[nid])
+    before = session.editor.snapshot
+    with pytest.raises(DocumentError, match="no edge"):
+        send(session, "split", points=[["p", nid]])
+    assert session.editor.snapshot == before
 
 
 def test_one_handle_switches_once_when_both_nodes_at_a_closed_join_are_selected():

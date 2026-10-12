@@ -335,3 +335,60 @@ def test_mixed_group_join_rejects_referenced_groups_atomically():
     ):
         tx.join_paths(frozenset({"g", "b"}))
     assert editor.snapshot == before
+
+
+@pytest.mark.parametrize("operation", ["join_paths", "combine_paths"])
+def test_merging_matching_path_clips_keeps_the_clip_and_is_undoable(operation):
+    source = """<svg width="100" height="100">
+    <defs><clipPath id="clip"><rect width="15" height="10"/></clipPath></defs>
+    <path id="a" fill="red" clip-path="url(#clip)" d="M0 0H10V10H0Z"/>
+    <path id="b" fill="red" clip-path="url(#clip)" d="M10 0H20V10H10Z"/>
+    </svg>"""
+    editor = Editor(import_svg(source), selection=select("a", "b"))
+    before = editor.snapshot.document
+    with editor.transaction("Merge") as tx:
+        oid = getattr(tx, operation)(frozenset({"a", "b"}))
+    after = editor.snapshot.document
+    assert after.element(oid).get("clip-path") == "url(#clip)"
+    np.testing.assert_array_equal(render(source), render(export_svg(after)))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
+
+
+def test_join_siblings_with_different_transforms_and_clips_resolves_them():
+    source = """<svg width="100" height="100">
+    <defs><clipPath id="clip"><rect width="5" height="10"/></clipPath></defs>
+    <path id="a" fill="red" clip-path="url(#clip)" d="M0 0H10V10H0Z"/>
+    <path id="b" fill="red" transform="translate(20 0)" d="M0 0H10V10H0Z"/>
+    </svg>"""
+    editor = Editor(import_svg(source), selection=select("a", "b"))
+    before = editor.snapshot.document
+    with editor.transaction("Join") as tx:
+        oid = tx.join_paths(frozenset({"a", "b"}))
+    after = editor.snapshot.document
+    assert after.element(oid).get("transform") is None
+    assert after.element(oid).get("clip-path") is None
+    np.testing.assert_array_equal(render(source), render(export_svg(after)))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
+
+
+@pytest.mark.parametrize("operation", ["join_paths", "combine_paths"])
+def test_merging_a_clipped_faded_group_with_transformed_children(operation):
+    source = """<svg width="100" height="100">
+    <defs><clipPath id="clip"><rect width="30" height="10"/></clipPath></defs>
+    <g id="g" transform="translate(10 10)" fill="red" opacity=".5"
+       clip-path="url(#clip)">
+      <path id="a" transform="scale(2)" d="M0 0H10V5H0Z"/>
+      <path id="b" transform="translate(20 0)" d="M0 0H20V10H0Z"/>
+    </g></svg>"""
+    editor = Editor(import_svg(source), selection=select("g"))
+    before = editor.snapshot.document
+    with editor.transaction("Merge") as tx:
+        oid = getattr(tx, operation)(frozenset({"g"}))
+    after = editor.snapshot.document
+    assert after.ancestry(oid)[-2].id == before.root.id
+    assert float(after.element(oid).get("opacity", "1") or "1") == 0.5
+    np.testing.assert_array_equal(render(source), render(export_svg(after)))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
