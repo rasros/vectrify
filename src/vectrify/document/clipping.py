@@ -57,11 +57,22 @@ def inset_geometry(geometry: Geometry, distance: float, rule: str) -> Geometry:
             contours.append((tuple(points), sub.closed))
         if _filled(tuple(contours), rule).buffer(-distance).is_empty:
             return Geometry(new_id("geometry"), ())
-        band = pathops.Path(area)
+        # Skia's stroker approximates curved offsets at a fixed coordinate
+        # tolerance. At artwork scale this can exceed a thin outline's inset,
+        # leaving visible slivers even though the source geometry is shared.
+        # Stroke in enlarged, origin-relative coordinates, then map back.
+        # Cap enlargement to keep very small distances numerically bounded.
+        scale = max(1.0, min(1024.0, 128.0 / distance))
+        enlarged = area.transform(scale, 0, 0, scale, -left * scale, -top * scale)
+        band = pathops.Path(enlarged)
         band.stroke(
-            distance * 2, pathops.LineCap.BUTT_CAP, pathops.LineJoin.MITER_JOIN, 4
+            distance * 2 * scale,
+            pathops.LineCap.BUTT_CAP,
+            pathops.LineJoin.MITER_JOIN,
+            4,
         )
-        return path_geometry(pathops.op(area, band, pathops.PathOp.DIFFERENCE))
+        result = pathops.op(enlarged, band, pathops.PathOp.DIFFERENCE)
+        return path_geometry(result.transform(1 / scale, 0, 0, 1 / scale, left, top))
     except (pathops.PathOpsError, GEOSException, OverflowError, ValueError) as exc:
         raise DocumentError("Cannot inset this clipping boundary") from exc
 
