@@ -50,7 +50,7 @@ from vectrify.document.join import (
     union_contours,
     union_geometry,
 )
-from vectrify.document.knife import cut_geometry, cut_strokes
+from vectrify.document.knife import cut_geometry, cut_strokes, preserve_cut_pins
 from vectrify.document.lines import (
     break_at,
     contour_ends,
@@ -1692,14 +1692,16 @@ class Transaction:
         """Cut the selected paths the line from *start* to *end* crosses.
 
         The points are in root SVG user space. Each crossed filled path
-        becomes two paths, one per side of the line, each compound if that
-        side has several parts; both pieces meet on the same seam nodes, so
-        they fit exactly without being linked. A stroke-only path comes apart
-        where the segment crosses its lines: the pieces on the side with less
-        of them become the second path, so a loop cut across comes away.
-        Both keep the original's attributes, locks and stacking place; the
+        becomes separate paths only along that segment; pieces meet on the
+        same seam nodes, so they fit exactly without being linked. A
+        stroke-only path comes apart where the segment crosses its lines:
+        pieces on the side with less of them become the second path, so a
+        loop cut across comes away. All pieces keep the original's attributes,
+        locks and stacking place; the
         first keeps its ID and geometry ID. Paths the line only enters or
-        misses are left alone. Returns the IDs of the pieces.
+        misses are left alone. Pinned endpoints keep their positions and
+        identities across the pieces; a cut that removes one is refused.
+        Returns the IDs of the pieces.
         """
         with self._change():
             self._whole_objects()
@@ -1738,22 +1740,30 @@ class Transaction:
                     )
                 if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
                     raise EditRejectedError("Detach shared geometry before cutting")
-                if any(n.pinned for s in geometry.subpaths for n in s.nodes):
-                    raise EditRejectedError("Unpin endpoints before cutting a path")
+                cut = preserve_cut_pins(geometry, cut)
+                if cut is None:
+                    raise EditRejectedError(
+                        "Cannot cut a path if pinned endpoints would be removed"
+                    )
                 if not cut.second.subpaths:
                     # A closed line cut once only opens up.
                     self._working = self._working.replace_geometry(cut.first)
                     self._record_removed_nodes(geometry.subpaths, cut.first.subpaths)
                     pieces.append(element.id)
                     continue
-                piece = replace(element, id=new_id("object"), geometry_id=cut.second.id)
-                self._working = self._working.replace_geometry(cut.first)
-                self._insert_siblings(element.id, (piece,), (cut.second,))
-                self._record_removed_nodes(
-                    geometry.subpaths, (*cut.first.subpaths, *cut.second.subpaths)
+                detached = (cut.second, *cut.additional)
+                siblings = tuple(
+                    replace(element, id=new_id("object"), geometry_id=g.id)
+                    for g in detached
                 )
-                self._record_object_remap({element.id: {element.id, piece.id}})
-                pieces.extend((element.id, piece.id))
+                self._working = self._working.replace_geometry(cut.first)
+                self._insert_siblings(element.id, siblings, detached)
+                self._record_removed_nodes(
+                    geometry.subpaths, (s for g in cut.pieces for s in g.subpaths)
+                )
+                ids = (element.id, *(piece.id for piece in siblings))
+                self._record_object_remap({element.id: set(ids)})
+                pieces.extend(ids)
             if not pieces:
                 raise EditRejectedError(
                     "Drag the knife across a line, or across a filled shape "

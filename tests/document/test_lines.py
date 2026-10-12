@@ -214,6 +214,34 @@ def test_the_knife_cuts_an_open_line_where_it_crosses():
     assert contours(doc, "p") == [([(10, 0), (30, 0)], False)]
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        "M0 0L30 0 M0 20L30 20",
+        "M0 0C10 10 20 10 30 0",
+        "M0 0L30 0L30 30L0 30Z",
+    ],
+)
+def test_knife_keeps_stroke_pins_on_both_pieces_and_untouched_contours(data):
+    document = drawing(("p", data))
+    editor = Editor(document, selection=select("p"))
+    nodes = [n for s in document.geometry_for("p").subpaths for n in s.nodes]
+    editor.pin_nodes(("p", n.id) for n in nodes)
+    before = editor.snapshot.document
+    with editor.transaction("Cut with knife") as tx:
+        pieces = tx.cut_paths((10, -5), (10, 15))
+    surviving = {
+        n.id: n
+        for oid in pieces
+        for s in editor.snapshot.document.geometry_for(oid).subpaths
+        for n in s.nodes
+    }
+    for node in nodes:
+        assert surviving[node.id].pinned
+        assert surviving[node.id].endpoint == node.endpoint
+    assert editor.undo().document == before
+
+
 def test_the_knife_cuts_a_loop_away_from_its_line():
     # A line that loops round on itself: the knife across the loop takes it off.
     document = drawing(("p", "M0 0L20 0L20 -10L10 -10L10 10"))

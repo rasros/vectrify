@@ -195,14 +195,18 @@ geometry edits. They participate in the same preview/apply/abort transaction.
   booleans, so curves, holes and compound paths come through. Where the line
   crosses an edge, a node is first inserted in double precision; Skia's
   float32 output is then restored to those crossings and to the untouched
-  original coordinates. Each side becomes one geometry (compound if it has
-  several parts). The first keeps the object ID and geometry ID, the second is
-  a copy of the element with fresh IDs placed right after it. Both sides split
-  their cut lines at the same points, so they meet exactly, and `join_paths`
-  merges them back with a curved union. Every node of the original is
-  remapped away; the object remaps to both pieces. Needs structure and
-  geometry permission; pins, shared geometry and references on a crossed path
-  are refused. Returns the piece IDs, and rejects the edit if nothing was cut.
+  original coordinates. Seams beyond the segment's endpoints are reconnected,
+  so a short cut across one arm of a concave shape leaves other arms intact.
+  Contours and holes stay with their filled components; a slit that does not
+  separate material is left alone. The first piece keeps the object ID and
+  geometry ID; detached pieces copy the element with fresh IDs placed right
+  after it. Pieces split their cut lines at the same points, so they meet
+  exactly, and `join_paths`
+  merges them back with a curved union. Pinned endpoints retain their positions
+  and identities; other rebuilt nodes are remapped away. The object remaps to
+  all pieces. Needs structure and geometry permission; cuts that remove pins,
+  shared geometry and references on a crossed path are refused. Returns the
+  piece IDs, and rejects the edit if nothing was cut.
 
 `object_remapping` records deletion and group-to-child replacement. Like node
 remapping, it composes through batches and applies to the current UI selection
