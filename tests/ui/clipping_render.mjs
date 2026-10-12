@@ -102,6 +102,6 @@ vm.runInContext(`
 assert.equal(vm.runInContext('selectionTargets("contour")[0]', context), contour);
 assert.equal(vm.runInContext('selectionTargets("clip")[0]', context), contour);
 assert.deepEqual(Array.from(vm.runInContext('hitStack(0, 0)', context)), ['contour', 'paint']);
-assert.deepEqual(Array.from(vm.runInContext('clickTargets(hitStack(0, 0))', context)), ['contour', 'group']);
+assert.deepEqual(Array.from(vm.runInContext('clickTargets(hitStack(0, 0))', context)), ['contour', 'paint']);
 assert.ok(vm.runInContext('localToOverlay(svgElement("clip"))', context), 'clipPath has a frame without getScreenCTM');
 assert.ok(vm.runInContext('screenMatrix(svgElement("contour"))', context) instanceof Matrix, 'convert legacy SVGMatrix before multiplying');

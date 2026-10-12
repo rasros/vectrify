@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import {canvasGestures} from '../../src/vectrify/ui/static/gestures.js';
 import {HeldGesture} from '../../src/vectrify/ui/static/input.js';
 import {frameHandle, resizeScale} from '../../src/vectrify/ui/static/resize.js';
+import {pickTarget, selectionContains} from '../../src/vectrify/ui/static/selection.js';
 
 const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
@@ -18,19 +19,20 @@ const bounds = {left: 0, top: 0, right: 400, bottom: 400};
 const frame = {left: 100, top: 100, right: 300, bottom: 200};
 const edits = [], picked = [], warnings = [];
 let hits = ['front', 'middle', 'back'], refusal = '';
+let parents = new Map();
 const element = {
   parentElement: {getScreenCTM: () => matrix},
-  setAttribute() {}, removeAttribute() {},
+  setAttribute() {}, removeAttribute() {}, closest: () => null,
 };
 const context = vm.createContext({
-  frameHandle, DOMPoint: Point,
+  frameHandle, DOMPoint: Point, pickTarget, selectionContains,
   stage: {focus() {}, setPointerCapture() {}, hasPointerCapture: () => false, classList: {remove() {}}},
   overlay: {getScreenCTM: () => matrix},
   $: () => ({getBoundingClientRect: () => bounds}),
   svgElement: () => element,
   screenMatrix: element => element.getScreenCTM(),
-  object: id => ({id, parent: 'root', tag: 'path', attributes: {}}),
-  level: () => 'objects', clickTargets: ids => ids,
+  object: id => ({id, parent: parents.get(id) || 'root', tag: 'path', attributes: {}}),
+  level: () => 'objects', parents: () => parents,
   hitStack: () => [...hits], topSelection: () => vm.runInContext('state.selection.objects', context),
   point: event => new Point(event.clientX, event.clientY), localToOverlay: () => matrix,
   resizeRefusal: () => refusal, toast: message => warnings.push(message), drawOverlay() {}, revealObject() {}, focusSelection() {},
@@ -51,6 +53,7 @@ vm.runInContext(`
   const DOUBLE_CLICK = 400, FRAME_REACH = 6;
   ${section('async function selectObject(', 'function focusSelection(')}
   ${section('function sameClickSpot(', '// What clicks at a spot pick')}
+  ${section('function clickTargets(', 'async function selectAtPoint(')}
   ${section('async function selectAtPoint(', '// The points a point command')}
   ${section('function frameAt(', '// The cursor over the frame')}
   ${section('function pressFrame(', '// Other objects\' bounds')}
@@ -73,7 +76,7 @@ context.gestures = canvasGestures({
 });
 const press = vm.runInContext('pressStage', context), release = vm.runInContext('releaseStage', context);
 const reset = () => {
-  picked.length = 0; edits.length = 0; warnings.length = 0; hits = ['front', 'middle', 'back']; refusal = '';
+  picked.length = 0; edits.length = 0; warnings.length = 0; hits = ['front', 'middle', 'back']; refusal = ''; parents = new Map();
   vm.runInContext('state.selection.objects = []; clickCycle = lastPick = selectionBox = null', context);
 };
 const click = async (x, y, timeStamp, extra = {}) => {
@@ -113,6 +116,33 @@ assert.deepEqual(picked, [['front'], []]);
 await selectObject('front');
 await selectObject('front');
 assert.deepEqual(picked.slice(-2), [['front'], ['front']]);
+
+// Canvas picking reaches the leaf through nested groups, including an entered one.
+for (const scope of [null, 'outer', 'inner']) {
+  reset(); hits = ['front']; context.scope = scope;
+  parents = new Map([['front', 'inner'], ['inner', 'outer'], ['outer', 'root']]);
+  vm.runInContext('scope = globalThis.scope', context);
+  await click(200, 150, 0);
+  await click(200, 150, 600);
+  assert.deepEqual(picked, [['front'], []]);
+}
+vm.runInContext('scope = null', context);
+
+// Dragging a nested leaf in a selected group moves the group; clicking picks the leaf.
+for (const tool of ['select', 'move']) {
+  reset(); hits = ['front']; context.tool = tool;
+  parents = new Map([['front', 'inner'], ['inner', 'outer'], ['outer', 'root']]);
+  vm.runInContext("tool = globalThis.tool; state.selection.objects = ['outer']", context);
+  press({clientX: 200, clientY: 150, timeStamp: 0, pointerId: 1, button: 0});
+  assert.equal(vm.runInContext('drag.kind', context), 'move');
+  vm.runInContext('drag.moved = true; gestures.move.move(drag, {clientX: 230, clientY: 130})', context);
+  await release({pointerId: 1});
+  assert.deepEqual(edits, [['move', {outer: [30, -20]}]]);
+  assert.deepEqual(picked, []);
+  await click(200, 150, 600);
+  assert.deepEqual(picked, [['front']]);
+}
+vm.runInContext("tool = 'select'", context);
 
 // Once a frame appears under the click, its edges and corners still cycle.
 for (const [x, y] of [[100, 150], [300, 150], [200, 100], [200, 200], [100, 100], [300, 100], [300, 200], [100, 200]]) {

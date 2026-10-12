@@ -4,7 +4,7 @@ import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget, replayDrop} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
-import {TOOL_LEVEL, boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
+import {TOOL_LEVEL, boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionContains, selectionStatus, splitKey, switchTool} from './selection.js';
 import {HeldGesture, inputQueue} from './input.js';
 import {canvasGestures} from './gestures.js';
 import {overflowLayout} from './strip.js';
@@ -1392,8 +1392,7 @@ function sameClickSpot(x, y, hits) {
   return clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y) <= 4 &&
     hits.length === clickCycle.hits.length && hits.every((id, i) => id === clickCycle.hits[i]);
 }
-// What clicks at a spot pick, front to back: in object tools the outermost
-// objects inside the entered group, in the others the painted shapes.
+// What clicks at a spot pick, front to back: the deepest painted shapes.
 function clickTargets(hits) {
   if (level() !== 'objects') return hits;
   const map = parents();
@@ -1784,8 +1783,8 @@ function frameCursor(x, y) {
   const handle = frameAt(x, y);
   if (!handle || space) return 'default';
   if (handle !== 'inside') return resizeRefusal() ? 'not-allowed' : CURSORS[handle];
-  const hit = hitStack(x, y)[0], picked = hit && pickTarget(hit, scope, parents(), state.root).id;
-  return !hit || state.selection.objects.includes(picked) ? CURSORS.inside : 'default';
+  const hit = hitStack(x, y)[0];
+  return !hit || selectionContains(state.selection.objects, hit, parents(), state.root) ? CURSORS.inside : 'default';
 }
 let frameHover = 0;
 function hoverResize(event) {
@@ -2510,7 +2509,7 @@ function pressStage(event) {
   // selects.
   if (['select', 'move'].includes(tool) && (id || handle === 'inside')) {
     const targets = id ? clickTargets(hits) : [], picked = targets[0];
-    const selectedHit = !id || state.selection.objects.includes(picked) ||
+    const selectedHit = !id || selectionContains(state.selection.objects, picked, parents(), state.root) ||
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
     if (selectedHit && !common.shift) {
       const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || '', screenMatrix: () => screenMatrix(svgElement(oid)?.parentElement)})).filter(m=>m.element);
