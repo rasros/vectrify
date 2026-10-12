@@ -60,6 +60,7 @@ vm.runInContext(`
   let toolLevel = 'objects';
   const level = () => toolLevel;
   const object = id => objectsById.get(id);
+  const files = {currentName: () => state.name};
   ${apply}
   ${tree}
   ${reveal}

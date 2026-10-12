@@ -382,7 +382,7 @@ def main() -> None:
         from vectrify.ui import desktop
 
         if desktop.available():
-            desktop.run(backend)
+            desktop.run(backend, args.svg)
             return
         print(
             "Desktop window unavailable (install vectrify[desktop]); "

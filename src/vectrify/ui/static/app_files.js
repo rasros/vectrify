@@ -20,6 +20,14 @@ export function recoveryStore(mode, key, value) {
 // picker handlers share exactly the same bytes as exports and native saves.
 export function projectFiles({getState, getSession, getBridge, waitForEdits,
   isDirty, markSaved, request, action, setBusy, toast, refreshDrawing}) {
+  let fileHandle = null, fileName = null, saving = false;
+  const currentName = () => fileName || getState()?.name || 'Untitled.svg';
+  const types = [
+    {description:'SVG drawing',accept:{'image/svg+xml':['.svg']}},
+    {description:'Vectrify project',accept:{'application/gzip':['.vectrify']}},
+    {description:'JSON project',accept:{'application/json':['.json']}},
+  ];
+  const forgetFile = () => {fileHandle = null; fileName = null; $('filename').textContent=currentName();};
   $('restore-saved').onclick=async()=>{
     try {
       const saved=await recoveryStore('readonly');
@@ -39,6 +47,7 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
         button.onclick=async()=>{
           if(isDirty()&&!window.confirm('Replace this tab’s drawing with the saved copy?'))return;
           if(await action('open',{name:item.name,source:item.source,encoding:item.encoding},'Restoring saved project…')){
+            forgetFile();
             await recoveryStore('readwrite',getSession(),item);markSaved();
             $('recovery-dialog').close();await refreshDrawing();
           }
@@ -50,28 +59,93 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
     }catch(error){toast(error.message,true);}
   };
   $('recovery-close').onclick=()=>$('recovery-dialog').close();
+  function exportFile(project, name, version = getState()) {
+    return request('/api/export',{project,compressed:project&&!/\.json$/i.test(name),epoch:version.epoch,revision:version.revision});
+  }
+  function fileContent(result) {
+    return result.encoding==='base64'?Uint8Array.from(atob(result.content),char=>char.charCodeAt(0)):result.content;
+  }
+  function browserDownload(result, name, project) {
+    const blob=new Blob([fileContent(result)],{type:project?'application/gzip':'image/svg+xml'}),url=URL.createObjectURL(blob);
+    const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async function save(saveAs = false) {
+    if(saving)return;
+    saving=true;
+    let busy=false;
+    try {
+      // Ask while the click/shortcut still has browser user activation.
+      const api=getBridge()?await getBridge():null;
+      let target, handle=fileHandle;
+      if(api){
+        target=await api.save_target(currentName(),saveAs);
+        if(!target)return;
+      }else if(window.showSaveFilePicker){
+        if(saveAs||!handle)handle=await window.showSaveFilePicker({suggestedName:currentName(),types});
+        if(handle.requestPermission&&await handle.requestPermission({mode:'readwrite'})!=='granted')throw new Error('Permission to save this file was denied');
+        target=handle.name;
+      }else target=currentName();
+      const name=target.split(/[\\/]/).pop(), project=/\.(vectrify|json)$/i.test(name);
+      await waitForEdits();setBusy('Saving file…',1);busy=true;
+      const {epoch,revision}=getState(),result=await exportFile(project,name);
+      // Even SVG saves keep a full project for recovery after a restart.
+      const recovery=project?result:await exportFile(true,'recovery.vectrify',{epoch,revision});
+      if(api){
+        if(!await api.save(name,result.content,result.encoding||null))return;
+      }else if(handle){
+        const writable=await handle.createWritable();
+        try {await writable.write(fileContent(result));await writable.close();}
+        catch(error){await writable.abort().catch(()=>{});throw error;}
+      }else browserDownload(result,name,project);
+      fileHandle=handle;fileName=name;
+      await recoveryStore('readwrite',getSession(),{source:recovery.content,encoding:recovery.encoding,summary:recovery.summary,name,savedAt:Date.now()});
+      if(getState().epoch===epoch&&getState().revision===revision)markSaved();
+      $('filename').textContent=name;
+      toast('File saved.');
+    }catch(error){if(error.name!=='AbortError')toast(error.message,true);}
+    finally{saving=false;if(busy)setBusy('',-1);}
+  }
   async function download(project) {
+    if(saving)return;
+    saving=true;
     await waitForEdits(); setBusy(project?'Saving project…':'Exporting SVG…',1);
     try {
       const result=await request('/api/export',{project,compressed:project,epoch:getState().epoch,revision:getState().revision});
-      const filename=getState().name.replace(/\.(svg|json|vectrify)$/i,'')+(project?'.vectrify':'.svg');
+      const filename=currentName().replace(/\.(svg|json|vectrify)$/i,'')+(project?'.vectrify':'.svg');
       if(getBridge()){
-        // A native save dialog; cancelling it saves nothing.
-        if(!await (await getBridge()).save(filename,result.content,result.encoding||null))return;
+        const api=await getBridge();
+        if(!await api.save_target(filename,true))return;
+        if(!await api.save(filename,result.content,result.encoding||null,false))return;
       }else{
-        const content=result.encoding==='base64'?Uint8Array.from(atob(result.content),char=>char.charCodeAt(0)):result.content;
-        const blob=new Blob([content],{type:project?'application/gzip':'image/svg+xml'}),url=URL.createObjectURL(blob);
-        const link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+        browserDownload(result,filename,project);
       }
       if(project){
         await recoveryStore('readwrite',getSession(),{source:result.content,encoding:result.encoding,summary:result.summary,name:getState().name,savedAt:Date.now()});
         markSaved();
       }
       toast(project?'Project saved, with a browser recovery copy.':'SVG exported.');
-    }catch(error){toast(error.message,true);}finally{setBusy('',-1);}
+    }catch(error){toast(error.message,true);}finally{saving=false;setBusy('',-1);}
   }
-  $('save-project').onclick=()=>download(true);$('export-svg').onclick=()=>download(false);
-  $('open-file').onclick=()=>$('svg-file').click();
+  $('save-project').onclick=()=>save();$('save-as').onclick=()=>save(true);$('export-svg').onclick=()=>download(false);
+  $('open-file').onclick=async()=>{
+    if(saving)return;
+    if(!getBridge()&&!window.showOpenFilePicker){$('svg-file').click();return;}
+    if(isDirty()&&!window.confirm('Open another drawing? Save your file first if you want to keep these edits.'))return;
+    try {
+      let picked,handle=null;
+      if(getBridge())picked=await (await getBridge()).open_file();
+      else if(window.showOpenFilePicker){
+        [handle]=await window.showOpenFilePicker({types,multiple:false});
+        const file=await handle.getFile();
+        if(file.size>128*1024*1024)throw new Error('File exceeds the 128 MB editor limit');
+        picked={name:file.name,...await fileSource(file)};
+      }
+      if(!picked)return;
+      if(await action('open',picked,'Opening drawing…')){
+        fileHandle=handle;fileName=picked.name;$('filename').textContent=picked.name;markSaved();await refreshDrawing();
+      }
+    }catch(error){if(error.name!=='AbortError')toast(error.message,true);}
+  };
   function fileSource(file) {
     return new Promise((resolve,reject)=>{
       const reader=new FileReader();
@@ -86,7 +160,7 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
     try {
       if(file.size>128*1024*1024)throw new Error('File exceeds the 128 MB editor limit');
       const success=await action('open',{name:file.name,...await fileSource(file)},'Opening drawing…');
-      if(success){markSaved();await refreshDrawing();}
+      if(success){forgetFile();markSaved();await refreshDrawing();}
     }catch(error){toast(error.message,true);}
   };
   async function recover(previous, result) {
@@ -94,9 +168,10 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
     const saved = await recoveryStore('readonly', previous);
     if (!saved) return result;
     const restored = await request('/api/action', {command:'open', ...saved, epoch:result.epoch, revision:result.revision});
+    forgetFile();
     await recoveryStore('readwrite', getSession(), saved);
     toast('Restored your saved project after the server restart. Earlier undo history is unavailable.');
     return restored;
   }
-  return {download, recover};
+  return {save, download, recover, currentName};
 }

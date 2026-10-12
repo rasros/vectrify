@@ -100,3 +100,89 @@ def test_native_save_writes_binary_projects_and_plain_svg(
     assert api.save(path.name, content, "base64" if project else None) == str(path)
     dialog.assert_called_once_with(save, save_filename=path.name)
     assert path.read_bytes() == expected
+    dialog.reset_mock()
+    assert api.save_target(path.name) == str(path)
+    assert api.save(path.name, content, "base64" if project else None) == str(path)
+    dialog.assert_not_called()
+
+
+def test_native_save_overwrites_initial_file_and_save_as_changes_target(tmp_path):
+    original = tmp_path / "original.svg"
+    original.write_text("<svg/>")
+    api = desktop.Api(desktop.Backend(), original)
+    dialog = MagicMock()
+    api._window = SimpleNamespace(create_file_dialog=dialog)
+    assert api.save_target(original.name) == str(original)
+    assert api.save(original.name, "<svg><path/></svg>") == str(original)
+    assert original.read_text() == "<svg><path/></svg>"
+    dialog.assert_not_called()
+
+
+def test_native_save_as_cancellation_and_exports_keep_current_file(
+    monkeypatch, tmp_path
+):
+    original = tmp_path / "original.svg"
+    copy = tmp_path / "copy.svg"
+    export = tmp_path / "export.svg"
+    api = desktop.Api(desktop.Backend(), original)
+    dialog = MagicMock(side_effect=[None, [str(copy)], [str(export)]])
+    api._window = SimpleNamespace(create_file_dialog=dialog)
+    monkeypatch.setattr(
+        desktop.importlib, "import_module", lambda _name: SimpleNamespace(SAVE_DIALOG=1)
+    )
+    assert api.save_target(original.name, True) is None
+    assert api.save_target(original.name) == str(original)
+    assert api.save_target(original.name, True) == str(copy)
+    api.save(copy.name, "<svg/>")
+    assert api.save_target(original.name) == str(copy)
+    assert api.save_target(export.name, True) == str(export)
+    api.save(export.name, "<svg/>", remember=False)
+    assert export.read_text() == "<svg/>"
+    assert api.save_target(original.name) == str(copy)
+
+
+@pytest.mark.parametrize("modern", [False, True])
+def test_native_open_tracks_path_and_recovery_forgets_it(monkeypatch, tmp_path, modern):
+    path = tmp_path / "opened.svg"
+    path.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    api = desktop.Api(desktop.Backend())
+    dialog = MagicMock(return_value=[str(path)])
+    api._window = SimpleNamespace(create_file_dialog=dialog)
+    webview = (
+        SimpleNamespace(FileDialog=SimpleNamespace(OPEN=1, SAVE=2))
+        if modern
+        else SimpleNamespace(OPEN_DIALOG=1, SAVE_DIALOG=2)
+    )
+    monkeypatch.setattr(desktop.importlib, "import_module", lambda _name: webview)
+    session = api.request("/api/session", {})["body"]
+    picked = api.open_file()
+    assert picked is not None
+    opened = api.request(
+        "/api/action",
+        {
+            "command": "open",
+            **picked,
+            "epoch": session["epoch"],
+            "revision": session["revision"],
+        },
+        session["session"],
+    )
+    assert opened["status"] == 200
+    dialog.reset_mock()
+    assert api.save_target(path.name) == str(path)
+    dialog.assert_not_called()
+    restored = api.request(
+        "/api/action",
+        {
+            "command": "open",
+            "name": path.name,
+            "source": path.read_text(),
+            "epoch": opened["body"]["epoch"],
+            "revision": opened["body"]["revision"],
+        },
+        session["session"],
+    )
+    assert restored["status"] == 200
+    dialog.return_value = None
+    assert api.save_target(path.name) is None
+    dialog.assert_called_once()

@@ -61,7 +61,7 @@ const files = projectFiles({
   getState: () => context.state, getSession: () => context.session,
   getBridge: () => context.bridge, waitForEdits: () => context.queue,
   isDirty: () => context.dirty, markSaved: () => {context.dirty = false;},
-  request: context.request, action: context.action, setBusy: context.setBusy,
+  request: context.request, action: (...args) => context.action(...args), setBusy: context.setBusy,
   toast: context.toast, refreshDrawing: context.loadReference,
 });
 context.download = files.download;
@@ -82,11 +82,11 @@ assert.equal(blob.type, 'image/svg+xml');
 assert.equal(recovery.length, 1, 'SVG export must not replace project recovery');
 
 const native = [];
-context.bridge = Promise.resolve({save: async (...args) => {native.push(args); return 'saved.vectrify';}});
+context.bridge = Promise.resolve({save_target: async () => 'saved.vectrify', save: async (...args) => {native.push(args); return 'saved.vectrify';}});
 await context.download(true);
-assert.deepEqual(native[0], ['drawing.vectrify', content, 'base64']);
+assert.deepEqual(native[0], ['drawing.vectrify', content, 'base64', false]);
 context.dirty = true;
-context.bridge = Promise.resolve({save: async () => null});
+context.bridge = Promise.resolve({save_target: async () => null});
 await context.download(true);
 assert.equal(context.dirty, true, 'cancelled native saves must keep unsaved edits');
 assert.equal(recovery.length, 2, 'cancelled saves must not overwrite recovery');
@@ -158,3 +158,85 @@ context.window.confirm = () => true;
 await controls.get('svg-file').onchange({target:{files:[{name:'large.svg', size:128*1024*1024+1}], value:'large.svg'}});
 assert.equal(actions.length, previousActions);
 assert.match(errors.at(-1), /128 MB/);
+
+// Save overwrites the selected file; Save As picks a different destination.
+errors.length = 0;
+context.state = {name:'drawing.svg',epoch:'e',revision:3};
+const targets = [], writes = [], pickerCalls = [];
+function handle(name) {
+  return {name, async createWritable() {return {
+    async write(data) {writes.push({name,data});}, async close() {}, async abort() {},
+  };}};
+}
+context.window.showSaveFilePicker = async options => {pickerCalls.push(options); return handle(pickerCalls.length === 1 ? 'drawing.svg' : 'copy.vectrify');};
+await controls.get('save-project').onclick();
+assert.equal(pickerCalls.length, 1);
+assert.equal(writes.at(-1).name, 'drawing.svg');
+assert.equal(writes.at(-1).data, '<svg/>');
+assert.equal(recovery.at(-1).source, content, 'SVG saves retain full project recovery');
+await files.save();
+assert.equal(pickerCalls.length, 1, 'ordinary saves reuse the destination');
+await controls.get('save-as').onclick();
+assert.equal(pickerCalls.length, 2);
+assert.equal(writes.at(-1).name, 'copy.vectrify');
+assert.equal(gunzipSync(writes.at(-1).data).toString(), original);
+assert.equal(files.currentName(), 'copy.vectrify');
+await files.save();
+assert.equal(pickerCalls.length, 2);
+assert.equal(writes.at(-1).name, 'copy.vectrify');
+context.dirty = true;
+const beforeCancel = writes.length;
+context.window.showSaveFilePicker = async () => {throw Object.assign(new Error('cancelled'), {name:'AbortError'});};
+await files.save(true);
+assert.equal(writes.length, beforeCancel);
+assert.equal(context.dirty, true);
+assert.equal(files.currentName(), 'copy.vectrify');
+assert.deepEqual(errors, []);
+
+// Opening another file replaces the destination only after a successful open.
+context.window.showOpenFilePicker = async () => [{...handle('opened.svg'),getFile: async () => ({name:'opened.svg',bytes:Buffer.from('<svg/>'),size:6})}];
+await controls.get('open-file').onclick();
+assert.equal(controls.get('filename').textContent, 'opened.svg');
+await files.save();
+assert.equal(writes.at(-1).name, 'opened.svg');
+assert.equal(pickerCalls.length, 2);
+context.dirty = true;
+const originalAction=context.action;
+context.action=async()=>false;
+await controls.get('open-file').onclick();
+assert.equal(files.currentName(), 'opened.svg', 'a refused open keeps the save destination');
+assert.equal(context.dirty, true);
+context.action=originalAction;
+context.window.confirm = () => false;
+await controls.get('open-file').onclick();
+context.window.confirm = () => true;
+await files.save();
+assert.equal(writes.at(-1).name, 'opened.svg');
+
+// The desktop chooses the target before export, so its suffix selects the format.
+context.bridge = Promise.resolve({
+  save_target: async (name, saveAs) => {targets.push({name,saveAs});return saveAs?'copy.vectrify':'opened.svg';},
+  save: async (...args) => {native.push(args);return args[0];},
+});
+await files.save();
+assert.deepEqual(native.at(-1), ['opened.svg','<svg/>',null]);
+await files.save(true);
+assert.deepEqual(native.at(-1), ['copy.vectrify',content,'base64']);
+assert.equal(targets.at(-1).saveAs, true);
+
+// Saving waits for pending edits and does not clear edits made during a write.
+let releasePendingEdit;
+context.queue=new Promise(resolve=>{releasePendingEdit=resolve;});
+const beforeQueuedSave=requests.length;
+const queuedSave=files.save();
+await new Promise(resolve=>queueMicrotask(resolve));
+assert.equal(requests.length,beforeQueuedSave);
+context.state={name:'opened.svg',epoch:'edited',revision:4};
+releasePendingEdit();
+await queuedSave;
+assert.equal(requests.at(-1).epoch,'edited');
+assert.equal(requests.at(-1).revision,4);
+context.dirty=true;
+context.bridge=Promise.resolve({save_target:async()=> 'opened.svg',save:async()=>{context.state.revision++;return 'opened.svg';}});
+await files.save();
+assert.equal(context.dirty,true);
