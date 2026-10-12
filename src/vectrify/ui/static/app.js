@@ -146,6 +146,7 @@ function renderDrawing() {
       }
     }
   }
+  for (const arrow of root.querySelectorAll('[data-vectrify-arrow-owner]')) arrow.dataset.objectId = arrow.getAttribute('data-vectrify-arrow-owner');
   root.setAttribute('width', state.bounds[2]); root.setAttribute('height', state.bounds[3]);
   root.setAttribute('viewBox', state.bounds.join(' ')); root.setAttribute('preserveAspectRatio', 'none');
   root.setAttribute('aria-label', state.name);
@@ -1014,6 +1015,7 @@ function renderInspector() {
     picker.title = `${kind === 'fill' ? 'Fill' : 'Stroke'}: ${ramp ? 'linear gradient' : hex || value || 'mixed'} · ${source}`;
   }
   renderFillGradient(item);
+  renderStrokeControls();
   const strokeWidth = paintValue('stroke-width', '1');
   $('stroke-width').value = strokeWidth ? parseFloat(strokeWidth) : '';
   const opacity = paintValue('opacity', '1'); $('opacity').value = opacity === '' ? '' : Math.round(Number(opacity) * 100);
@@ -1024,6 +1026,61 @@ function renderInspector() {
   renderCommands();
   scheduleStrip();
 }
+// Match the backend's endpoint triangles during a node/move/resize preview.
+function syncArrowPreview(element) {
+  const id = element.dataset.objectId;
+  if (!id || element !== svgElement(id) || element.hasAttribute('data-vectrify-arrow-owner')) return;
+  const companions = [...drawing.querySelectorAll('[data-vectrify-arrow-owner]')].filter(arrow => arrow.getAttribute('data-vectrify-arrow-owner') === id);
+  if (!companions.length) return;
+  for (const arrow of companions) {
+    const transform = element.getAttribute('transform');
+    if (transform === null) arrow.removeAttribute('transform'); else arrow.setAttribute('transform', transform);
+  }
+  const geometry = geometries.get(id), width = parseFloat(getComputedStyle(element).strokeWidth);
+  if (!geometry || !Number.isFinite(width)) return;
+  const paths = [];
+  for (const sub of geometry.subpaths) {
+    if (sub.closed || sub.nodes.length < 2) continue;
+    const points = sub.nodes.flatMap(node => { const p = []; for (let i = 0; i < node.values.length; i += 2) p.push(node.values.slice(i, i + 2)); return p; });
+    for (const [side, tip, remaining] of [['start', points[0], points.slice(1)], ['end', points.at(-1), points.slice(0, -1).reverse()]]) {
+      if (element.getAttribute('data-vectrify-arrow-' + side) !== 'arrow') continue;
+      const next = remaining.find(p => p[0] !== tip[0] || p[1] !== tip[1]); if (!next) continue;
+      const length = Math.hypot(next[0] - tip[0], next[1] - tip[1]);
+      const dx = (next[0] - tip[0]) / length, dy = (next[1] - tip[1]) / length;
+      const x = tip[0] + 4 * width * dx, y = tip[1] + 4 * width * dy;
+      paths.push(`M${tip.join(' ')} L${x - 2 * width * dy} ${y + 2 * width * dx} L${x + 2 * width * dy} ${y - 2 * width * dx} Z`);
+    }
+  }
+  companions.forEach((arrow, i) => arrow.setAttribute('d', paths[i] || ''));
+}
+new MutationObserver(records => {
+  if (!drag) return;
+  for (const element of new Set(records.map(record => record.target))) syncArrowPreview(element);
+}).observe(drawing, {subtree: true, attributes: true, attributeFilter: ['d', 'transform']});
+// Stroke endpoint and corner controls share the existing queued paint edits.
+function renderStrokeControls() {
+  const items = state.selection.objects.map(object);
+  const shapes = items.length && items.every(item => item && !item.resource && ['path', 'line', 'rect', 'circle', 'ellipse'].includes(item.tag));
+  $('stroke-shape-controls').hidden = !shapes;
+  const open = shapes && items.every(item => item.open_path);
+  $('path-end-controls').hidden = !open;
+  const fields = [['stroke-linecap', 'stroke-linecap', 'butt'], ['stroke-linejoin', 'stroke-linejoin', 'miter'], ['stroke-miterlimit', 'stroke-miterlimit', '4'], ['start-arrow', 'data-vectrify-arrow-start', 'none'], ['end-arrow', 'data-vectrify-arrow-end', 'none']];
+  for (const [id, attr, fallback] of fields) {
+    const values = items.map(item => attr.startsWith('data-') ? item?.attributes?.[attr] || fallback : resolvedPaint(item.id, attr, fallback));
+    $(id).value = values.length && values.every(v => v === values[0]) ? values[0] : '';
+    const locked = items.some(item => item?.inherited_locks?.some(lock => lock === 'paint' || lock === attr));
+    enable($(id), !shapes ? 'Select a path or shape' : locked ? 'This stroke property is locked' : '');
+  }
+  $('miter-limit-field').hidden = !!$('stroke-linejoin').value && $('stroke-linejoin').value !== 'miter';
+}
+for (const [id, attr] of [['stroke-linecap', 'stroke-linecap'], ['stroke-linejoin', 'stroke-linejoin'], ['start-arrow', 'data-vectrify-arrow-start'], ['end-arrow', 'data-vectrify-arrow-end']]) {
+  $(id).onchange = event => { if (event.target.value) paint({[attr]: event.target.value}); };
+}
+$('stroke-miterlimit').onchange = event => {
+  const value = Number(event.target.value);
+  if (!Number.isFinite(value) || value < 1) { toast('Miter limit must be at least 1', true); renderStrokeControls(); return; }
+  paint({'stroke-miterlimit': String(value)});
+};
 function gradientRefusal() {
   const item = oneObject();
   if (!item || item.resource || !['path', 'rect', 'circle', 'ellipse', 'line'].includes(item.tag)) return 'Select one path or basic shape to create a gradient';
@@ -1568,7 +1625,7 @@ function selectionTargets(id) {
     return [...drawing.querySelectorAll('use')].filter(use => !use.closest('defs') &&
       (use.getAttribute('href') || use.getAttributeNS('http://www.w3.org/1999/xlink', 'href')) === `#${element.id}`);
   }
-  return [element];
+  return [element, ...[...drawing.querySelectorAll('[data-vectrify-arrow-owner]')].filter(arrow => arrow.getAttribute('data-vectrify-arrow-owner') === id)];
 }
 function clipSelection(group, element) {
   // A selected child must keep the clipping inherited from its drawing groups.

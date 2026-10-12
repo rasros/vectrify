@@ -187,6 +187,11 @@ PAINT_KEYS = (
     "opacity",
     "fill-opacity",
     "stroke-opacity",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-miterlimit",
+    "data-vectrify-arrow-start",
+    "data-vectrify-arrow-end",
 )
 # What pick() looks through to the objects inside.
 CONTAINERS = frozenset({"svg", "g", "defs", "clipPath", "linearGradient", "stop"})
@@ -1642,6 +1647,11 @@ class Agent:
         opacity: float | None = None,
         fill_opacity: float | None = None,
         stroke_opacity: float | None = None,
+        stroke_linecap: str | None = None,
+        stroke_linejoin: str | None = None,
+        stroke_miterlimit: float | None = None,
+        start_arrow: str | None = None,
+        end_arrow: str | None = None,
         name: str | None = None,
         locks: Any = None,
     ) -> Reply:
@@ -1656,6 +1666,11 @@ class Agent:
                 ("opacity", opacity),
                 ("fill-opacity", fill_opacity),
                 ("stroke-opacity", stroke_opacity),
+                ("stroke-linecap", stroke_linecap),
+                ("stroke-linejoin", stroke_linejoin),
+                ("stroke-miterlimit", stroke_miterlimit),
+                ("data-vectrify-arrow-start", start_arrow),
+                ("data-vectrify-arrow-end", end_arrow),
             )
             if value is not None
         }

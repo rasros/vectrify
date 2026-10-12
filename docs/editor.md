@@ -239,6 +239,15 @@ and saved projects restore it.
   hierarchy. Shared geometry and clipping contours have neutral symbols and
   role labels; instances name their source. The right panel explains these
   roles and links to source geometry, clipping boundaries, and their users.
+- Select an open path or line to choose **Paint → Line ends**: Flat, Rounded,
+  or Square. **Corner joins** offers Miter (pointed), Rounded, or Bevelled;
+  the miter limit is shown for Miter joins. Corner controls also apply to
+  closed shapes. **Start arrow** and **End arrow** independently add or remove
+  arrowheads on open contours. These settings affect strokes, not filled
+  shapes' silhouettes. Arrowheads follow the line's nodes, transforms,
+  stroke colour and width, and remain part of its selection. Projects preserve
+  the settings; SVG exports contain ordinary triangle paths with owner metadata
+  so reopening restores editable endpoint decorations without duplicate objects.
 - Tree swatches show resolved fill/stroke colors, including inherited paint;
   group swatches preview their contents. The right panel shows effective hex
   colors and names the parent they come from. No-paint and mixed selections

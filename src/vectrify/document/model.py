@@ -403,9 +403,11 @@ class Document:
                 raise DocumentError(problem.capitalize())
             if element.tag == "svg" and element is not self.root:
                 raise DocumentError("Nested SVG viewports are unsupported")
-            if not element.locks <= set(EditKind) | PAINT | GEOMETRY[element.tag] | {
-                "transform"
-            }:
+            from vectrify.document.arrows import ARROWS
+
+            if not element.locks <= set(EditKind) | PAINT | ARROWS | GEOMETRY[
+                element.tag
+            ] | {"transform"}:
                 raise DocumentError("Unknown property lock")
             keys = [key for key, _ in element.attributes]
             if len(keys) != len(set(keys)) or "id" in keys or "d" in keys:

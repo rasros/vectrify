@@ -670,11 +670,19 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         opacity: float | None = None,
         fill_opacity: float | None = None,
         stroke_opacity: float | None = None,
+        stroke_linecap: Literal["butt", "round", "square"] | None = None,
+        stroke_linejoin: Literal["miter", "round", "bevel"] | None = None,
+        stroke_miterlimit: float | None = None,
+        start_arrow: Literal["none", "arrow"] | None = None,
+        end_arrow: Literal["none", "arrow"] | None = None,
         name: str | None = None,
         locks: list[str] | None = None,
     ) -> CallToolResult:
         """Set the objects' paint (colours as CSS colours or "none"), name
-        (one object; empty clears it) and locks: edit kinds (geometry, paint,
+        (one object; empty clears it) and locks. Stroke caps: butt, round, square;
+        joins: miter, round, bevel; miter limit >= 1; start/end arrows: none or
+        arrow (on open contours, following the stroke colour and width).
+        Locks: edit kinds (geometry, paint,
         structure, transform) or properties (fill, stroke, d, ...); an empty
         list unlocks. One undo step."""
         return state.call(
@@ -687,6 +695,11 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "opacity": opacity,
                 "fill_opacity": fill_opacity,
                 "stroke_opacity": stroke_opacity,
+                "stroke_linecap": stroke_linecap,
+                "stroke_linejoin": stroke_linejoin,
+                "stroke_miterlimit": stroke_miterlimit,
+                "start_arrow": start_arrow,
+                "end_arrow": end_arrow,
                 "name": name,
                 "locks": locks,
             },

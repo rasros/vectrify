@@ -22,6 +22,7 @@ from shapely.geometry import GeometryCollection, LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, unary_union
 
+from vectrify.document.arrows import triangles
 from vectrify.document.model import Document, DocumentError, Element
 from vectrify.document.svg import PAINT
 
@@ -314,17 +315,21 @@ class HitIndex:
             and color(style["stroke"])[3] > 0
             and float(style.get("stroke-opacity", "1")) > 0
         )
-        reach = width / 2 * scale if stroked else 0.0
+        arrows = triangles(self.document, element, width) if stroked else []
+        reach = width * (4.5 if arrows else 0.5) * scale if stroked else 0.0
         a, b, c, d, e, f = matrix
 
         def fill(points: tuple[Point2, ...], closed: bool) -> BaseGeometry:
             return mapped(_filled(((points, closed),), "nonzero"), matrix)
 
-        def stroke(points: tuple[Point2, ...], closed: bool) -> BaseGeometry:
-            return mapped(_stroke(points, closed, width, style, tolerance), matrix)
+        def stroke(points: tuple[Point2, ...], closed: bool, extra) -> BaseGeometry:
+            return mapped(
+                unary_union([_stroke(points, closed, width, style, tolerance), *extra]),
+                matrix,
+            )
 
         result = []
-        for subpath in self._geometries[element.geometry_id].subpaths:
+        for index, subpath in enumerate(self._geometries[element.geometry_id].subpaths):
             points = [subpath.nodes[0].endpoint]
             for node in subpath.nodes[1:]:
                 if node.command == "C":
@@ -352,7 +357,16 @@ class HitIndex:
                     _lazy(partial(fill, line, closed))
                     if filled and len(points) >= 3
                     else None,
-                    _lazy(partial(stroke, line, closed)) if stroked else None,
+                    _lazy(
+                        partial(
+                            stroke,
+                            line,
+                            closed,
+                            [Polygon(t) for i, t in arrows if i == index],
+                        )
+                    )
+                    if stroked
+                    else None,
                 )
             )
         self._contour_cache[object_id] = result
@@ -528,6 +542,9 @@ class HitIndex:
         ):
             for points, closed in contours:
                 parts.append(_stroke(points, closed, width, style, tolerance))
+            parts.extend(
+                Polygon(t) for _, t in triangles(self.document, element, width)
+            )
         painted = mapped(unary_union(parts), matrix)
         areas: dict[str, BaseGeometry] = {}
         children = []

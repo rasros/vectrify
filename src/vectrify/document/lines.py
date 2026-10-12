@@ -437,6 +437,15 @@ def stroke_outline(geometry: Geometry, style: dict[str, str]) -> Geometry:
     path.convertConicsToQuads(0.01 * width)
     try:
         path = pathops.simplify(path)
+        from vectrify.document.arrows import geometry_triangles
+
+        for _, triangle in geometry_triangles(geometry, width, style):
+            arrow = pathops.Path()
+            arrow.moveTo(*triangle[0])
+            for point in triangle[1:]:
+                arrow.lineTo(*point)
+            arrow.close()
+            path = pathops.op(path, arrow, pathops.PathOp.UNION)
     except pathops.PathOpsError as exc:
         raise DocumentError("Could not outline this stroke") from exc
     if not list(path):
