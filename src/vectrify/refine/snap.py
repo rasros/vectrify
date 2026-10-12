@@ -54,9 +54,9 @@ PASSES = 6
 TRAVEL = 3.0
 # Stop once no point moves further than this, in pixels.
 SETTLED = 0.2
-# Inside and outside colours closer than this (RGB, 0-1) cannot tell the
-# edge apart, so the point stays.
-CONTRAST = 0.08
+# Ignore differences at the raster's quantization floor, rather than requiring
+# a strong edge: adjacent shaded fills may differ by only a few colour levels.
+CONTRAST = 2 / 255
 # Detail: how many pixels each added point has to fix, how many of the
 # largest wrong blobs each round looks at, and how finely each segment is
 # sampled to find the one a blob sits on. The path grows to at most
@@ -381,7 +381,10 @@ class _Snapper:
         end = max(2, len(steps) // 5)
         colour_out = np.median(colours[-end:], axis=0)
         contrast = float(np.linalg.norm(colour_out - colour_in))
-        inner_like = float(np.median(distance[:end])) < CONTRAST
+        # Allow blur and texture within a strong fill, while keeping that
+        # allowance below the separation of a faint shading boundary.
+        inner_tolerance = max(CONTRAST, min(0.08, contrast / 4))
+        inner_like = float(np.median(distance[:end])) < inner_tolerance
         if contrast < CONTRAST:
             # The far end looks like the inside too: step out if the near end
             # agrees, since the shape then carries on past the reach.

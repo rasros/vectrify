@@ -49,3 +49,22 @@ def test_profiles_leave_unobservable_or_ambiguous_edges_alone(unknown):
     points = np.array([[20, 18]])
     tangent = np.array([[0, 0] if unknown == "zero_tangent" else [1, 0]])
     assert np.array_equal(guide(points, tangent), points)
+
+
+def test_profiles_find_faint_shading_even_with_strong_contrast_elsewhere():
+    y = np.arange(40)[:, None]
+    coverage = np.broadcast_to(np.clip(y + 1 - 18, 0, 1), (40, 40))
+    desired = np.clip(y + 1 - 16.25, 0, 1)[..., None]
+    base = np.full((40, 40, 3), 0.7)
+    response = np.full_like(base, -3 / 255)
+    response[:, 30:] = -0.7
+    guide = EdgeProfiles(
+        base,
+        response,
+        base + desired * response,
+        coverage,
+        _Frame(np.eye(2), np.zeros(2)),
+        1,
+    )
+    reached = guide(np.array([[20, 18]]), np.array([[1, 0]]))
+    assert reached[0] == pytest.approx([20, 16.25], abs=0.15)
