@@ -148,19 +148,25 @@ def test_combine_obeys_locks_and_rejects_atomically(lock):
     assert editor.snapshot == before
 
 
-def test_combine_rejects_clipping_that_would_cut_geometry():
+@pytest.mark.parametrize("source", [None, "a"])
+def test_combine_uses_the_source_clipping_without_cutting_contours(source):
     doc = import_svg("""<svg width="100" height="100">
     <defs><clipPath id="clip"><rect width="10" height="10"/></clipPath></defs>
     <g clip-path="url(#clip)"><path id="a" d="M0 0H20V20H0Z"/></g>
     <path id="b" d="M5 5H25V25H5Z"/></svg>""")
     editor = Editor(doc, selection=select("a", "b"))
-    before = editor.snapshot
-    with (
-        pytest.raises(DocumentError, match="clipping"),
-        editor.transaction("Combine") as tx,
-    ):
-        tx.combine_paths(frozenset({"a", "b"}))
-    assert editor.snapshot == before
+    with editor.transaction("Combine") as tx:
+        oid = tx.combine_paths(frozenset({"a", "b"}), paint_source=source)
+    after = editor.snapshot.document
+    assert after.geometry_for(oid).subpaths == (
+        *doc.geometry_for("a").subpaths,
+        *doc.geometry_for("b").subpaths,
+    )
+    image = render(export_svg(after))
+    assert image[15, 15, 3] == (0 if source else 255)
+    assert image[7, 7, 3] == 255
+    assert editor.undo().document == doc
+    assert editor.redo().document == after
 
 
 def test_combine_with_common_clipping_keeps_exact_contours_and_clip():

@@ -353,7 +353,7 @@ join each other; stroked lines join their ends within `reach`; filled
 paths merge by area; `joined` says which), `combine(ids, paint_source?)`
 (collect unchanged contours into one compound path, using the frontmost path's
 entire style or `paint_source`'s; compound fill rules still apply; transforms
-are resolved, but clipping must be on the common containing group), `split_parts(ids)`,
+are resolved and the result takes the source's clipping), `split_parts(ids)`,
 `cut_hole(ids)`, `holes(contours, action?, delete_enclosed?)` (`fill` or
 `shape`, of the holes `points()` marks), `convert(ids, to?)` (line, fill,
 either, or `path`: an instance, a basic shape or shared geometry made an
@@ -485,8 +485,8 @@ the agent reads them with `describe()` and never sets them.
 - Cutting a filled shape gives all of its contours new node ids. A shape's
   sizes must be plain numbers (no units or percentages) to be cut, and
   `detach=true` handles instances of paths in `defs` only, as Detach does.
-  `extract(group=true)` is refused where the pieces cannot move into one
-  group keeping their look (a group with opacity or a clip in between).
+  `extract(group=true)` gathers the pieces into their common container;
+  ancestor clipping, opacity and stacking can change, as with manual grouping.
 - `trace_reference` traces the reference at its own resolution there, at
   least 256 and at most 1024 pixels on the long side; finer detail needs a
   smaller region.

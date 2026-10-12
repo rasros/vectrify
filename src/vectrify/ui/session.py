@@ -906,7 +906,21 @@ class Session:
                     if moved:
                         tx.update_nodes(str(oid), moved)
             elif command == "split":
+                edges = {}
                 for oid, nid in points:
+                    geometry = document.geometry_for(oid)
+                    node = geometry.node(nid)
+                    contour = next(s for s in geometry.subpaths if node in s.nodes)
+                    if node.command == "M" and not contour.closed:
+                        if len(contour.nodes) < 2:
+                            raise DocumentError(
+                                "This contour has no edge to add a node on"
+                            )
+                        nid = contour.nodes[1].id
+                    # Both ends of the first edge may be selected. Split each
+                    # original edge once, regardless of selection order.
+                    edges.setdefault((geometry.id, nid), (oid, nid))
+                for oid, nid in edges.values():
                     tx.split_edge(oid, nid)
             elif command == "delete_handle":
                 oid, nid = points[0]

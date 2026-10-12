@@ -109,23 +109,64 @@ def test_cross_group_locks_remain_atomic(kind):
     assert editor.snapshot == before
 
 
-def test_nonuniform_strokes_and_split_group_opacity_fail_without_changes():
-    for attrs, error in [
-        ('transform="scale(2 1)"', "non-uniformly"),
-        ('opacity=".5"', "opacity"),
-    ]:
-        doc = import_svg(f"""<svg width="100" height="100">
+@pytest.mark.parametrize("attrs", ['transform="scale(2 1)"', 'opacity=".5"'])
+def test_nonuniform_strokes_and_split_group_opacity_join_and_undo(attrs):
+    doc = import_svg(f"""<svg width="100" height="100">
         <g><path id="a" d="M0 0H10V10H0Z" stroke="red"/></g>
         <g {attrs} stroke="red"><path d="M0 30H10V40H0Z"/>
         <path id="b" d="M20 20H30V30H20Z"/><path d="M40 40H50V50H40Z"/></g></svg>""")
-        editor = Editor(doc, selection=select("a", "b"))
-        before = editor.snapshot
-        with (
-            pytest.raises(DocumentError, match=error),
-            editor.transaction("Join") as tx,
-        ):
-            tx.join_paths(frozenset({"a", "b"}))
-        assert editor.snapshot == before
+    editor = Editor(doc, selection=select("a", "b"))
+    with editor.transaction("Join") as tx:
+        oid = tx.join_paths(frozenset({"a", "b"}))
+    after = editor.snapshot.document
+    after.validate()
+    assert after.element(oid).tag == "path"
+    assert editor.undo().document == doc
+    assert editor.redo().document == after
+
+
+def test_cross_group_join_resolves_object_bounding_box_clips():
+    source = """<svg width="100" height="100">
+    <defs><clipPath id="clip" clipPathUnits="objectBoundingBox">
+      <rect width=".5" height="1"/>
+    </clipPath></defs>
+    <g fill="red" transform="translate(10 10)" clip-path="url(#clip)">
+      <path id="a" d="M0 0H20V20H0Z"/>
+    </g>
+    <path id="b" fill="red" d="M50 10H60V30H50Z"/>
+    </svg>"""
+    before, editor, oid = joined(source)
+    after = editor.snapshot.document
+    assert after.element(oid).get("clip-path") is None
+    # Cairo does not support a group's objectBoundingBox clip. Its equivalent
+    # user-space rectangle is half the 20 by 20 group bounds.
+    expected = source.replace('clipPathUnits="objectBoundingBox"', "").replace(
+        'width=".5" height="1"', 'width="10" height="20"'
+    )
+    # The now-empty original group still references the old definition; Cairo
+    # needs user-space units even for that invisible group.
+    actual = export_svg(after).replace(
+        'clipPathUnits="objectBoundingBox"', 'clipPathUnits="userSpaceOnUse"'
+    )
+    np.testing.assert_array_equal(render(expected), render(actual))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
+
+
+def test_join_clipped_lines_keeps_the_source_clip_instead_of_rejecting():
+    source = """<svg width="100" height="100">
+    <defs><clipPath id="clip"><rect width="10" height="20"/></clipPath></defs>
+    <path id="a" fill="none" stroke="red" d="M0 10H20"/>
+    <g transform="translate(40 0)" clip-path="url(#clip)">
+      <path id="b" fill="none" stroke="red" d="M0 10H20"/>
+    </g></svg>"""
+    before, editor, oid = joined(source)
+    after = editor.snapshot.document
+    assert after.element(oid).get("clip-path")
+    assert render(export_svg(after))[10, 45, 3] > 0
+    assert render(export_svg(after))[10, 55, 3] == 0
+    assert editor.undo().document == before
+    assert editor.redo().document == after
 
 
 def test_clipping_fallback_preserves_polygon_holes(monkeypatch):

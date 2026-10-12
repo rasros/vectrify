@@ -128,7 +128,7 @@ def test_ungroup_transfers_transform_and_inherited_paint_without_changing_pixels
 
 
 @pytest.mark.parametrize("attribute", ['opacity="0.5"', 'clip-path="url(#clip)"'])
-def test_ungroup_rejects_group_compositing_that_cannot_be_distributed(attribute):
+def test_ungroup_distributes_group_compositing_and_is_undoable(attribute):
     source = OBJECTS.replace('id="layer"', f'id="layer" {attribute}').replace(
         "</svg>",
         """<defs>
@@ -140,29 +140,95 @@ height="20"/>
 </svg>""",
     )
     editor = Editor(import_svg(source), selection=select("layer"))
-    before = editor.snapshot
-    with (
-        pytest.raises(EditRejectedError, match="opacity or clipping"),
-        editor.transaction("Ungroup") as tx,
-    ):
-        tx.ungroup_object("layer")
-    assert editor.snapshot == before
+    before = editor.snapshot.document
+    with editor.transaction("Ungroup") as tx:
+        ids = tx.ungroup_object("layer")
+    after = editor.snapshot.document
+    if attribute.startswith("opacity"):
+        assert all(after.element(oid).get("opacity") == "0.5" for oid in ids)
+        assert render(export_svg(after))[20, 20, 3] > render(source)[20, 20, 3]
+    else:
+        assert all(after.element(oid).get("clip-path") for oid in ids)
+        np.testing.assert_array_equal(render(source), render(export_svg(after)))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
 
 
-def test_grouping_nonconsecutive_objects_rejects_unintended_stacking_change():
+def test_grouping_nonconsecutive_objects_gathers_at_the_frontmost_position():
     editor = Editor(import_svg(OBJECTS), selection=select("a", "c"))
-    with (
-        pytest.raises(EditRejectedError, match="nonconsecutive"),
-        editor.transaction("Group") as tx,
-    ):
-        tx.group_objects(frozenset({"a", "c"}))
-    with editor.transaction("Move and group") as tx:
-        tx.reorder_object("c", 1)
+    before = editor.snapshot.document
+    with editor.transaction("Group") as tx:
         group = tx.group_objects(frozenset({"a", "c"}))
     assert [e.id for e in editor.snapshot.document.element(group).children] == [
         "a",
         "c",
     ]
+    after = editor.snapshot.document
+    assert [e.id for e in after.element("layer").children] == ["b", group]
+    assert after.element("b") == before.element("b")
+    assert editor.undo().document == before
+    assert editor.redo().document == after
+
+
+def test_grouping_across_containers_keeps_placement_and_counts_descendants_once():
+    source = """<svg width="100" height="100">
+    <g id="back" transform="translate(10 10)" fill="red" opacity=".5">
+      <rect id="a" width="10" height="10"/>
+      <rect id="keep" y="30" width="10" height="10"/>
+    </g>
+    <g id="front" transform="translate(50 10) scale(2)" fill="blue">
+      <rect id="b" width="10" height="10"/>
+    </g></svg>"""
+    editor = Editor(import_svg(source), selection=select("a", "front", "b"))
+    before = editor.snapshot.document
+    with editor.transaction("Group") as tx:
+        oid = tx.group_objects(frozenset({"a", "front", "b"}))
+    after = editor.snapshot.document
+    assert [e.id for e in after.root.children] == ["back", oid]
+    assert [e.id for e in after.element(oid).children] == ["a", "front"]
+    assert after.element("a").get("fill") == "red"
+    assert after.element("a").get("transform") == "translate(10 10)"
+    assert after.element("keep") == before.element("keep")
+    # The object left the faded group; grouping is allowed to change its alpha.
+    image = render(export_svg(after))
+    assert image[15, 15].tolist() == [255, 0, 0, 255]
+    assert image[15, 55].tolist() == [0, 0, 255, 255]
+    assert image[45, 15, 3] == 128
+    assert editor.undo().document == before
+    assert editor.redo().document == after
+
+
+@pytest.mark.parametrize("bbox", [False, True])
+def test_ungroup_preserves_nested_clips_with_child_transforms_and_opacity(bbox):
+    units = 'clipPathUnits="objectBoundingBox"' if bbox else ""
+    size = 0.75 if bbox else 30
+    source = f"""<svg width="100" height="100">
+    <defs>
+      <clipPath id="outer" {units}><rect width="{size}" height="{size}"/></clipPath>
+      <clipPath id="inner"><rect x="5" width="20" height="30"/></clipPath>
+    </defs>
+    <g id="g" transform="translate(10 10)" opacity=".5" clip-path="url(#outer)">
+      <path id="a" transform="scale(2)" clip-path="url(#inner)" opacity=".4"
+            fill="red" d="M0 0H20V20H0Z"/>
+    </g></svg>"""
+    editor = Editor(import_svg(source), selection=select("g"))
+    before = editor.snapshot.document
+    with editor.transaction("Ungroup") as tx:
+        assert tx.ungroup_object("g") == ("a",)
+    after = editor.snapshot.document
+    assert float(after.element("a").get("opacity", "1") or "1") == pytest.approx(0.2)
+    # Cairo cannot render objectBoundingBox clips on groups; compare with
+    # the equivalent clip in the group's 40 by 40 user-space bounds.
+    expected = (
+        source.replace(units, "").replace(
+            f'width="{size}" height="{size}"', 'width="30" height="30"'
+        )
+        if bbox
+        else source
+    )
+    np.testing.assert_array_equal(render(expected), render(export_svg(after)))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
 
 
 def test_reorder_selected_object_preserves_other_objects_and_supports_undo():
@@ -322,7 +388,7 @@ def test_invalid_late_structure_command_poisons_batch():
 
 
 @pytest.mark.parametrize("internal", [False, True])
-def test_ungroup_rejects_redistributing_attributes_into_referenced_children(internal):
+def test_ungroup_distributes_attributes_into_referenced_children(internal):
     instance = '<use id="copy" href="#a" x="40"/>'
     source = (
         OBJECTS.replace("</g>", instance + "</g>")
@@ -330,13 +396,15 @@ def test_ungroup_rejects_redistributing_attributes_into_referenced_children(inte
         else OBJECTS.replace("</svg>", instance + "</svg>")
     )
     editor = Editor(import_svg(source), selection=Selection.all())
-    before = editor.snapshot
-    with (
-        pytest.raises(EditRejectedError, match="child references"),
-        editor.transaction("Ungroup") as tx,
-    ):
+    before = editor.snapshot.document
+    with editor.transaction("Ungroup") as tx:
         tx.ungroup_object("layer")
-    assert editor.snapshot == before
+    after = editor.snapshot.document
+    after.validate()
+    assert after.element("copy").get("href") == "#a"
+    assert after.element("a").get("transform") == "translate(5 5)"
+    assert editor.undo().document == before
+    assert editor.redo().document == after
 
 
 def test_ungroup_does_not_erase_a_property_lock():

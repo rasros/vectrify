@@ -1,4 +1,4 @@
-"""Moving objects in paint order and between groups keeps their appearance."""
+"""Object moves keep placement and paint, and adopt their new group's clipping."""
 
 import numpy as np
 import pytest
@@ -93,8 +93,6 @@ def test_multi_object_move_keeps_paint_order_and_takes_children_along():
     [
         ({"layer"}, "layer", "into itself"),
         ({"layer", "a"}, "a", "group or the drawing"),
-        ({"e"}, "layer", "opacity or clipping"),
-        ({"c"}, "faded", "opacity or clipping"),
         ({"c"}, "layer", "outside the container"),
     ],
 )
@@ -107,7 +105,7 @@ def test_moves_that_cannot_keep_their_look_or_structure_are_refused(ids, parent,
     assert editor.snapshot.document == before
 
 
-def test_root_clipped_groups_and_definitions_are_refused():
+def test_root_and_definitions_are_refused():
     source = SVG.replace(
         '<g id="faded" opacity="0.5">',
         '<defs id="defs"><clipPath id="clip"><rect id="r" width="50" height="50"/>'
@@ -117,12 +115,53 @@ def test_root_clipped_groups_and_definitions_are_refused():
     root = editor.snapshot.document.root.id
     with pytest.raises(EditRejectedError, match="root"):
         move(editor, {root}, root, 0)
-    with pytest.raises(EditRejectedError, match="opacity or clipping"):
-        move(editor, {"e"}, root, 0)
     with pytest.raises(EditRejectedError, match="group or the drawing"):
         move(editor, {"c"}, "clip", 0)
     with pytest.raises(EditRejectedError, match="Definitions"):
         move(editor, {"r"}, root, 0)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [("root", "clipped"), ("root", "nested"), ("old", "clipped"), ("old", "root")],
+)
+def test_moves_apply_the_destination_clipping_and_keep_placement(source, target):
+    shape = '<rect id="moving" x="30" y="30" width="30" height="30" fill="red"/>'
+    svg = f"""<svg width="100" height="100">
+    <defs>
+      <clipPath id="old-clip"><rect width="40" height="40"/></clipPath>
+      <clipPath id="new-clip"><rect width="15" height="15"/></clipPath>
+    </defs>
+    <g id="old" transform="translate(5 5)" clip-path="url(#old-clip)">
+      {shape if source == "old" else ""}
+    </g>
+    <g id="clipped" transform="translate(20 20) scale(2)" fill="blue"
+       clip-path="url(#new-clip)"><g id="nested"/></g>
+    {shape if source == "root" else ""}
+    </svg>"""
+    editor = Editor(import_svg(svg), selection=select("moving"))
+    before = editor.snapshot.document
+    parent = before.root.id if target == "root" else target
+    move(editor, {"moving"}, parent, 0)
+    after = editor.snapshot.document
+    assert after.ancestry("moving")[-2].id == parent
+    assert after.element("moving").get("clip-path") is None
+    # Compare the rendered result with the same geometry in page coordinates.
+    position = 35 if source == "old" else 30
+    clip = 'clip-path="url(#expected-clip)"' if target != "root" else ""
+    expected = f"""<svg width="100" height="100">
+    <defs><clipPath id="expected-clip">
+      <rect x="20" y="20" width="30" height="30"/>
+    </clipPath></defs>
+    <rect id="moving" x="{position}" y="{position}" width="30" height="30"
+          fill="red" {clip}/>
+    </svg>"""
+    assert np.array_equal(render(export_svg(after)), render(expected))
+    assert HitIndex(after).bounds(frozenset({"moving"})) == pytest.approx(
+        HitIndex(import_svg(expected)).bounds(frozenset({"moving"}))
+    )
+    assert editor.undo().document == before
+    assert editor.redo().document == after
 
 
 def test_locked_objects_and_groups_are_refused():
@@ -138,8 +177,28 @@ def test_locked_objects_and_groups_are_refused():
     move(editor, {"c"}, editor.snapshot.document.root.id, 0)
 
 
-def test_instances_block_a_changed_transform():
+def test_instances_follow_a_changed_transform_and_the_move_is_undoable():
     source = SVG.replace("</svg>", '<use id="copy" href="#c" x="50"/></svg>')
     editor = Editor(import_svg(source), selection=select("c", "copy"))
-    with pytest.raises(EditRejectedError, match="instances"):
-        move(editor, {"c"}, "layer", 0)
+    before = editor.snapshot.document
+    move(editor, {"c"}, "layer", 0)
+    after = editor.snapshot.document
+    after.validate()
+    assert after.element("copy").get("href") == "#c"
+    assert not np.array_equal(render(source), render(export_svg(after)))
+    assert editor.undo().document == before
+    assert editor.redo().document == after
+
+
+@pytest.mark.parametrize("entering", [False, True])
+def test_moves_apply_the_destination_opacity(entering):
+    editor = Editor(import_svg(SVG), selection=select("c", "e"))
+    before = editor.snapshot.document
+    oid, parent = ("c", "faded") if entering else ("e", before.root.id)
+    move(editor, {oid}, parent, 0)
+    after = editor.snapshot.document
+    x, y = (5, 5) if entering else (82, 2)
+    assert render(export_svg(after))[y, x, 3] == (128 if entering else 255)
+    assert after.element(oid).get("opacity") is None
+    assert editor.undo().document == before
+    assert editor.redo().document == after

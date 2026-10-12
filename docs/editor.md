@@ -285,7 +285,9 @@ and saved projects restore it.
   the same. **Pinned** in the right panel (or **Pin points** in the command
   palette) keeps them in place; **Add node** (6, also in Actions) adds a node
   halfway along the edge leading into each selected node, preserving the
-  curve. For drawn lines the strip also has
+  curve. At the start of an open path it uses the outgoing edge instead.
+  Each edge is split once even when both its ends are selected.
+  For drawn lines the strip also has
   **Break** (4) and **Join** (5). **Break** cuts a line at the selected
   points: an open line comes apart there, each piece ending on its own copy of
   the point (both copies stay selected, so a drag moves them together; click
@@ -322,6 +324,11 @@ and saved projects restore it.
   or **Cancel** discards the draft. Creation is one undoable edit and selects the
   new path for paint and point editing. Middle mouse panning works while drawing.
 - Group/ungroup, stacking order, delete and detach shared geometry.
+  **Group** gathers selected objects, even across groups or with other objects
+  between them, at the frontmost selected branch in their common container.
+  **Ungroup** distributes the group's transforms, paint, clipping and opacity
+  to its children. Overlapping children may become more opaque; each operation
+  is one undoable edit.
   Deleting objects that contain pinned points asks for confirmation. Cancel
   keeps them; confirming deletes them in one undoable edit. Undo restores
   their pins too. Deleting individual pinned points still requires unpinning.
@@ -340,13 +347,14 @@ and saved projects restore it.
   land; where a group ends, move the pointer left or right to drop inside it
   or after it. Dropping onto the middle of a group row moves the objects into
   that group, at its front. Escape cancels. Objects moved to another group keep
-  their look: the transform and paint they inherited are written onto them.
-  Moves that cannot keep it are refused with a reason: leaving or entering a
-  group with opacity or clipping, a changed transform on a path with shared
-  edges, and objects with instances that would change too. Locked objects and
-  groups, definitions, clipping contours and a group into itself are refused
-  as well. Each drop is one undoable edit. A drag can start while an edit is
-  running: dropped before the edit is done, the objects land next to the rows
+  their placement and paint: the transform and paint they inherited are written
+  onto them. They take on the clipping and opacity of their new group and its
+  ancestors, and leave behind those effects from their old groups. Instances
+  follow changes to the source object's transform and paint. Explicit locks,
+  shared edges under changed transforms, definitions, clipping contours and
+  moves of a group into itself remain protected. Each drop is one undoable
+  edit. A drag can start while an edit is running: dropped before the edit is
+  done, the objects land next to the rows
   they were dropped by, on the tree the edit leaves, and the drop is refused
   with a reason if those rows are gone or have moved to another group. A drag
   still held when the edit finishes follows the new rows under the pointer.
@@ -376,11 +384,13 @@ and saved projects restore it.
   and per-path clipping are resolved into the common parent when joining
   across groups. The frontmost ancestry is split as needed so unselected
   objects retain their stacking, styling and clipping. Area weighting uses the
-  original clipped painted areas. Filled regions and stroke-only outlines join
-  separately. Cross-group joins reject object-bounding-box clips, clipped
-  stroke-only paths, non-uniformly scaled strokes, and group-opacity cases
-  where splitting would change unselected artwork. Degenerate clip
-  intersections use a winding-aware fallback; its curve tolerance is 0.01 SVG
+  original clipped painted areas. Object-bounding-box clips are resolved using
+  the original geometric bounds. Joins involving stroke-only outlines retain
+  the frontmost or chosen source's clipping on the result. A nonuniformly scaled
+  stroke uses a scalar width based on its transform's area scale. Splitting
+  groups with opacity is allowed even when it changes their compositing.
+  Degenerate clip intersections use a winding-aware fallback; its curve
+  tolerance is 0.01 SVG
   units (straight edges stay exact).
 - Joining lines joins the open ends of the selected stroked lines (paths with
   no fill, or the paths in selected groups) where one line carries on from
@@ -402,8 +412,9 @@ and saved projects restore it.
   position. A compound path has one style: different original colours become
   that style, and overlapping contours can form holes under its fill rule.
   Transforms are resolved as needed without changing the contours' positions.
-  Per-path clipping or clipping in different groups must be moved to the common
-  containing group first; Combine never cuts clipping into the geometry.
+  Clipping follows the frontmost or chosen source, including its group's clips
+  below the common container. It applies to the entire result; Combine keeps
+  the original contours instead of cutting clipping into their geometry.
   Locks and shared-geometry guards apply. Undo restores the original paths
   and selection in one step.
 - **Convert line/fill** (Actions) flips each selected path, as one edit; it

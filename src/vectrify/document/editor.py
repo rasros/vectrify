@@ -37,7 +37,10 @@ from vectrify.document.holes import (
 )
 from vectrify.document.join import (
     bake_group_path,
+    clip_intersection,
     curve_path,
+    element_clip,
+    group_clipping,
     join_paint,
     painted_weights,
     path_geometry,
@@ -793,49 +796,57 @@ class Transaction:
         or shared definitions are retained when their consumer stops using them.
         """
         with self._change():
-            self._whole_objects()
-            document = self._working
-            target = document.element(object_id)
-            if target.tag not in DRAWN | {"g", "use"} or any(
-                a.tag in {"defs", "clipPath"} for a in document.ancestry(object_id)
-            ):
-                raise EditRejectedError("Clip a drawn object or group")
-            self._authorize(document.dependents({object_id}), EditKind.STRUCTURE)
-            old = target.get("clip-path")
-            attrs = dict(target.attributes)
-            if boundary is None:
-                attrs.pop("clip-path", None)
-            else:
-                if boundary.tag != "clipPath" or boundary.id in {
-                    e.id for e in document.elements()
-                }:
-                    raise DocumentError("Give a new clipPath definition")
-                definitions = next(
-                    (e for e in document.root.children if e.tag == "defs"), None
-                )
-                if definitions is not None:
-                    self._check_locks(definitions.id, EditKind.STRUCTURE)
-                self._add_geometries(geometries)
-                boundary = replace(
-                    boundary,
-                    attributes=(
-                        *boundary.attributes,
-                        ("data-vectrify-clip-owner", object_id),
-                    ),
-                )
-                document = _add_definition(self._working, boundary)
-                attrs["clip-path"] = f"url(#{boundary.id})"
-            document = document.replace_element(
-                replace(target, attributes=tuple(attrs.items()))
+            self._set_clip(object_id, boundary, geometries)
+
+    def _set_clip(
+        self,
+        object_id: str,
+        boundary: Element | None,
+        geometries: tuple[Geometry, ...] = (),
+    ) -> None:
+        self._whole_objects()
+        document = self._working
+        target = document.element(object_id)
+        if target.tag not in DRAWN | {"g", "use"} or any(
+            a.tag in {"defs", "clipPath"} for a in document.ancestry(object_id)
+        ):
+            raise EditRejectedError("Clip a drawn object or group")
+        self._authorize(document.dependents({object_id}), EditKind.STRUCTURE)
+        old = target.get("clip-path")
+        attrs = dict(target.attributes)
+        if boundary is None:
+            attrs.pop("clip-path", None)
+        else:
+            if boundary.tag != "clipPath" or boundary.id in {
+                e.id for e in document.elements()
+            }:
+                raise DocumentError("Give a new clipPath definition")
+            definitions = next(
+                (e for e in document.root.children if e.tag == "defs"), None
             )
-            if old and old != "none":
-                previous = document.element(old[5:-1])
-                used = any(previous.id in references(e) for e in document.elements())
-                if not used and previous.get("data-vectrify-clip-owner") == object_id:
-                    for item in Document(previous).elements():
-                        self._check_locks(item.id, EditKind.STRUCTURE)
-                    document = _without(document, previous.id)
-            self._working = document
+            if definitions is not None:
+                self._check_locks(definitions.id, EditKind.STRUCTURE)
+            self._add_geometries(geometries)
+            boundary = replace(
+                boundary,
+                attributes=(
+                    *boundary.attributes,
+                    ("data-vectrify-clip-owner", object_id),
+                ),
+            )
+            document = _add_definition(self._working, boundary)
+            attrs["clip-path"] = f"url(#{boundary.id})"
+        document = document.replace_element(
+            replace(target, attributes=tuple(attrs.items()))
+        )
+        if old and old != "none":
+            previous = document.element(old[5:-1])
+            used = any(previous.id in references(e) for e in document.elements())
+            if not used and previous.get("data-vectrify-clip-owner") == object_id:
+                for item in Document(previous).elements():
+                    self._check_locks(item.id, EditKind.STRUCTURE)
+                document = _without(document, previous.id)
+        self._working = document
 
     def set_gradient(
         self,
@@ -1780,11 +1791,7 @@ class Transaction:
             if any(e.tag not in {"g", "path"} for e in members.values()):
                 raise EditRejectedError("Join paths or groups containing only paths")
             groups = {e.id for e in members.values() if e.tag == "g"}
-            if not groups or (
-                len(selected) == 1
-                and selected[0].tag == "g"
-                and all(c.tag == "path" for c in selected[0].children)
-            ):
+            if not groups:
                 return self._join_paths(object_ids, color_source, combine=combine)
             if any(set(references(e)) & groups for e in document.elements()):
                 raise EditRejectedError(
@@ -1810,6 +1817,13 @@ class Transaction:
             self._working = replace(
                 self._working, root=remove_empty(self._working.root)
             )
+            # Collapse selected wrappers after the paths are merged. This
+            # also carries their transform, opacity and clipping onto the result.
+            for item in reversed(document.elements()):
+                if item.id in groups and any(
+                    e.id == item.id for e in self._working.elements()
+                ):
+                    self._ungroup_object(item.id)
             self._record_object_remap({oid: {joined} for oid in groups})
             return joined
 
@@ -1821,9 +1835,7 @@ class Transaction:
         combine: bool = False,
     ) -> str:
         document = self._working
-        selected = [document.element(oid) for oid in object_ids]
-        group = selected[0] if len(selected) == 1 and selected[0].tag == "g" else None
-        paths = list(group.children) if group else selected
+        paths = [document.element(oid) for oid in object_ids]
         if len(paths) < 2 or any(p.tag != "path" for p in paths):
             raise EditRejectedError(
                 "Select at least two paths, or a group containing only paths"
@@ -1838,7 +1850,7 @@ class Transaction:
         paths = [p for p in parent.children if p.id in path_ids]
         if any(e.tag in {"defs", "clipPath"} for e in document.ancestry(paths[0].id)):
             raise EditRejectedError("Join drawing paths, not definitions or instances")
-        removed = path_ids | ({group.id} if group else set())
+        removed = path_ids
         self._authorize(document.dependents(removed), EditKind.STRUCTURE)
         self._authorize(document.dependents(removed), EditKind.GEOMETRY)
         if any(set(references(e)) & removed for e in document.elements()):
@@ -1849,20 +1861,8 @@ class Transaction:
             {k: v for k, v in p.attributes if k not in PAINT} != structural
             for p in paths
         ):
-            if combine:
-                return self._join_across_groups(paths, color_source, combine=True)
-            raise EditRejectedError(
-                "Paths must have matching transforms and clipping to join"
-            )
-        if attrs.get("clip-path", "none") != "none":
-            raise EditRejectedError(
-                "Move clipping to the containing group before joining"
-            )
+            return self._join_across_groups(paths, color_source, combine=combine)
         styles = [path_style(document, p) for p in paths]
-        if not combine and len({s["fill"] != "none" for s in styles}) > 1:
-            raise EditRejectedError(
-                "Join filled regions separately from stroke-only outlines"
-            )
         if combine:
             source_index = next(
                 (i for i, p in enumerate(paths) if p.id == color_source),
@@ -1934,22 +1934,6 @@ class Transaction:
                     }
                 )
         locks = frozenset().union(*(p.locks for p in paths))
-        if group:
-            if float(group.get("opacity", "1") or "1") != 1:
-                raise EditRejectedError(
-                    "Select the group's paths to retain group opacity when joining"
-                )
-            if attrs.get("transform") and group.get("clip-path", "none") != "none":
-                raise EditRejectedError(
-                    "Select the group's paths to retain its clipping coordinate system"
-                )
-            merged = dict(group.attributes)
-            # A child's clip-path:none does not cancel an ancestor's clip.
-            merged.update({k: v for k, v in attrs.items() if k != "clip-path"})
-            if group.get("transform") and attrs.get("transform"):
-                merged["transform"] = f"{group.get('transform')} {attrs['transform']}"
-            attrs = merged
-            locks |= group.locks
         joined = Element(
             new_id("object"),
             "path",
@@ -1957,28 +1941,17 @@ class Transaction:
             geometry_id=geometry.id,
             locks=locks,
         )
-        if group:
-            container = document.ancestry(group.id)[-2]
-            updated = document.replace_element(
-                replace(
-                    container,
-                    children=tuple(
-                        joined if c.id == group.id else c for c in container.children
-                    ),
-                )
+        front = paths[-1].id
+        updated = document.replace_element(
+            replace(
+                parent,
+                children=tuple(
+                    joined if child.id == front else child
+                    for child in parent.children
+                    if child.id == front or child.id not in path_ids
+                ),
             )
-        else:
-            front = paths[-1].id
-            updated = document.replace_element(
-                replace(
-                    parent,
-                    children=tuple(
-                        joined if child.id == front else child
-                        for child in parent.children
-                        if child.id == front or child.id not in path_ids
-                    ),
-                )
-            )
+        )
         self._working = replace(
             updated,
             geometries=(
@@ -2020,19 +1993,16 @@ class Transaction:
             for e in document.elements()
         ):
             raise EditRejectedError("Detach shared geometry before joining")
-        if combine:
-            for chain in ancestries:
-                start = next(i for i, a in enumerate(chain) if a.id == common.id) + 1
-                if any(a.get("clip-path", "none") != "none" for a in chain[start:]):
-                    raise EditRejectedError(
-                        "Move clipping to the common containing group before combining"
-                    )
-        baked = [bake_group_path(document, p, common.id) for p in paths]
+        # Combine keeps contours exact. Stroke-only paths cannot have their
+        # clipping cut into a filled outline, so they also retain a source clip.
+        carry_clip = combine or any(
+            path_style(document, p)["fill"] == "none" for p in paths
+        )
+        baked = [
+            bake_group_path(document, p, common.id, clipping=not carry_clip)
+            for p in paths
+        ]
         styles = [style for _, style, _ in baked]
-        if not combine and len({s["fill"] != "none" for s in styles}) > 1:
-            raise EditRejectedError(
-                "Join filled regions separately from stroke-only outlines"
-            )
         if combine:
             source_index = next(
                 (i for i, p in enumerate(paths) if p.id == color_source),
@@ -2048,6 +2018,22 @@ class Transaction:
             )
         normalized = []
         updated = document
+        clipping = None
+        if carry_clip:
+            source = next((p for p in paths if p.id == color_source), paths[-1])
+            clip = group_clipping(document, source, common.id)
+            if clip is not None:
+                geometry = path_geometry(clip)
+                boundary = Element(
+                    new_id("object"),
+                    "clipPath",
+                    children=(
+                        Element(new_id("object"), "path", geometry_id=geometry.id),
+                    ),
+                )
+                updated = _add_definition(updated, boundary)
+                updated = replace(updated, geometries=(*updated.geometries, geometry))
+                clipping = f"url(#{boundary.id})"
         for path, original, (geometry, style, changed) in zip(
             paths, originals, baked, strict=True
         ):
@@ -2073,9 +2059,11 @@ class Transaction:
                 if combine
                 else dict(paint, **{"fill-rule": style["fill-rule"]})
             )
+            if clipping:
+                resolved["clip-path"] = clipping
             before = path_style(document, path)
             for key, value in resolved.items():
-                if value != before[key]:
+                if key in PAINT and value != before[key]:
                     self._authorize(document.dependents({path.id}), EditKind.PAINT, key)
             chain = document.ancestry(path.id)
             below = chain[
@@ -2115,11 +2103,6 @@ class Transaction:
                     reached = True
                 elif child.id not in path_ids:
                     (after if reached else before).append(prune(child))
-            if before and after and float(element.get("opacity", "1") or 1) != 1:
-                raise EditRejectedError(
-                    "Resolve group opacity before joining "
-                    "across both sides of that group"
-                )
             left = replace(element, children=tuple(before)) if before else None
             right = (
                 replace(
@@ -2145,6 +2128,13 @@ class Transaction:
                     children.append(right)
             elif child.id not in path_ids:
                 children.append(prune(child))
+        # New clip definitions may have been added directly under the root.
+        if common.id == document.root.id:
+            existing = {c.id for c in document.root.children}
+            children[:0] = [c for c in updated.root.children if c.id not in existing]
+            children = [
+                updated.element(c.id) if c.tag == "defs" else c for c in children
+            ]
         updated = updated.replace_element(replace(common, children=tuple(children)))
         self._working = updated
         return self._join_paths(frozenset(path_ids), color_source, combine=combine)
@@ -2598,78 +2588,82 @@ class Transaction:
     ) -> None:
         """Move objects, in paint order, to *index* among the container's others.
 
-        Zero is the back. An object moved to another group keeps its look:
+        Zero is the back. An object moved to another group keeps its placement:
         the transform and paint it inherited from the groups it leaves are
-        written onto it. Group opacity and clipping cannot be carried that
-        way, so those moves are refused, as are transform changes to paths
-        with shared edges, whose links are kept in their old frame.
+        written onto it. Clipping and opacity follow the destination group's
+        ancestry. Shared edges keep their links in their old frame.
         """
         with self._change():
-            self._whole_objects()
-            document = self._working
-            if not object_ids:
-                raise EditRejectedError("Choose objects to move")
-            if document.root.id in object_ids:
-                raise EditRejectedError("Cannot move the document root")
-            elements = {e.id: e for e in document.elements()}
-            parents = {c.id: e for e in elements.values() for c in e.children}
+            self._move_objects(object_ids, parent_id, index)
 
-            def chain(element_id: str) -> tuple[Element, ...]:
-                if element_id not in elements:
-                    raise EditRejectedError(f"Unknown object: {element_id}")
-                ancestors = [elements[element_id]]
-                while ancestors[-1].id in parents:
-                    ancestors.append(parents[ancestors[-1].id])
-                return tuple(reversed(ancestors))
+    def _move_objects(
+        self, object_ids: frozenset[str], parent_id: str, index: int
+    ) -> None:
+        self._whole_objects()
+        document = self._working
+        if not object_ids:
+            raise EditRejectedError("Choose objects to move")
+        if document.root.id in object_ids:
+            raise EditRejectedError("Cannot move the document root")
+        elements = {e.id: e for e in document.elements()}
+        parents = {c.id: e for e in elements.values() for c in e.children}
 
-            for object_id in object_ids:
-                chain(object_id)
-            target = chain(parent_id)
-            if target[-1].tag not in {"svg", "g"} or any(
-                a.tag in {"defs", "clipPath"} for a in target
-            ):
-                raise EditRejectedError("Move objects into a group or the drawing")
-            if any(a.id in object_ids for a in target):
-                raise EditRejectedError("Cannot move a group into itself")
-            # A moved group takes its selected descendants along.
-            moved = [
-                e
-                for e in document.elements()
-                if e.id in object_ids
-                and not any(a.id in object_ids for a in chain(e.id)[:-1])
-            ]
-            if any(a.tag in {"defs", "clipPath"} for e in moved for a in chain(e.id)):
-                raise EditRejectedError(
-                    "Definitions and clipping boundaries cannot be restacked"
-                )
-            moved_ids = {e.id for e in moved}
-            self._authorize(document.dependents(moved_ids), EditKind.STRUCTURE)
-            updated = [self._carry_context(e, chain(e.id)[:-1], target) for e in moved]
+        def chain(element_id: str) -> tuple[Element, ...]:
+            if element_id not in elements:
+                raise EditRejectedError(f"Unknown object: {element_id}")
+            ancestors = [elements[element_id]]
+            while ancestors[-1].id in parents:
+                ancestors.append(parents[ancestors[-1].id])
+            return tuple(reversed(ancestors))
 
-            def prune(element: Element) -> Element:
-                return replace(
-                    element,
-                    children=tuple(
-                        prune(c) for c in element.children if c.id not in moved_ids
-                    ),
-                )
-
-            self._working = replace(document, root=prune(document.root))
-            parent = self._working.element(parent_id)
-            if not 0 <= index <= len(parent.children):
-                raise EditRejectedError("Stacking index is outside the container")
-            self._working = self._working.replace_element(
-                replace(
-                    parent,
-                    children=(
-                        *parent.children[:index],
-                        *updated,
-                        *parent.children[index:],
-                    ),
-                )
+        for object_id in object_ids:
+            chain(object_id)
+        target = chain(parent_id)
+        if target[-1].tag not in {"svg", "g"} or any(
+            a.tag in {"defs", "clipPath"} for a in target
+        ):
+            raise EditRejectedError("Move objects into a group or the drawing")
+        if any(a.id in object_ids for a in target):
+            raise EditRejectedError("Cannot move a group into itself")
+        # A moved group takes its selected descendants along.
+        moved = [
+            e
+            for e in document.elements()
+            if e.id in object_ids
+            and not any(a.id in object_ids for a in chain(e.id)[:-1])
+        ]
+        if any(a.tag in {"defs", "clipPath"} for e in moved for a in chain(e.id)):
+            raise EditRejectedError(
+                "Definitions and clipping boundaries cannot be restacked"
             )
-            # Groups that now contain the objects, and their instances, change too.
-            self._authorize(self._working.dependents(moved_ids), EditKind.STRUCTURE)
+        moved_ids = {e.id for e in moved}
+        self._authorize(document.dependents(moved_ids), EditKind.STRUCTURE)
+        updated = [self._carry_context(e, chain(e.id)[:-1], target) for e in moved]
+
+        def prune(element: Element) -> Element:
+            return replace(
+                element,
+                children=tuple(
+                    prune(c) for c in element.children if c.id not in moved_ids
+                ),
+            )
+
+        self._working = replace(document, root=prune(document.root))
+        parent = self._working.element(parent_id)
+        if not 0 <= index <= len(parent.children):
+            raise EditRejectedError("Stacking index is outside the container")
+        self._working = self._working.replace_element(
+            replace(
+                parent,
+                children=(
+                    *parent.children[:index],
+                    *updated,
+                    *parent.children[index:],
+                ),
+            )
+        )
+        # Groups that now contain the objects, and their instances, change too.
+        self._authorize(self._working.dependents(moved_ids), EditKind.STRUCTURE)
 
     def scale_objects(
         self,
@@ -2779,21 +2773,12 @@ class Transaction:
         old: tuple[Element, ...],
         new: tuple[Element, ...],
     ) -> Element:
-        """*element* with what it inherited under *old* kept when under *new*."""
+        """Keep inherited paint and placement; clipping follows the new parent."""
         common = 0
         while common < min(len(old), len(new)) and old[common].id == new[common].id:
             common += 1
         if common == len(old) == len(new):
             return element
-        for group in (*old[common:], *new[common:]):
-            if (
-                float(group.get("opacity", "1") or "1") != 1
-                or group.get("clip-path", "none") != "none"
-            ):
-                raise EditRejectedError(
-                    "Group opacity or clipping would change how the moved "
-                    "objects look; resolve it first"
-                )
         attrs = dict(element.attributes)
 
         def inherited(ancestors: tuple[Element, ...]) -> dict[str, str]:
@@ -2816,7 +2801,6 @@ class Transaction:
             0.0 if abs(v) < 1e-12 else v
             for v in multiply(inverse_matrix(frames[1]), frames[0])
         )
-        subtree = Document(element).elements()
         if not all(
             math.isclose(a, b, abs_tol=1e-12)
             for a, b in zip(delta, IDENTITY, strict=True)
@@ -2830,12 +2814,6 @@ class Transaction:
             changes["transform"] = f"{local} {attrs.get('transform', '')}".strip()
         if not changes:
             return element
-        ids = {e.id for e in subtree}
-        if any(set(references(e)) & ids for e in self._working.elements()):
-            raise EditRejectedError(
-                "Detach instances of the moved objects before moving them "
-                "to another group"
-            )
         affected = self._working.dependents({element.id})
         for key in changes:
             if key == "transform":
@@ -2847,88 +2825,114 @@ class Transaction:
         return replace(element, attributes=tuple(attrs.items()))
 
     def group_objects(self, object_ids: frozenset[str]) -> str:
-        """Wrap consecutive siblings without changing paint order or inheritance."""
+        """Gather objects at their frontmost branch in their common container."""
         with self._change():
             self._whole_objects()
             if not object_ids or self._working.root.id in object_ids:
-                raise EditRejectedError("Choose non-root siblings to group")
-            parents = {self._working.ancestry(oid)[-2].id for oid in object_ids}
-            if len(parents) != 1:
-                raise EditRejectedError("Grouping requires siblings in one container")
-            parent = self._working.element(next(iter(parents)))
-            positions = [i for i, c in enumerate(parent.children) if c.id in object_ids]
-            start, stop = min(positions), max(positions) + 1
-            if len(positions) != stop - start:
-                raise EditRejectedError(
-                    "Reorder nonconsecutive objects before grouping"
-                )
-            self._authorize(
-                self._working.dependents(set(object_ids)), EditKind.STRUCTURE
+                raise EditRejectedError("Choose non-root objects to group")
+            document = self._working
+            for oid in object_ids:
+                document.element(oid)
+            objects = [
+                e
+                for e in document.elements()
+                if e.id in object_ids
+                and not any(a.id in object_ids for a in document.ancestry(e.id)[:-1])
+            ]
+            common = document.root
+            for ancestors in zip(
+                *(document.ancestry(e.id)[:-1] for e in objects), strict=False
+            ):
+                if len({a.id for a in ancestors}) != 1:
+                    break
+                common = ancestors[0]
+            ids = frozenset(e.id for e in objects)
+            front_chain = {a.id for a in document.ancestry(objects[-1].id)}
+            front = next(
+                i for i, c in enumerate(common.children) if c.id in front_chain
             )
-            group = Element(new_id("group"), "g", children=parent.children[start:stop])
+            index = sum(c.id not in ids for c in common.children[: front + 1])
+            self._move_objects(ids, common.id, index)
+            parent = self._working.element(common.id)
+            group = Element(
+                new_id("group"), "g", children=parent.children[index : index + len(ids)]
+            )
             self._working = self._working.replace_element(
                 replace(
                     parent,
-                    children=(*parent.children[:start], group, *parent.children[stop:]),
+                    children=(
+                        *parent.children[:index],
+                        group,
+                        *parent.children[index + len(ids) :],
+                    ),
                 )
             )
             self._ids |= {group.id}
             return group.id
 
     def ungroup_object(self, object_id: str) -> tuple[str, ...]:
-        """Distribute inherited paint/transforms when group compositing permits it."""
+        """Distribute paint, transforms, opacity and clipping onto the children."""
         with self._change():
-            self._whole_objects()
-            group = self._working.element(object_id)
-            if group.tag != "g":
-                raise EditRejectedError("Ungroup requires a group")
-            self._authorize(self._working.dependents({object_id}), EditKind.STRUCTURE)
-            if group.locks:
-                raise EditRejectedError("Unlock the group before removing its locks")
-            if (
-                float(group.get("opacity", "1") or "1") != 1
-                or group.get("clip-path", "none") != "none"
-            ):
-                raise EditRejectedError(
-                    "Group opacity or clipping must be resolved before ungrouping"
-                )
-            if any(object_id in references(e) for e in self._working.elements()):
-                raise EditRejectedError("Retarget references before ungrouping")
-            inherited = {
-                k: v for k, v in group.attributes if k in PAINT and k != "opacity"
-            }
-            descendants = {e.id for e in Document(group).elements()} - {group.id}
-            if (inherited or group.get("transform")) and any(
-                set(references(e)) & descendants for e in self._working.elements()
-            ):
-                raise EditRejectedError(
-                    "Detach child references before distributing group attributes"
-                )
-            children = []
-            for child in group.children:
-                attrs = inherited | dict(child.attributes)
-                transforms = [
-                    t for t in (group.get("transform"), child.get("transform")) if t
-                ]
-                if transforms:
-                    attrs["transform"] = " ".join(transforms)
-                children.append(replace(child, attributes=tuple(attrs.items())))
-            parent = self._working.ancestry(object_id)[-2]
-            index = next(i for i, c in enumerate(parent.children) if c.id == object_id)
-            self._working = self._working.replace_element(
-                replace(
-                    parent,
+            return self._ungroup_object(object_id)
+
+    def _ungroup_object(self, object_id: str) -> tuple[str, ...]:
+        self._whole_objects()
+        group = self._working.element(object_id)
+        if group.tag != "g":
+            raise EditRejectedError("Ungroup requires a group")
+        self._authorize(self._working.dependents({object_id}), EditKind.STRUCTURE)
+        if group.locks:
+            raise EditRejectedError("Unlock the group before removing its locks")
+        if any(object_id in references(e) for e in self._working.elements()):
+            raise EditRejectedError("Retarget references before ungrouping")
+        inherited = {k: v for k, v in group.attributes if k in PAINT and k != "opacity"}
+        opacity = float(group.get("opacity", "1") or "1")
+        group_clip = element_clip(self._working, group)
+        children = []
+        for child in group.children:
+            if group_clip is not None:
+                local = inverse_matrix(transform(child.get("transform")))
+                clip = group_clip.transform(*local)
+                own_clip = element_clip(self._working, child)
+                if own_clip is not None:
+                    clip = clip_intersection(clip, own_clip)
+                geometry = path_geometry(clip)
+                boundary = Element(
+                    new_id("object"),
+                    "clipPath",
                     children=(
-                        *parent.children[:index],
-                        *children,
-                        *parent.children[index + 1 :],
+                        Element(new_id("object"), "path", geometry_id=geometry.id),
                     ),
                 )
+                self._set_clip(child.id, boundary, (geometry,))
+                child = self._working.element(child.id)
+            attrs = inherited | dict(child.attributes)
+            if opacity != 1:
+                attrs["opacity"] = (
+                    f"{opacity * float(child.get('opacity', '1') or '1'):.15g}"
+                )
+            transforms = [
+                t for t in (group.get("transform"), child.get("transform")) if t
+            ]
+            if transforms:
+                attrs["transform"] = " ".join(transforms)
+            children.append(replace(child, attributes=tuple(attrs.items())))
+        parent = self._working.ancestry(object_id)[-2]
+        index = next(i for i, c in enumerate(parent.children) if c.id == object_id)
+        self._working = self._working.replace_element(
+            replace(
+                parent,
+                children=(
+                    *parent.children[:index],
+                    *children,
+                    *parent.children[index + 1 :],
+                ),
             )
-            ids = tuple(c.id for c in children)
-            self._record_object_remap({object_id: set(ids)})
-            self._ids -= {object_id}
-            return ids
+        )
+        ids = tuple(c.id for c in children)
+        self._record_object_remap({object_id: set(ids)})
+        self._ids -= {object_id}
+        return ids
 
     def commit(self) -> Snapshot:
         from vectrify.document.features import require_preserved

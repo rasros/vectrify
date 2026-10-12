@@ -1,5 +1,7 @@
 // Checks which line edits selected points allow; run by test_line_edits.py.
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {breakable, contourPoints, freeEnd, segmentAmong} from '../../src/vectrify/ui/static/lines.js';
 
 const node = (id, command, ...values) => ({id, command, values});
@@ -34,3 +36,37 @@ const dense = {closed: false, nodes: Array.from({length: 2000}, (_, i) => ({
 }))};
 assert.ok(segmentAmong(dense, new Set(Array.from({length: 2000}, (_, i) => `n${i}`))));
 assert.ok(idReads < 4000, `read ids ${idReads} times for 2000 nodes`);
+
+// Add node stays available at either end of an open path. A lone point has
+// no segment to subdivide.
+const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
+const commandStart = source.indexOf("{id: 'split-edge'");
+let selected = ['a'], contour = line;
+const context = vm.createContext({
+  noPoints: () => !selected.length && 'Select points first',
+  selectedPoints: () => selected,
+  contourAt: () => contour,
+  noSelection: () => false,
+  level: () => 'points',
+  joinCandidates: () => [{id: 'a'}, {id: 'b'}],
+});
+const command = vm.runInContext(`(${source.slice(commandStart, source.indexOf(",\n  {id: 'delete-contour'", commandStart))})`, context);
+assert.ok(!command.disabled());
+selected = ['c'];
+assert.ok(!command.disabled());
+selected = ['a', 'b'];
+assert.ok(!command.disabled());
+contour = {closed: false, nodes: [node('a', 'M', 0, 0)]};
+selected = ['a'];
+assert.equal(command.disabled(), 'This contour has no edge to add a node on');
+selected = [];
+assert.equal(command.disabled(), 'Select points first');
+
+// Grouping one object and combining the selected paths from Nodes are useful
+// object operations too, without requiring a tool or selection change.
+const groupStart = source.indexOf("{id: 'group'");
+const group = vm.runInContext(`(${source.slice(groupStart, source.indexOf(",\n  {id: 'ungroup'", groupStart))})`, context);
+assert.ok(!group.disabled());
+const combineStart = source.indexOf("{id: 'combine-paths'");
+const combine = vm.runInContext(`(${source.slice(combineStart, source.indexOf(",\n  {id: 'convert-lines'", combineStart))})`, context);
+assert.ok(!combine.disabled());
