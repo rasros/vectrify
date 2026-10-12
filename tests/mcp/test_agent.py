@@ -516,6 +516,28 @@ def test_join_does_what_the_editors_join_does():
     assert len(call.labels) == 3
 
 
+def test_agent_join_single_filled_path_unions_contours_instead_of_joining_ends():
+    session = Session(
+        import_svg(
+            '<svg width="100" height="100"><path id="a" fill="red" '
+            'd="M0 0H10V10H0Z M5 0H15V10H5Z"/></svg>'
+        )
+    )
+    agent = Agent(session)
+    reply = agent.call("join", {"seen": [session.epoch, 0], "ids": ["a"]}).data
+    assert reply["joined"] == "outlines"
+    assert len(session.editor.snapshot.document.geometry_for("a").subpaths) == 1
+    assert len(session.editor.undo_entries) == 1
+    agent.call(
+        "undo",
+        {
+            "seen": [reply["epoch"], reply["revision"]],
+            "ids": [reply["edit_id"]],
+        },
+    )
+    assert len(session.editor.snapshot.document.geometry_for("a").subpaths) == 2
+
+
 def test_points_marks_holes_that_holes_fills_or_makes_shapes():
     call = Calls()
     listed = call.agent.call("points", {"id": "ring", "nodes": False}).data

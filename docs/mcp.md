@@ -351,7 +351,8 @@ backward) or `arrange(ids, parent, index?)` (into a group, the front unless
 two or more objects; `dissolve` removes groups, keeping their children),
 `join(ids? | points?, reach?, bridge?, color_source?)` (the editor's Join: two points
 join each other; stroked lines join their ends within `reach`; filled
-paths merge by area; `joined` says which), `combine(ids, paint_source?)`
+paths merge by area; a single filled path unions its overlapping contours,
+preserving holes and paint; `joined` says which), `combine(ids, paint_source?)`
 (collect unchanged contours into one compound path, using the frontmost path's
 entire style or `paint_source`'s; compound fill rules still apply; transforms
 are resolved and the result takes the source's clipping), `split_parts(ids)`,

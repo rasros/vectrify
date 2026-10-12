@@ -73,6 +73,30 @@ def test_nonconsecutive_regions_join_at_frontmost_with_area_weighted_paint():
     assert editor.undo().document == doc
 
 
+@pytest.mark.parametrize("rule", ["nonzero", "evenodd"])
+@pytest.mark.parametrize("second", ["M5 0H15V10H5Z", "M5 0V10H15V0Z"])
+def test_overlapping_regions_join_as_a_union_without_holes_or_internal_strokes(
+    rule, second
+):
+    attrs = f'fill="red" stroke="black" fill-rule="{rule}"'
+    editor = Editor(pair(attrs, attrs, second), selection=select("a", "b"))
+    before = editor.snapshot
+    with editor.transaction("Join") as tx:
+        joined = tx.join_paths(frozenset({"a", "b"}))
+    after = editor.snapshot
+    assert after.selection.object_ids == {joined}
+    assert len(after.document.geometry_for(joined).subpaths) == 1
+    expected = (
+        '<svg width="100" height="100">'
+        '<path fill="red" stroke="black" d="M0 0H15V10H0Z"/></svg>'
+    )
+    np.testing.assert_array_equal(render(export_svg(after.document)), render(expected))
+    assert editor.undo().document == before.document
+    assert editor.snapshot.selection == before.selection
+    assert editor.redo().document == after.document
+    assert editor.snapshot.selection == after.selection
+
+
 def test_nested_regions_are_unioned_instead_of_becoming_holes():
     doc = pair(
         'fill="red" fill-rule="evenodd"',
@@ -85,6 +109,115 @@ def test_nested_regions_are_unioned_instead_of_becoming_holes():
     result = editor.snapshot.document
     assert result.element(joined).get("fill-rule") == "nonzero"
     assert render(export_svg(result))[5, 5, 3] == 255
+
+
+@pytest.mark.parametrize("rule", ["nonzero", "evenodd"])
+@pytest.mark.parametrize("second", ["M5 0H15V10H5Z", "M5 0V10H15V0Z"])
+def test_join_single_compound_path_unions_overlap_and_keeps_object_and_style(
+    rule, second
+):
+    doc = import_svg(
+        '<svg width="100" height="100"><defs><clipPath id="clip">'
+        '<rect width="50" height="50"/></clipPath></defs><g fill="red">'
+        f'<path id="a" fill-rule="{rule}" stroke="black" opacity=".5" '
+        f'transform="translate(10 10)" clip-path="url(#clip)" '
+        f'd="M0 0H10V10H0Z {second}"/></g></svg>'
+    )
+    editor = Editor(doc, selection=select("a"))
+    before = editor.snapshot
+    with editor.transaction("Join") as tx:
+        assert tx.join_paths(frozenset({"a"})) == "a"
+    after = editor.snapshot
+    assert after.selection == before.selection
+    assert after.document.geometry_for("a").id == doc.geometry_for("a").id
+    assert len(after.document.geometry_for("a").subpaths) == 1
+    attrs = dict(doc.element("a").attributes)
+    attrs["fill-rule"] = "nonzero"
+    assert dict(after.document.element("a").attributes) == attrs
+    expected = (
+        '<svg width="100" height="100"><defs><clipPath id="clip">'
+        '<rect width="50" height="50"/></clipPath></defs>'
+        '<path fill="red" stroke="black" opacity=".5" clip-path="url(#clip)" '
+        'transform="translate(10 10)" d="M0 0H15V10H0Z"/></svg>'
+    )
+    np.testing.assert_array_equal(render(export_svg(after.document)), render(expected))
+    assert editor.undo().document == before.document
+    assert editor.snapshot.selection == before.selection
+    assert editor.redo().document == after.document
+
+
+@pytest.mark.parametrize("rule", ["nonzero", "evenodd"])
+def test_single_path_union_preserves_holes_and_curves(rule):
+    # The second region fills the right side of the donut. Only that portion
+    # of its hole disappears; a disjoint island is also retained.
+    doc = import_svg(
+        '<svg width="100" height="100"><path id="a" fill="red" '
+        f'fill-rule="{rule}" d="M0 0H30V30H0Z M5 5V25H25V5Z '
+        'M20 0C45 0 45 30 20 30Z M60 0H70V10H60Z"/></svg>'
+    )
+    editor = Editor(doc, selection=select("a"))
+    with editor.transaction("Join") as tx:
+        tx.join_paths(frozenset({"a"}))
+    result = editor.snapshot.document
+    pixels = render(export_svg(result))
+    assert pixels[15, 10, 3] == 0  # remaining hole
+    assert pixels[15, 23, 3] == 255  # hole covered by the overlapping region
+    assert pixels[5, 65, 3] == 255  # disjoint island
+    assert any(
+        n.command == "C" for s in result.geometry_for("a").subpaths for n in s.nodes
+    )
+
+
+def test_join_one_self_overlapping_contour_removes_internal_edges():
+    doc = import_svg(
+        '<svg width="100" height="100"><path id="a" fill="red" stroke="black" '
+        'd="M0 0H10V10H0V0H5V0H15V10H5V0Z"/></svg>'
+    )
+    assert len(doc.geometry_for("a").subpaths) == 1
+    editor = Editor(doc, selection=select("a"))
+    with editor.transaction("Join") as tx:
+        tx.join_paths(frozenset({"a"}))
+    expected = (
+        '<svg width="100" height="100">'
+        '<path fill="red" stroke="black" d="M0 0H15V10H0Z"/></svg>'
+    )
+    result = editor.snapshot.document
+    np.testing.assert_array_equal(render(export_svg(result)), render(expected))
+    assert editor.undo().document == doc
+
+
+def test_join_single_disjoint_path_is_unchanged_and_keeps_pins():
+    editor = Editor(
+        drawing(data="M0 0H10V10H0Z M30 0H40V10H30Z"), selection=select("p")
+    )
+    node = editor.snapshot.document.geometry_for("p").subpaths[0].nodes[0]
+    editor.pin_node("p", node.id)
+    before = editor.snapshot
+    labels = editor.undo_labels
+    with editor.transaction("Join") as tx:
+        assert tx.join_paths(frozenset({"p"})) == "p"
+    assert editor.snapshot == before
+    assert editor.undo_labels == labels
+
+
+@pytest.mark.parametrize("protection", ["geometry", "structure", "fill-rule", "pin"])
+def test_single_path_union_respects_locks_and_pins_atomically(protection):
+    doc = import_svg(
+        '<svg width="100" height="100"><path id="a" fill-rule="evenodd" '
+        'd="M0 0H10V10H0Z M5 0H15V10H5Z"/></svg>'
+    )
+    editor = Editor(doc, selection=select("a"))
+    if protection == "pin":
+        editor.pin_node("a", doc.geometry_for("a").subpaths[0].nodes[0].id)
+    else:
+        editor.set_locks("a", frozenset({protection}))
+    before = editor.snapshot
+    with (
+        pytest.raises(EditRejectedError, match=r"Unpin|locked"),
+        editor.transaction("Join") as tx,
+    ):
+        tx.join_paths(frozenset({"a"}))
+    assert editor.snapshot == before
 
 
 def test_holes_are_excluded_from_paint_weights():

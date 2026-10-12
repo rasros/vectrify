@@ -363,6 +363,27 @@ def test_join_button_command_combines_split_parts_and_undo_restores_selection():
     assert send(session, "undo")["selection"] == split["selection"]
 
 
+def test_join_single_path_unions_its_contours_in_one_undoable_step():
+    session = Session(
+        import_svg(
+            '<svg width="100" height="100"><path id="a" fill="red" '
+            'd="M0 0H10V10H0Z M5 0H15V10H5Z"/></svg>'
+        )
+    )
+    send(session, "select", objects=["a"])
+    before = session.editor.snapshot
+    result = send(session, "join_paths")
+    assert result["selection"]["objects"] == ["a"]
+    assert result["undo"] == ["Join outlines"]
+    assert len(session.editor.snapshot.document.geometry_for("a").subpaths) == 1
+    after = session.editor.snapshot.document
+    send(session, "undo")
+    assert session.editor.snapshot.document == before.document
+    assert session.editor.snapshot.selection == before.selection
+    send(session, "redo")
+    assert session.editor.snapshot.document == after
+
+
 def test_join_nonadjacent_regions_averages_by_area_at_frontmost_position():
     session = Session(
         import_svg(

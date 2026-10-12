@@ -1879,7 +1879,8 @@ class Agent:
     ) -> Reply:
         """As the editor's Join: two points join each other; stroked lines
         join their ends within reach; filled paths merge into one outline,
-        its colour mixed by area or taken from the path color_source."""
+        its colour mixed by area or taken from the path color_source.
+        One filled path unions its overlapping contours, keeping its paint."""
         if (ids is None) == (points is None):
             raise DocumentError(
                 "Give ids (the paths to join) or points (two [object id, node "
@@ -1909,7 +1910,7 @@ class Agent:
             paths = self._join_candidates(targets)
             styles = [path_style(document, document.element(p)) for p in paths]
         lines = [s for s in styles if s["fill"] == "none" and s.get("stroke") != "none"]
-        if len(paths) > 1 and len(lines) < len(paths):
+        if paths and len(lines) < len(paths):
             if reach is not None or bridge is not None:
                 raise DocumentError(
                     "These are filled paths, which merge by area: reach and "

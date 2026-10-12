@@ -766,8 +766,10 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         each) join each other, cutting a contour open first where one is not
         a free end; stroked lines (ids) join their ends lying within reach
         (default 4) of each other, bridged by a curve or a line; filled paths
-        (ids) merge into one outline, its colour mixed by area or taken from
-        the path color_source. "joined" says which."""
+        (ids) merge into one outline, unioning overlapping areas and removing
+        internal seams. Its colour is mixed by area or taken from the path
+        color_source. With one filled path, union its overlapping contours,
+        preserving holes and paint. "joined" says which."""
         return state.call(
             "join",
             {
