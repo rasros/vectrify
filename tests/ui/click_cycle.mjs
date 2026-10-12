@@ -66,6 +66,7 @@ context.gestures = canvasGestures({
   selection: {
     pick: vm.runInContext('selectAtPoint', context),
     renderDrawing() {},
+    box: () => picked.push(['boxed']),
     move: offsets => edits.push(['move', offsets]),
   },
   resize: {
@@ -128,17 +129,19 @@ for (const scope of [null, 'outer', 'inner']) {
 }
 vm.runInContext('scope = null', context);
 
-// Dragging a nested leaf in a selected group moves the group; clicking picks the leaf.
+// Select box-selects from a nested leaf; Move drags its selected group.
+// Clicking picks the leaf in both tools.
 for (const tool of ['select', 'move']) {
   reset(); hits = ['front']; context.tool = tool;
   parents = new Map([['front', 'inner'], ['inner', 'outer'], ['outer', 'root']]);
   vm.runInContext("tool = globalThis.tool; state.selection.objects = ['outer']", context);
   press({clientX: 200, clientY: 150, timeStamp: 0, pointerId: 1, button: 0});
-  assert.equal(vm.runInContext('drag.kind', context), 'move');
-  vm.runInContext('drag.moved = true; gestures.move.move(drag, {clientX: 230, clientY: 130})', context);
+  assert.equal(vm.runInContext('drag.kind', context), tool === 'select' ? 'box' : 'move');
+  vm.runInContext('drag.moved = true; gestures[drag.kind].move(drag, {clientX: 230, clientY: 130})', context);
   await release({pointerId: 1});
-  assert.deepEqual(edits, [['move', {outer: [30, -20]}]]);
-  assert.deepEqual(picked, []);
+  assert.deepEqual(edits, tool === 'select' ? [] : [['move', {outer: [30, -20]}]]);
+  assert.deepEqual(picked, tool === 'select' ? [['boxed']] : []);
+  picked.length = 0;
   await click(200, 150, 600);
   assert.deepEqual(picked, [['front']]);
 }
@@ -163,12 +166,12 @@ await click(102, 150, 0); vm.runInContext('selectionBox = frame', context);
 await click(102, 150, 600);
 assert.deepEqual(picked, [['front'], ['middle']]);
 
-// Move bypasses every resize edge, even on a zero-height/width line.
+// Move drags thin line frames and the interior of ordinary frames.
 for (const [box, x, y] of [
   [{left: 100, top: 100, right: 300, bottom: 100}, 200, 100],
   [{left: 100, top: 100, right: 100, bottom: 200}, 100, 150],
   [{left: 100, top: 100, right: 104, bottom: 200}, 102, 150],
-  [frame, 300, 200],
+  [frame, 200, 150],
 ]) {
   reset(); context.frame = box;
   vm.runInContext("tool = 'move'; state.selection.objects = ['front', 'middle']; selectionBox = frame", context);
@@ -216,7 +219,8 @@ held.replay({down: press, up: event => { completion = release(event); }});
 await completion;
 assert.deepEqual(picked.at(-1), ['back']);
 
-// Actual drags on an edge still resize, with no click selection on release.
+// In Move, edge drags resize without changing the click selection.
+vm.runInContext("tool = 'move'", context);
 reset(); await click(300, 150, 0); vm.runInContext('selectionBox = frame', context);
 press({clientX: 300, clientY: 150, timeStamp: 600, pointerId: 1, button: 0});
 vm.runInContext('drag.moved = true; gestures.resize.move(drag, {clientX: 350, clientY: 150})', context);

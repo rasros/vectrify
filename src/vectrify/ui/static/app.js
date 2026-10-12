@@ -45,7 +45,7 @@ let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastT
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', move: 'Move', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
 // A one-line hint for the tools with few controls of their own.
-const hints = {select: '', move: 'Click to select · Drag the selection to move · Shift adds or removes', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across shapes to cut them, only the selected ones if any are · Shift snaps to 15°', redraw: 'Draw along the reference edge from a path\'s outline back to it, a selected path if any are · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: 'Click to select · Drag to box select · Shift adds or removes', move: 'Drag the selection to move · Drag frame edges to resize · Shift adds or removes', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across shapes to cut them, only the selected ones if any are · Shift snaps to 15°', redraw: 'Draw along the reference edge from a path\'s outline back to it, a selected path if any are · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -852,7 +852,7 @@ for (const id of ['agent-url', 'agent-command', 'agent-codex', 'agent-codex-comm
 $('agent-popover').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAgentPopover(); $('agent-toggle').focus(); } });
 document.addEventListener('pointerdown', event => { if (!$('agent-popover').hidden && !event.target.closest('#agent-popover, #agent-toggle')) closeAgentPopover(); });
 const COMMANDS = [
-  {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'M', keywords: 'move arrow objects', run: () => setTool('select')},
+  {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'A', keywords: 'pick arrow objects box', run: () => setTool('select')},
   {id: 'tool-move', name: 'Move tool', group: 'Tools', keys: 'V', keywords: 'translate position line objects', run: () => setTool('move')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'S', keywords: 'edit points handles', run: () => setTool('nodes')},
   {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'D', keywords: 'pen draw path shape', run: () => setTool('path')},
@@ -1729,9 +1729,8 @@ function drawClippingBoundaries() {
     }
   }
 }
-// Select resizes the selection like a window: its frame is the bounding box
-// of the selected objects, with small ticks at the corners; the cursor shows
-// what a drag does. Move shows the same frame without resize handles.
+// Both object tools show the selection bounds. Move adds resize handles;
+// Select keeps the frame passive so every drag can box-select.
 function selectionFrame() {
   if (!['select', 'move'].includes(tool) || !state?.selection.objects.length) return null;
   const ids = topSelection();
@@ -1761,20 +1760,21 @@ function resizeRefusal() {
 }
 function drawFrame() {
   if (!selectionBox) return;
-  const {left, top, right, bottom} = selectionBox, locked = tool === 'select' && !!resizeRefusal();
+  const {left, top, right, bottom} = selectionBox, locked = tool === 'move' && !!resizeRefusal();
   overlayFrame.content.append(xmlElement('rect', {x: left, y: top, width: right - left, height: bottom - top, class: `resize-frame${locked ? ' locked' : ''}`}));
-  if (locked || tool === 'move') return;
+  if (locked || tool !== 'move' || Math.min(right - left, bottom - top) * zoom <= 2 * FRAME_REACH) return;
   const r = 2.5 / zoom;
   for (const [x, y] of [[left, top], [right, top], [right, bottom], [left, bottom]]) overlayFrame.content.append(xmlElement('rect', {x: x - r, y: y - r, width: 2 * r, height: 2 * r, class: 'resize-tick'}));
 }
 // The part of the frame at the screen point (x, y): an edge, a corner,
-// 'inside' or null. Move treats the whole frame as inside, even for a line.
+// 'inside' or null. A line's whole frame moves it; Select has no frame hits.
 function frameAt(x, y) {
+  if (tool !== 'move') return null;
   const matrix = selectionBox && overlay.getScreenCTM();
   if (!matrix) return null;
   const a = new DOMPoint(selectionBox.left, selectionBox.top).matrixTransform(matrix), b = new DOMPoint(selectionBox.right, selectionBox.bottom).matrixTransform(matrix);
   const handle = frameHandle({left: a.x, top: a.y, right: b.x, bottom: b.y}, x, y, FRAME_REACH);
-  return tool === 'move' && handle ? 'inside' : handle;
+  return handle && Math.min(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) <= 2 * FRAME_REACH ? 'inside' : handle;
 }
 // The cursor over the frame: a resize arrow on an edge or corner, and the
 // move cursor inside it, except over an unselected object, which a press
@@ -1792,7 +1792,7 @@ function hoverResize(event) {
   const x = event.clientX, y = event.clientY;
   frameHover = requestAnimationFrame(() => {
     frameHover = 0;
-    if (['select', 'move'].includes(tool) && !drag && state) stage.style.cursor = frameCursor(x, y);
+    if (tool === 'move' && !drag && state) stage.style.cursor = frameCursor(x, y);
   });
 }
 // A press on an edge or corner of the frame starts resizing the selection.
@@ -2020,7 +2020,7 @@ function renderStatus() {
   scheduleStrip();
   const points = selectedPoints(), paths = level() === 'points' ? pointPaths() : state.selection.objects;
   $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
-  // Select gives the selection's size, and the new size while resizing.
+  // Show the selection's size, and the new size while resizing in Move.
   if (drag?.kind === 'resize' && drag.result) $('selection-level').textContent = `Resize · ${frameSize(drag.result.box)}`;
   else if (selectionBox) $('selection-level').textContent += ` · ${frameSize(selectionBox)}`;
   const trail = $('scope-trail');
@@ -2230,7 +2230,7 @@ async function setTool(value) {
   });
   $('active-tool').dataset.tool = tool;
   $('tool-strip').dataset.tool = tool;
-  $('tool-shortcut').textContent = {select: 'M', move: 'V', nodes: 'S', path: 'D', knife: 'C', redraw: 'R', hand: 'Space'}[tool];
+  $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', knife: 'C', redraw: 'R', hand: 'Space'}[tool];
   $('tool-name').textContent = tool === 'select' ? 'Select objects' : tool === 'nodes' ? 'Edit points' : names[tool];
   $('canvas-hint').textContent=hints[tool];
   stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
@@ -2494,7 +2494,7 @@ function pressStage(event) {
     if (clip) clipConsumers.set(clip.dataset.objectId, boundary.dataset.clipConsumer);
   }
   common.hits = hits;
-  const handle = ['select', 'move'].includes(tool) ? frameAt(event.clientX, event.clientY) : null;
+  const handle = tool === 'move' ? frameAt(event.clientX, event.clientY) : null;
   if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
   const id = hits[0] || null;
   if (tool === 'knife') {
@@ -2503,11 +2503,9 @@ function pressStage(event) {
   if (tool === 'redraw') {
     startGesture('redraw', event, common, {id}); return;
   }
-  // In Select or Move, dragging a selected object, or empty canvas inside the
-  // selection's frame, moves the selection; a click picks what is under the
-  // pointer, and any other drag selects what lies inside its box. Knife only
-  // selects.
-  if (['select', 'move'].includes(tool) && (id || handle === 'inside')) {
+  // Move drags a selected object or the frame interior. Select always starts
+  // a selection gesture, even on selected objects and their frame.
+  if (tool === 'move' && (id || handle === 'inside')) {
     const targets = id ? clickTargets(hits) : [], picked = targets[0];
     const selectedHit = !id || selectionContains(state.selection.objects, picked, parents(), state.root) ||
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
@@ -2563,7 +2561,7 @@ function moveStage(event) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
     if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
     if (['nodes', 'redraw'].includes(tool) && state) hoverPoints(event);
-    if (['select', 'move'].includes(tool) && state) hoverResize(event);
+    if (tool === 'move' && state) hoverResize(event);
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
@@ -2882,7 +2880,7 @@ $('object-name').onkeydown = event => {
   if (event.key === 'Escape') {event.preventDefault();event.target.value=oneObject()?.name || '';event.target.blur();}
 };
 // Tool shortcuts; Space held pans.
-const TOOL_KEYS = {m: 'select', v: 'move', s: 'nodes', d: 'path', c: 'knife', r: 'redraw'};
+const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', c: 'knife', r: 'redraw'};
 // A tool strip's numbered controls, by digit.
 function stripKeys(name) {
   const keys = {};

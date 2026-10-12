@@ -1,7 +1,11 @@
 // Canvas previews, completion and cancellation, without a browser DOM.
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {canvasGestures} from '../../src/vectrify/ui/static/gestures.js';
 import {HeldGesture} from '../../src/vectrify/ui/static/input.js';
+import {selectionContains} from '../../src/vectrify/ui/static/selection.js';
+import {CURSORS, frameHandle} from '../../src/vectrify/ui/static/resize.js';
 
 const calls = [], draft = [];
 let pan = {x: 10, y: 20}, panning = false, zoom = 2;
@@ -180,3 +184,72 @@ assert.equal(held.replay({
 }), false);
 await completion;
 assert.equal(named('knife').length, 1);
+
+// Select must box-select even on selected objects and frame edges. Exercise
+// the actual canvas dispatch and frame hit testing, not just the controllers.
+const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
+const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+const frameShapes = [];
+let hits = ['a'];
+const dispatch = vm.createContext({
+  tool: 'select', space: false, drag: null, zoom: 1, FRAME_REACH: 6,
+  performance: {now: () => 0},
+  state: {root: 'root', selection: {objects: ['a']}},
+  selectionBox: {left: 10, top: 10, right: 90, bottom: 90},
+  DOMPoint: class {
+    constructor(x, y) {this.x = x; this.y = y;}
+    matrixTransform() {return this;}
+  },
+  overlay: {getScreenCTM: () => ({})}, frameHandle, CURSORS,
+  overlayFrame: {content: {append: shape => frameShapes.push(shape)}},
+  xmlElement: (name, attrs) => ({name, ...attrs}), resizeRefusal: () => '',
+  stage: {focus() {}, setPointerCapture() {}},
+  $: () => ({getBoundingClientRect: () => ({left: 0, top: 0, right: 100, bottom: 100})}),
+  hitStack: () => hits, clickTargets: stack => stack, sameClickSpot: () => false,
+  topSelection: () => ['a'], object: () => ({attributes: {}}),
+  svgElement: () => a.element,
+  scope: null, parents: () => new Map(), pickTarget: id => ({id}), selectionContains,
+  startGesture: (kind, event, common, details = {}) => {
+    dispatch.drag = {...common, kind, ...details};
+    gestures[kind].press?.(dispatch.drag, event);
+  },
+  pressFrame: (_event, common, handle) => {dispatch.drag = {...common, kind: 'resize', handle};},
+});
+vm.runInContext(`${section('function drawFrame()', '// The cursor over the frame:')}\n${section('function frameCursor(', 'let frameHover =')}\n${section('function pressStage(', '// In Nodes the unselected')}`, dispatch);
+const pressStage = vm.runInContext('pressStage', dispatch);
+const frameCursor = vm.runInContext('frameCursor', dispatch);
+const drawFrame = vm.runInContext('drawFrame', dispatch);
+for (const stack of [['a'], ['unselected'], []]) {
+  hits = stack;
+  for (const [x, y] of [[50, 50], [10, 50], [10, 10]]) {
+    calls.length = 0; dispatch.drag = null;
+    const before = a.element.attributes.get('transform');
+    pressStage(event(x, y, {button: 0}));
+    assert.equal(dispatch.drag.kind, 'box');
+    dispatch.drag.moved = true;
+    gestures.box.move(dispatch.drag, event(95, 95));
+    await gestures.box.release(dispatch.drag);
+    assert.equal(named('box').length, 1);
+    assert.equal(named('move').length, 0);
+    assert.equal(named('resizeFinish').length, 0);
+    assert.equal(a.element.attributes.get('transform'), before);
+    assert.equal(frameCursor(x, y), 'default');
+  }
+}
+drawFrame();
+assert.equal(frameShapes.length, 1, 'Select has a passive frame without resize ticks');
+
+// Move retains dragging and owns resizing. Degenerate line frames still move
+// at their edges, where there is no frame interior to grab.
+dispatch.tool = 'move'; hits = ['a'];
+for (const [x, y, kind] of [[50, 50, 'move'], [10, 50, 'resize'], [10, 10, 'resize']]) {
+  dispatch.drag = null;
+  pressStage(event(x, y, {button: 0}));
+  assert.equal(dispatch.drag.kind, kind);
+}
+frameShapes.length = 0; drawFrame();
+assert.equal(frameShapes.length, 5, 'Move shows four resize ticks');
+dispatch.selectionBox.bottom = dispatch.selectionBox.top;
+dispatch.drag = null;
+pressStage(event(10, 10, {button: 0}));
+assert.equal(dispatch.drag.kind, 'move');
