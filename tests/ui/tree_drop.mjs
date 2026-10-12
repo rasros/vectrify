@@ -1,5 +1,7 @@
 // Checks where rows dragged in the Objects tree land; run by test_tree_drop.py.
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
 import {dropIndex, dropRefusal, dropTarget, replayDrop} from '../../src/vectrify/ui/static/tree.js';
 
 // The drawing holds g (a, b) then c, back to front; rows are 20px tall.
@@ -55,3 +57,29 @@ assert.match(replayDrop({parent: 'root', after: 'c'}, new Set(['x']), objects).r
 // The tree the edit left is checked too: a group into itself, definitions.
 assert.match(replayDrop({parent: 'a', into: true}, new Set(['g']), objects).refusal, /itself/);
 assert.match(replayDrop({parent: 'g', into: true}, new Set(['c']), objects.map(item => item.id === 'g' ? {...item, resource: true} : item)).refusal, /Definitions/);
+
+// Tree-row dragging scrolls at the visible edges, but leaving the tree in
+// any direction keeps its viewport still while the pointer moves elsewhere.
+const list = {scrollTop: 240, classList: {add() {}}, getBoundingClientRect: () => ({left: 50, right: 250, top: 100, bottom: 500})};
+const context = vm.createContext({
+  $: () => list, state: {epoch: 'drawing', revision: 0, selection: {objects: ['c']}},
+  object: id => objects.find(item => item.id === id),
+  treeDropAt: () => ({target: null, refusal: ''}), showTreeDrop() {},
+});
+const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
+vm.runInContext(`
+  let treeDrag = {item: 'c', x: 150, y: 300, active: false};
+  ${source.slice(source.indexOf('function moveTreeDrag('), source.indexOf('// Where rows dropped'))}
+`, context);
+const moveTreeDrag = vm.runInContext('moveTreeDrag', context);
+const move = (clientX, clientY) => moveTreeDrag({clientX, clientY});
+move(150, 200);
+assert.equal(list.scrollTop, 240, 'dragging in the middle does not scroll');
+move(150, 110);
+assert.equal(list.scrollTop, 228, 'dragging near the top scrolls up');
+move(150, 490);
+assert.equal(list.scrollTop, 240, 'dragging near the bottom scrolls down');
+for (const [x, y] of [[40, 110], [260, 490], [150, 90], [150, 510]]) {
+  move(x, y);
+  assert.equal(list.scrollTop, 240, 'dragging outside the tree does not scroll');
+}

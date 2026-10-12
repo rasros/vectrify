@@ -49,6 +49,8 @@
 #reference-toggle[aria-pressed=true] .reference-dot { background: #ffd17b; box-shadow: 0 0 6px #ffd17b60; }
 #stage.reference-visible { box-shadow: inset 0 0 0 2px #bd934d; }
 
+/* Row refreshes after canvas edits must not move the tree's scroll anchor. */
+.object-list { overflow-anchor: none; }
 .object-row.has-description { height: 49px; }
 .object-row .object-label > span, .object-row .object-label > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .object-row .object-label > small { font-size: 9px; color: #9eb9ae; margin-top: 4px; }

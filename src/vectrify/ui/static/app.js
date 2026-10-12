@@ -401,6 +401,7 @@ function updateObjectSelection() {
   treeSelection = selected;
 }
 function renderObjects() {
+  const list = $('objects'), scrollTop = list.scrollTop, scrollLeft = list.scrollLeft;
   const search = $('object-search').value.trim().toLowerCase();
   const fragment = document.createDocumentFragment();
   objectRows = new Map();
@@ -481,7 +482,10 @@ function renderObjects() {
     objectRows.set(item.id, row);
     fragment.append(row);
   }
-  $('objects').replaceChildren(fragment, treeDropLine); $('object-count').textContent = count;
+  list.replaceChildren(fragment, treeDropLine); $('object-count').textContent = count;
+  // Saving a point drag refreshes these rows too. Keep the tree where the
+  // user left it instead of letting row replacement shift its viewport.
+  list.scrollTop = scrollTop; list.scrollLeft = scrollLeft;
   // A drag held across an edit drops where the pointer is on the new rows.
   if (treeDrag?.active) {
     treeDrag.ids = new Set([...treeDrag.ids].filter(id => object(id)));
@@ -529,9 +533,12 @@ function moveTreeDrag(event) {
     $('objects').classList.add('dragging');
   }
   const list = $('objects'), box = list.getBoundingClientRect();
-  // Scroll while the pointer is near the list's top or bottom edge.
-  if (event.clientY < box.top + 24) list.scrollTop -= 12;
-  else if (event.clientY > box.bottom - 24) list.scrollTop += 12;
+  // Only scroll at an edge while the pointer is inside the list. Dragging
+  // outside the tree must not keep moving it in the background.
+  if (event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) {
+    if (event.clientY < box.top + 24) list.scrollTop -= 12;
+    else if (event.clientY > box.bottom - 24) list.scrollTop += 12;
+  }
   treeDrag.point = {x: event.clientX, y: event.clientY};
   Object.assign(treeDrag, treeDropAt(treeDrag.point, treeDrag.ids));
   showTreeDrop();

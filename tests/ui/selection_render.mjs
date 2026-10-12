@@ -8,10 +8,16 @@ class Element {
   constructor() {
     this.children = []; this.style = {}; this.dataset = {}; this.attributes = {};
     this.classes = new Set(); this.value = ''; this.writes = 0;
+    this.scrollTop = 0; this.scrollLeft = 0;
     this.classList = {toggle: (name, on) => { this.writes++; if (on) this.classes.add(name); else this.classes.delete(name); }, add: name => this.classes.add(name)};
   }
   append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children.flatMap(child => child.fragment ? child.children : [child]); }
+  replaceChildren(...children) {
+    this.children = children.flatMap(child => child.fragment ? child.children : [child]);
+    // Model the browser shifting the viewport as its old rows disappear.
+    if (this.scrollTop) this.scrollTop += 49;
+    if (this.scrollLeft) this.scrollLeft = 0;
+  }
   setAttribute(name, value) { this.writes++; this.attributes[name] = value; }
   querySelector(selector) {
     if (selector === '.tree-toggle') return this.children.find(child => child.className === 'tree-toggle');
@@ -94,6 +100,16 @@ await applyState({...initial, revision: 1, objects: edited});
 assert.notEqual(rows()[0], original[0]);
 assert.equal(vm.runInContext('object("p0").label', context), 'Renamed');
 assert.equal(rows()[0].children[2].children[0].textContent, 'Renamed');
+// Saving repeated canvas point/handle drags refreshes the tree's rows without
+// changing where the user has scrolled, even far from the selected path.
+$('objects').scrollTop = 6400;
+$('objects').scrollLeft = 12;
+for (let revision = 2; revision <= 4; revision++) {
+  await applyState({...initial, revision, selection: {objects: ['p0'], nodes: ['n0']}});
+  assert.equal($('objects').scrollTop, 6400, 'point edits must preserve the tree viewport');
+  assert.equal($('objects').scrollLeft, 12);
+  assert.equal(rows()[0].revealed, undefined, 'saving a drag must not reveal its object');
+}
 await applyState({...initial, epoch: 'second', objects: objects.slice(-1)});
 assert.equal(rows().length, 1);
 assert.equal(vm.runInContext('object("p0")', context), undefined);
