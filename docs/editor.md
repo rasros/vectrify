@@ -483,16 +483,16 @@ and saved projects restore it.
   its neck do the same. Lines the knife misses stay where they are, and
   **Join** joins pieces again. A filled path is cut only when the line
   runs through it from outside to outside; a line that ends inside a shape or
-  misses it leaves it alone. The cut runs along the
-  whole line through that path, so a line across one arm of a U also cuts the
-  other arm if the line's extension reaches it. Each cut path becomes one path
-  per side of the line (compound when that side has several parts, holes
-  kept), with the original's paint, transform, locks and stacking place; the
-  first piece keeps its ID. Curves stay curves. The two pieces meet exactly
+  misses it leaves it alone. The cut stops at the start and end of the drag,
+  so cutting across one arm of a U leaves its other arm attached. Each cut
+  path becomes separate paths (compound contours and holes kept), with the
+  original's paint, transform, locks and stacking place; the first piece
+  keeps its ID. Curves stay curves. The pieces meet exactly
   on the same seam points but stay independent: dragging a seam point moves
   only that piece, and **Join** merges them back into one. Pinned
-  points, shared geometry, instances and locks are refused. The pieces are
-  selected afterwards, and the cut is one undoable edit. A line that crosses
+  points keep their positions and identities on the pieces; a cut that would
+  remove one is refused. Shared geometry, instances and locks are refused.
+  The pieces are selected afterwards, and the cut is one undoable edit. A line that crosses
   nothing the knife can cut says so; a plain click selects.
 - The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
   one gesture, like a magnetic lasso: a missing spike, a notch or a grass

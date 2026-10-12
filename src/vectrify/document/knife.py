@@ -1,4 +1,4 @@
-"""Cut geometry along a straight line: filled regions into two pieces that
+"""Cut geometry along a straight segment: filled regions into pieces that
 meet exactly, stroked lines apart where the line crosses them."""
 
 from __future__ import annotations
@@ -27,10 +27,118 @@ Segment = tuple[tuple[Point, ...], Point]
 
 @dataclass(frozen=True)
 class Cut:
-    """The two sides of a cut."""
+    """The pieces of a cut."""
 
     first: Geometry
     second: Geometry
+    additional: tuple[Geometry, ...] = ()
+
+    @property
+    def pieces(self) -> tuple[Geometry, ...]:
+        return (self.first, self.second, *self.additional)
+
+
+def preserve_cut_pins(geometry: Geometry, cut: Cut) -> Cut | None:
+    """Carry pinned endpoint identities onto the pieces, or refuse their loss.
+
+    Filled booleans rebuild nodes and can merge straight or curved segments,
+    so a surviving pin may need to be inserted back into a boundary edge.
+    Stroke cuts already keep endpoint identities and need only validation.
+    """
+    from vectrify.document.contact import projection
+
+    pieces = list(cut.pieces)
+    pins = [n for s in geometry.subpaths for n in s.nodes if n.pinned]
+    if not pins:
+        return cut
+    tolerance = 1e-7 * max(1.0, *(abs(v) for n in pins for v in n.endpoint))
+    claimed: set[str] = set()
+    for pin in pins:
+        existing = next(
+            (n for g in pieces for s in g.subpaths for n in s.nodes if n.id == pin.id),
+            None,
+        )
+        if existing is not None:
+            if existing.endpoint != pin.endpoint or not existing.pinned:
+                return None
+            claimed.add(pin.id)
+            continue
+        match = next(
+            (
+                (i, n)
+                for i, g in enumerate(pieces)
+                for s in g.subpaths
+                for n in s.nodes
+                if n.endpoint == pin.endpoint and n.id not in claimed
+            ),
+            None,
+        )
+        if match is not None:
+            i, node = match
+            restored = replace(
+                node,
+                id=pin.id,
+                pinned=True,
+                handles_aligned=pin.handles_aligned,
+                feature=pin.feature,
+            )
+            pieces[i] = replace(
+                pieces[i],
+                subpaths=tuple(
+                    replace(
+                        s,
+                        nodes=tuple(
+                            restored if n.id == node.id else n for n in s.nodes
+                        ),
+                    )
+                    for s in pieces[i].subpaths
+                ),
+            )
+            claimed.add(pin.id)
+            continue
+        found = False
+        for i, piece in enumerate(pieces):
+            for subpath in piece.subpaths:
+                nodes = list(subpath.nodes)
+                segments = [*nodes[1:]]
+                if subpath.closed:
+                    segments.append(PathNode(new_id("node"), "L", nodes[0].endpoint))
+                for j, node in enumerate(segments, 1):
+                    points = (
+                        nodes[j - 1].endpoint,
+                        *zip(node.values[::2], node.values[1::2], strict=True),
+                    )
+                    t, distance = projection(pin.endpoint, points)
+                    if distance > tolerance or not 0 < t < 1:
+                        continue
+                    head, tail = subdivide(points, t)
+                    inserted = replace(
+                        pin,
+                        command=node.command,
+                        values=tuple(v for p in head[1:-1] for v in p) + pin.endpoint,
+                    )
+                    nodes.insert(j, inserted)
+                    if j + 1 < len(nodes):
+                        nodes[j + 1] = replace(
+                            node, values=tuple(v for p in tail[1:] for v in p)
+                        )
+                    pieces[i] = replace(
+                        piece,
+                        subpaths=tuple(
+                            replace(s, nodes=tuple(nodes)) if s.id == subpath.id else s
+                            for s in piece.subpaths
+                        ),
+                    )
+                    found = True
+                    break
+                if found:
+                    break
+            if found:
+                break
+        if not found:
+            return None
+        claimed.add(pin.id)
+    return Cut(pieces[0], pieces[1], tuple(pieces[2:]))
 
 
 class _Line:
@@ -183,6 +291,188 @@ def _geometry(rings: list[list[Segment]], geometry_id: str) -> Geometry:
     return Geometry(geometry_id, tuple(subpaths))
 
 
+def _separate_touching_rings(geometry: Geometry) -> Geometry:
+    """Separate boundary loops that only meet at a vertex into their own rings."""
+    from shapely import STRtree
+    from shapely.geometry import Point as ShapePoint
+    from shapely.geometry import box
+
+    rings = []
+    for ring in _rings(geometry, {}):
+        points = list({point for _, point in ring})
+        tree = STRtree([ShapePoint(point) for point in points])
+        noded = [ring[0]]
+        for segment in ring[1:]:
+            start, end = noded[-1][1], segment[1]
+            dx, dy = end[0] - start[0], end[1] - start[1]
+            length_squared = dx * dx + dy * dy
+            if not segment[0] and length_squared:
+                # Skia can merge a straight edge through a touching vertex.
+                # Restore that vertex before extracting the separate loops.
+                stops = []
+                for candidate in tree.query(
+                    box(
+                        *(
+                            min(start[0], end[0]),
+                            min(start[1], end[1]),
+                            max(start[0], end[0]),
+                            max(start[1], end[1]),
+                        )
+                    )
+                ):
+                    point = points[candidate]
+                    px, py = point[0] - start[0], point[1] - start[1]
+                    t = (px * dx + py * dy) / length_squared
+                    if 0 < t < 1 and abs(px * dy - py * dx) <= 1e-10 * length_squared:
+                        stops.append((t, point))
+                noded.extend(((), point) for _, point in sorted(stops))
+            noded.append(segment)
+        walk = [ring[0]]
+        positions = {ring[0][1]: 0}
+        for segment in noded[1:]:
+            point = segment[1]
+            if point not in positions:
+                positions[point] = len(walk)
+                walk.append(segment)
+                continue
+            index = positions[point]
+            loop = [((), point), *walk[index + 1 :], segment]
+            if len(loop) > 2 or segment[0]:
+                rings.append(loop)
+            for _, endpoint in walk[index + 1 :]:
+                del positions[endpoint]
+            walk = walk[: index + 1]
+    return (
+        geometry
+        if len(rings) == len(geometry.subpaths)
+        else _geometry(rings, geometry.id)
+    )
+
+
+def _finite_pieces(sides: list[Geometry], line: _Line) -> Cut | None:
+    """Reconnect half-plane pieces across seams outside the knife segment.
+
+    Opposite seam edges have identical endpoints. Removing both joins their
+    boundary walks, without rounding or flattening any of the retained curves.
+    Fill components track holes and identify cuts that only open a slit from
+    an outside boundary to a hole without separating any material.
+    """
+    sides = [_separate_touching_rings(g) for g in sides]
+    edges: list[tuple[Point, Segment]] = []
+    following: list[int] = []
+    owners: list[str] = []
+    seams: dict[tuple[Point, Point], int] = {}
+    pairs: list[tuple[int, int, bool]] = []
+    for geometry in sides:
+        for subpath, ring in zip(geometry.subpaths, _rings(geometry, {}), strict=True):
+            offset = len(edges)
+            for (_, start), segment in pairwise(ring):
+                index = len(edges)
+                edges.append((start, segment))
+                following.append(index + 1)
+                owners.append(subpath.id)
+                if line.holds(start, segment):
+                    end = segment[1]
+                    twin = seams.pop((end, start), None)
+                    if twin is None:
+                        seams[start, end] = index
+                    else:
+                        a, b = sorted((line.along(start), line.along(end)))
+                        inside = (
+                            a >= -line.tolerance and b <= line.length + line.tolerance
+                        )
+                        pairs.append((twin, index, inside))
+            following[-1] = offset
+    if not any(inside for _, _, inside in pairs):
+        return None
+    if all(inside for _, _, inside in pairs):
+        return Cut(sides[0], sides[1])
+
+    cells = {}
+    parents: list[int] = []
+    for geometry in sides:
+        contours = [
+            (s, curve_path(replace(geometry, subpaths=(s,)))) for s in geometry.subpaths
+        ]
+        # PathOps normalizes exterior contours counterclockwise and holes
+        # clockwise. Each exterior is a material component, including islands
+        # inside holes; attach each hole only to its nearest containing exterior.
+        exteriors = [(s, path) for s, path in contours if not path.clockwise]
+        for subpath, _ in exteriors:
+            cell = len(parents)
+            parents.append(cell)
+            cells[subpath.id] = cell
+        for subpath, path in contours:
+            if not path.clockwise:
+                continue
+            containers = [
+                (outer, boundary)
+                for outer, boundary in exteriors
+                if boundary.contains(subpath.nodes[0].endpoint)
+            ]
+            if not containers:
+                raise DocumentError("Could not match this path's hole contours")
+            outer, _ = min(containers, key=lambda item: item[1].area)
+            cells[subpath.id] = cells[outer.id]
+
+    def root(cell: int) -> int:
+        while parents[cell] != cell:
+            parents[cell] = parents[parents[cell]]
+            cell = parents[cell]
+        return cell
+
+    # The material remains connected everywhere the gesture did not cut it.
+    for a, b, inside in pairs:
+        if not inside:
+            parents[root(cells[owners[a]])] = root(cells[owners[b]])
+    removed: dict[int, int] = {}
+    active: set[int] = set()
+    for a, b, inside in pairs:
+        if not inside or root(cells[owners[a]]) == root(cells[owners[b]]):
+            removed[a], removed[b] = b, a
+        else:
+            active.update((a, b))
+    if not active:
+        return None
+
+    rings_by_cell: dict[int, list[list[Segment]]] = {}
+    cut_cells: set[int] = set()
+    visited = set(removed)
+    for first, (start, _) in enumerate(edges):
+        if first in visited:
+            continue
+        cell = root(cells[owners[first]])
+        ring: list[Segment] = [((), start)]
+        current = first
+        while current not in visited:
+            visited.add(current)
+            ring.append(edges[current][1])
+            if current in active:
+                cut_cells.add(cell)
+            current = following[current]
+            while current in removed:
+                current = following[removed[current]]
+        rings_by_cell.setdefault(cell, []).append(ring)
+    if len(cut_cells) < 2:
+        return None
+    pieces = [
+        _geometry(rings, sides[0].id)
+        for cell, rings in rings_by_cell.items()
+        if cell in cut_cells
+    ]
+    pieces.sort(key=lambda g: abs(curve_path(g).area), reverse=True)
+    untouched = [
+        subpath
+        for cell, rings in rings_by_cell.items()
+        if cell not in cut_cells
+        for subpath in _geometry(rings, sides[0].id).subpaths
+    ]
+    pieces[0] = replace(pieces[0], subpaths=(*pieces[0].subpaths, *untouched))
+    for i in range(1, len(pieces)):
+        pieces[i] = replace(pieces[i], id=sides[1].id if i == 1 else new_id("geometry"))
+    return Cut(pieces[0], pieces[1], tuple(pieces[2:]))
+
+
 def cut_geometry(
     geometry: Geometry,
     rule: str,
@@ -191,13 +481,11 @@ def cut_geometry(
     first_id: str,
     second_id: str,
 ) -> Cut | None:
-    """Split a filled region along the line through *start* and *end*.
+    """Split a filled region along the segment from *start* to *end*.
 
-    The whole line cuts the region, but only if the segment between the two
-    points enters and leaves it: both points lie outside the fill and the
-    segment spans a piece of the cut. Each side of the line becomes one
-    geometry, compound where the line leaves several parts on that side.
-    Curves stay curves, and both sides share the same seam nodes.
+    Both points lie outside the fill and the segment enters and leaves it.
+    Half-plane booleans provide curved boundaries; splits beyond the gesture
+    are reconnected. Curves stay curves, and pieces share exact seam nodes.
     """
     if math.dist(start, end) == 0:
         raise DocumentError("Drag a longer knife line")
@@ -247,7 +535,6 @@ def cut_geometry(
     def snap(point: Point) -> Point:
         return next((s for s in stops if math.dist(point, s) <= line.tolerance), point)
 
-    crossed = False
     geometries = []
     for rings, geometry_id in zip(pieces, (first_id, second_id), strict=True):
         snapped = []
@@ -271,14 +558,10 @@ def cut_geometry(
                         reverse=s1 < s0,
                     )
                     broken.extend(((), stop) for stop in inside)
-                    middle = (s0 + s1) / 2
-                    crossed |= 0 <= middle <= line.length
                 broken.append(segment)
             snapped.append(broken)
         geometries.append(_geometry(snapped, geometry_id))
-    if not crossed:
-        return None
-    return Cut(*geometries)
+    return _finite_pieces(geometries, line)
 
 
 def cut_strokes(

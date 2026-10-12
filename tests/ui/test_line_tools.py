@@ -167,6 +167,33 @@ def test_the_knife_cuts_a_selected_line_into_two_paths():
     assert len(result["selection"]["objects"]) == 2
 
 
+def test_knife_cuts_a_filled_shape_with_pinned_points():
+    session = session_with('<path id="p" d="M0 0H30V30H0Z"/>')
+    send(session, "select", objects=["p"])
+    pin = ids(session, "p")[0][0]
+    send(session, "pin", points=[["p", pin]], pinned=True)
+    result = send(session, "knife", start=[10, -5], end=[10, 35])
+    assert len(result["selection"]["objects"]) == 2
+    pinned = [
+        n
+        for oid in result["selection"]["objects"]
+        for s in session.editor.snapshot.document.geometry_for(oid).subpaths
+        for n in s.nodes
+        if n.pinned
+    ]
+    assert [(n.id, n.endpoint) for n in pinned] == [(pin, (0, 0))]
+
+
+def test_knife_stops_at_the_end_of_the_drag_on_a_filled_shape():
+    session = session_with('<path id="p" d="M0 0H10V10H7V3H3V10H0Z"/>')
+    send(session, "select", objects=["p"])
+    result = send(session, "knife", start=[-1, 6], end=[4, 6])
+    assert len(result["selection"]["objects"]) == 2
+    geometry = session.editor.snapshot.document.geometry_for("p")
+    assert abs(curve_path(geometry).area) == pytest.approx(60)
+    assert curve_path(geometry).contains((8, 8))
+
+
 def test_join_two_ends_joins_any_two_points_as_one_edit():
     # A point in the middle of a line, and the corner of a filled square.
     body = (
