@@ -153,3 +153,16 @@ def test_reference_field_preserves_off_crop_closure_and_occluded_edges():
     assert len(contours) == 1
     assert contours[0][:, 0].max() > 38
     assert field_loops(signal, power * 0, coverage, 8) == []
+
+
+def test_reference_field_reads_faint_boundaries_beside_strong_ones():
+    y, x = np.mgrid[-8:72, -8:72] + 0.5
+    coverage = ((x - 32) ** 2 + (y - 32) ** 2 < 18**2).astype(float)
+    iy, ix = np.mgrid[:64, :64] + 0.5
+    desired = ((ix - 32) ** 2 + (iy - 32) ** 2 < 20**2).astype(float)
+    power = np.full((64, 64), 3 * (3 / 255) ** 2)
+    power[:, 32:] = 1
+    contours = field_loops((1 - 2 * desired) * power, power, coverage, 8)
+    assert len(contours) == 1
+    assert contours[0][:, 0].min() == pytest.approx(12, abs=0.2)
+    assert contours[0][:, 0].max() == pytest.approx(52, abs=0.2)

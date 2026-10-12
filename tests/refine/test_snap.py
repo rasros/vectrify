@@ -1,5 +1,6 @@
 """Snapping moves the selected paths' points onto the reference's edges."""
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
@@ -110,6 +111,34 @@ def test_snapping_moves_a_transformed_circle_onto_the_reference():
     assert after < 0.15 * before
     assert ids(result) == ids(start)
     assert [n.command for n in result.subpaths[0].nodes] == ["M", "C", "C", "C", "C"]
+
+
+@pytest.mark.parametrize("levels", [3, 6])
+def test_snapping_finds_faint_shading_without_changing_its_paint(levels):
+    background = np.array([160, 179, 132], dtype=np.uint8)
+    shade = background - levels
+    fill = "#" + "".join(f"{c:02x}" for c in shade)
+    svg = SVG.replace("#ffffff", "#a0b384").replace("#203050", fill)
+    pixels = np.asarray(reference()).copy()
+    covered = np.any(pixels != 255, axis=-1)
+    pixels[:] = background
+    pixels[covered] = shade
+    target = Image.fromarray(pixels)
+    ed = editor(svg, "p")
+    document = ed.snapshot.document
+    job = Job(
+        method("improve", "nodes"),
+        request(ed, target, shape=False, snap=True, simplify=False),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    metrics = state["result"]["metrics"]
+    assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.15
+    job.apply()
+    after = ed.snapshot.document
+    assert after.element("p").attributes == document.element("p").attributes
+    assert ids(after.geometry_for("p")) == ids(document.geometry_for("p"))
 
 
 def test_pinned_points_stay_put():

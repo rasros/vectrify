@@ -12,7 +12,7 @@ from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.spatial import KDTree
 
 from vectrify.document import Geometry
-from vectrify.refine.snap import _Frame
+from vectrify.refine.snap import CONTRAST, _Frame
 
 
 def loops(field: np.ndarray) -> list[np.ndarray]:
@@ -71,7 +71,7 @@ def loops(field: np.ndarray) -> list[np.ndarray]:
 
 def field_loops(signal, power, coverage, padding):
     """Preserve the silhouette outside the crop and beneath opaque artwork."""
-    visible = power > max(1e-8, float(power.max()) * 0.02)
+    visible = power > CONTRAST**2
     if not visible.any():
         return []
     field = (1 - 2 * coverage) * float(np.median(power[visible]))

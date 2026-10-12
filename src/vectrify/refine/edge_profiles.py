@@ -3,7 +3,7 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates
 
-from vectrify.refine.snap import _Frame
+from vectrify.refine.snap import CONTRAST, _Frame
 
 
 class EdgeProfiles:
@@ -29,7 +29,9 @@ class EdgeProfiles:
         self.signal = gaussian_filter(self.raw_signal, 0.6)
         self.steps = np.arange(-6, 6.01, 0.25) / pixel_scale
         self.probe = 1.5 / pixel_scale
-        self.threshold = max(1e-8, float(self.power.max()) * 0.02)
+        # A strong outline elsewhere in the crop must not hide a visible,
+        # low-contrast shadow edge. Ignore responses below the raster noise floor.
+        self.threshold = CONTRAST**2
 
     @staticmethod
     def _read(field: np.ndarray, points: np.ndarray) -> np.ndarray:
