@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from vectrify.project_file import MAX_SOURCE
 from vectrify.ui.server import STATIC, Backend
 
 
@@ -55,10 +56,13 @@ class Api:
     pywebview exposes every public method here, so helpers stay private.
     """
 
-    def __init__(self, backend: Backend):
+    def __init__(self, backend: Backend, path: Path | None = None):
         self._backend = backend
         self._window: Any = None
         self._pushing: threading.Thread | None = None
+        self._path = path.resolve() if path else None
+        self._save_path: Path | None = None
+        self._picked_file: tuple[Path, str] | None = None
 
     def _push(self, script: Callable[[str], Any], stop: threading.Event) -> None:
         """Tell the page each agent call as it happens, by running *script*
@@ -97,10 +101,44 @@ class Api:
 
     def request(self, path: str, data: Any, session: str | None = None) -> dict:
         status, body = self._backend.handle(path, data, session)
+        if status == 200 and path == "/api/action" and data.get("command") == "open":
+            picked = self._picked_file
+            self._path = (
+                picked[0]
+                if picked
+                and data.get("name") == picked[0].name
+                and data.get("source") == picked[1]
+                else None
+            )
+            self._save_path = None
+            self._picked_file = None
         return {"status": status, "body": body}
 
-    def save(self, name: str, content: str, encoding: str | None = None) -> str | None:
-        """Ask where to save *content*; the chosen path, or None if cancelled."""
+    def open_file(self) -> dict | None:
+        """Pick a drawing, retaining its path only after it opens successfully."""
+        self._picked_file = None
+        webview = importlib.import_module("webview")
+        file_dialog = getattr(webview, "FileDialog", None)
+        chosen = self._window.create_file_dialog(
+            file_dialog.OPEN if file_dialog is not None else webview.OPEN_DIALOG,
+            allow_multiple=False,
+            file_types=("Drawings (*.svg;*.vectrify;*.json)", "All files (*.*)"),
+        )
+        if not chosen:
+            return None
+        path = Path(chosen if isinstance(chosen, str) else chosen[0])
+        if path.stat().st_size > MAX_SOURCE:
+            raise ValueError("File exceeds the 128 MB editor limit")
+        source = base64.b64encode(path.read_bytes()).decode("ascii")
+        self._picked_file = (path, source)
+        return {"name": path.name, "source": source, "encoding": "base64"}
+
+    def save_target(self, name: str, save_as: bool = False) -> str | None:
+        """Use the current file, or ask for a destination for Save As."""
+        self._save_path = None
+        if self._path is not None and not save_as:
+            self._save_path = self._path
+            return str(self._path)
         webview = importlib.import_module("webview")
         file_dialog = getattr(webview, "FileDialog", None)
         # pywebview 5 is still supported; only newer releases have the enum.
@@ -110,17 +148,36 @@ class Api:
         chosen = self._window.create_file_dialog(save_dialog, save_filename=name)
         if not chosen:
             return None
-        path = Path(chosen if isinstance(chosen, str) else chosen[0])
+        self._save_path = Path(chosen if isinstance(chosen, str) else chosen[0])
+        return str(self._save_path)
+
+    def save(
+        self,
+        name: str,
+        content: str,
+        encoding: str | None = None,
+        remember: bool = True,
+    ) -> str | None:
+        """Write the selected destination and remember it after a successful save."""
+        path = self._save_path or self._path
+        if path is None:
+            if self.save_target(name) is None:
+                return None
+            path = self._save_path
+        assert path is not None
         if encoding == "base64":
             path.write_bytes(base64.b64decode(content, validate=True))
         elif encoding is None:
             path.write_text(content, encoding="utf-8")
         else:
             raise ValueError("Unsupported file encoding")
+        if remember:
+            self._path = path
+        self._save_path = None
         return str(path)
 
 
-def run(backend: Backend) -> None:
+def run(backend: Backend, path: Path | None = None) -> None:
     # On a Wayland session Qt's native backend reported a scale of 1 on a
     # screen set to 150%, drawing the whole editor at two thirds of its size;
     # through XWayland the page gets the desktop's scale. An explicit
@@ -128,7 +185,7 @@ def run(backend: Backend) -> None:
     if sys.platform.startswith("linux") and os.environ.get("DISPLAY"):
         os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     webview = importlib.import_module("webview")
-    api = Api(backend)
+    api = Api(backend, path)
     # The query tells the page to talk to the bridge rather than fetch().
     api._window = webview.create_window(
         "Vectrify",

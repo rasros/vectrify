@@ -25,11 +25,11 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 ## Layout
 
 - **Top bar**: the name, the drawing's title and the file actions
-  (**Commands**, **Open…**, **Restore saved…**, **Save project**, **Export
+  (**Commands**, **Open…**, **Restore saved…**, **Save**, **Save As…**, **Export
   SVG**). It keeps to one row at any width down to a phone's: the badge, the
   Ctrl K hint and then the title make room first, and the actions that still
   do not fit move into a **⋯** menu at its end, the least important first
-  (**Restore saved…**, then **Open…**, then **Save project**), so
+  (**Restore saved…**, then **Open…**, then **Save As…** and **Save**), so
   **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`A`),
@@ -532,7 +532,9 @@ whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins. Drag with
 the middle mouse button (in any tool), or hold Space and drag, to pan. Use the
 scroll wheel to zoom, and press `F` to fit. Ctrl/Command-Z undoes; add Shift
-to redo. Ctrl/Command-S saves a project. Ctrl/Command-C copies the selected
+to redo. Ctrl/Command-S saves the current file. Ctrl/Command-Shift-S opens
+Save As to choose a destination; its extension selects SVG, `.vectrify` or
+JSON project format. Ctrl/Command-C copies the selected
 objects; Ctrl/Command-V pastes independent copies at the same position as one
 undoable edit and selects them. Copy includes groups, their styling and
 referenced shapes, and keeps the snapshot even if the originals are edited or
@@ -544,13 +546,17 @@ Projects preserve object/node identities, locks, pins,
 selection and the reference image. New `.vectrify` files use lossless gzip
 compression, keeping the embedded reference's original bytes and all drawing
 data intact. Saves omit geometry left behind by deleted or replaced shapes.
-Existing uncompressed JSON projects still open; saving them again
-uses compression. Older Vectrify versions cannot open compressed projects.
-SVG exports contain the drawing. Downloads
-use the browser's download location and do not overwrite the original input.
+Existing uncompressed JSON projects still open and save as JSON. Saving as
+`.vectrify` uses compression. Older Vectrify versions cannot open compressed projects.
+SVG files contain the drawing. **Save** overwrites the current file in the
+desktop editor; a new drawing asks for a destination the first time. Browsers
+with file access support also reuse files opened or selected through their
+pickers. Other browsers download a copy. **Save As…** always opens the save
+picker when file access is available. **Export SVG** and the command palette's
+**Download project** write separate copies without changing the current file.
 The server keeps sessions in memory; save a project before stopping it. Browser
 reloads reconnect to the current session, but undo history is not stored in
-project files. Saving also keeps a browser recovery copy keyed to this tab's
+project files. Saving SVGs or projects also keeps a full project recovery copy keyed to this tab's
 session; after a server restart, the tab restores that saved project. Edits made
 after the last save are not included in recovery. **Restore saved** also lets
 you choose a saved browser recovery copy from a new tab.

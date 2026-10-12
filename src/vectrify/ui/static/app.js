@@ -158,7 +158,7 @@ async function applyState(next) {
   const replaced = !state || next.epoch !== state.epoch;
   state = {...state, ...next};
   if (changed) objectsById = new Map(state.objects.map(item => [item.id, item]));
-  $('filename').textContent = state.name; $('dirty').textContent = dirty ? '•' : '';
+  $('filename').textContent = files.currentName(); $('dirty').textContent = dirty ? '•' : '';
   if (next.svg) renderDrawing();
   const [x, y, w, h] = state.bounds;
   $('artboard').style.width = `${w}px`; $('artboard').style.height = `${h}px`;
@@ -861,7 +861,9 @@ const COMMANDS = [
   {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'Hold Space', keywords: 'hand scroll', run: () => setTool('hand')},
   {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
-  {id: 'save', name: 'Save project', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'download vectrify', run: () => download(true)},
+  {id: 'save', name: 'Save', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'file write', run: () => files.save()},
+  {id: 'save-as', name: 'Save As…', group: 'File', keys: 'Ctrl/⌘ Shift S', keywords: 'file destination menu', run: () => files.save(true)},
+  {id: 'save-project', name: 'Download project', group: 'File', keywords: 'download vectrify reference locks pins', run: () => download(true)},
   {id: 'export', name: 'Export SVG', group: 'File', keywords: 'download save', run: () => download(false)},
   {id: 'agents', name: 'Allow agents to edit', label: () => agentStatus.enabled ? 'Stop agents editing' : 'Allow agents to edit', group: 'File', keywords: 'mcp claude ai assistant agent live', run: toggleAgents},
   {id: 'help', name: 'Keyboard shortcuts', group: 'Help', keys: '?', keywords: 'help keys', run: () => $('help-dialog').showModal()},
@@ -1979,7 +1981,7 @@ const placeStripMenu = stripMenu.place, closeStripMenu = stripMenu.close;
 new ResizeObserver(() => scheduleStrip()).observe($('tool-strip'));
 // The top bar keeps to one row too: the title shrinks, then the file actions
 // that do not fit go into its "⋯" menu, least important first.
-const topbarPriority = {'export-svg': 1, 'palette-open': 1, 'save-project': 2, 'open-file': 3};
+const topbarPriority = {'export-svg': 1, 'palette-open': 1, 'save-as': 2, 'save-project': 2, 'open-file': 3};
 const topbarMenu = moreMenu($('topbar-more'), $('topbar-more-menu'));
 const topbarParked = new Map();
 let topbarSignature = '';
@@ -2916,6 +2918,7 @@ for (const controls of document.querySelectorAll('.tool-controls[data-tools]'))
 window.addEventListener('keydown',event=>{
   const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable, dialog=document.querySelector('dialog[open]');
   const mod=event.ctrlKey||event.metaKey, key=event.key.toLowerCase();
+  if(mod&&!event.altKey&&key==='s'&&!dialog){event.preventDefault();if(!event.repeat)files.save(event.shiftKey);return;}
   if(event.key==='F2'&&!typing&&!dialog&&oneObject()){event.preventDefault();later(()=>{if(oneObject())renameObject();});return;}
   if(event.key==='Escape'&&treeDrag){event.preventDefault();endTreeDrag(false);return;}
   if(mod&&!event.altKey&&key==='k'){event.preventDefault();if(!dialog)openPalette();return;}
@@ -2936,7 +2939,6 @@ window.addEventListener('keydown',event=>{
       event.preventDefault();if(!drag){pathDraft.pop();pathHover=null;drawOverlay();}return;
     }
   }
-  if(mod&&key==='s'){event.preventDefault();download(true);return;}
   if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
   if(mod&&!event.altKey&&!event.shiftKey&&['c','v'].includes(key)){
     event.preventDefault();later(()=>runCommand(key==='c'?'copy':'paste'));return;
