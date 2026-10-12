@@ -467,7 +467,7 @@ function renderObjects() {
     if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
     row.onclick = event => {
       const additive = event.shiftKey || event.ctrlKey || event.metaKey;
-      if (!treeDragEnded) later(() => object(item.id) && selectObject(item.id, additive, true));
+      if (!treeDragEnded) later(() => object(item.id) && selectObject(item.id, additive, true, true));
     };
     row.ondblclick = () => { if (!item.resource) later(() => object(item.id) && enterObject(item.id)); };
     row.onpointerdown = event => pressTreeRow(event, item);
@@ -1324,11 +1324,12 @@ $('objects').addEventListener('contextmenu', event => {
     openContextMenu(x, y);
   });
 });
-async function selectObject(id, additive = false, focus = false) {
+async function selectObject(id, additive = false, focus = false, toggle = false) {
   activeHandle = null;
   clickCycle = null;
-  let selected = new Set(additive ? state.selection.objects : []);
-  if (id) { if (additive && selected.has(id)) selected.delete(id); else selected.add(id); }
+  const removing = (additive || toggle) && state.selection.objects.includes(id);
+  let selected = new Set(additive || removing ? state.selection.objects : []);
+  if (id) { if (removing) selected.delete(id); else selected.add(id); }
   // Picking an object in the tree enters the group it is in.
   if (focus && id && !additive) {
     const parent = object(id)?.parent;
@@ -1410,7 +1411,7 @@ async function selectAtPoint(finished) {
   // A double-click acts on what was picked before it: its first click may
   // have cycled on from a selected object to the next one under it.
   lastPick = {id: hits[index], first: double ? lastPick?.first ?? hits[index] : cycled ? hits[clickCycle.index] : hits[index]};
-  const success = await selectObject(hits[index], finished.shift);
+  const success = await selectObject(hits[index], finished.shift, false, !double);
   if (success && !finished.shift) clickCycle = {x:finished.x, y:finished.y, time:finished.time, hits, index};
 }
 // A click on empty canvas: in point tools it drops the points first.
