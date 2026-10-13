@@ -36,6 +36,7 @@ import multiprocessing as mp
 import os
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from typing import ClassVar
@@ -49,8 +50,10 @@ from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     Proposal,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.generate import (
@@ -59,7 +62,7 @@ from vectrify.operations.generate import (
     render_region,
     target_region,
 )
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 from vectrify.svg_render import cached_rendering, render_image
 
 LABEL = "Optimize nodes"
@@ -118,13 +121,6 @@ SETTINGS = {
     # polygon [[x, y], ...] in document units.
     "region": Setting(list, None, label="region"),
 }
-
-
-def effective_settings(request: OperationRequest) -> dict:
-    settings = read_settings(request.settings, SETTINGS, LABEL)
-    if request.reference is None and "tolerance" not in request.settings:
-        settings["tolerance"] = NO_REFERENCE
-    return settings
 
 
 def area(settings) -> list[tuple[float, float]] | None:
@@ -1000,15 +996,25 @@ def _span_lines(task: _Task, document: Document, current: _Scored, stop):
     return document, current
 
 
-class OptimizeNodes:
+class OptimizeNodes(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = LABEL
+
     action: ClassVar[str] = "improve"
     name: ClassVar[str] = "nodes"
     background: ClassVar[bool] = True
     needs_reference: ClassVar[bool] = True
     resources: ClassVar[frozenset[str]] = frozenset()
 
-    def validate(self, request: OperationRequest) -> None:
-        settings = read_settings(request.settings, SETTINGS, LABEL)
+    def normalize_settings(self, request: OperationRequest, settings: dict, /) -> dict:
+        if request.reference is None and "tolerance" not in request.settings:
+            settings["tolerance"] = NO_REFERENCE
+        return settings
+
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
+        settings = prepared.settings
         if settings["detail"] and not settings["snap"]:
             raise DocumentError("detail requires snap=true")
         if not any(settings[step] for step in STEPS):
@@ -1031,8 +1037,12 @@ class OptimizeNodes:
             raise DocumentError(f"Allow {', '.join(sorted(missing))} changes")
 
     @cached_rendering()
-    def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        settings = effective_settings(request)
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
+        settings = prepared.settings
         rounds = request.budget.steps or DEFAULT_ROUNDS
         start = request.snapshot.document
         polygon = area(settings)

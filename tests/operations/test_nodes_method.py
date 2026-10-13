@@ -13,6 +13,7 @@ from vectrify.image_utils import on_white
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import Region
 from vectrify.operations.methods import nodes as nodes_method
+from vectrify.operations.settings import read_settings
 from vectrify.svg_render import render_image
 
 # The square is drawn with more points than it needs and a little off target.
@@ -432,8 +433,6 @@ def test_only_crossing_results_leave_the_paths_as_they_were():
 
 
 def test_the_defaults_are_a_quick_tidy():
-    from vectrify.operations.settings import read_settings
-
     settings = read_settings({}, nodes_method.SETTINGS, nodes_method.LABEL)
     assert (settings["snap"], settings["simplify"], settings["shape"]) == (
         True,
@@ -502,7 +501,7 @@ def test_detail_fit_holds_new_knots_where_the_curve_leaves_the_view(monkeypatch)
     task = nodes_method._Task(
         document,
         Region(0, 0, 64, 64, target),
-        nodes_method.read_settings(
+        read_settings(
             {"detail": True, "region": [0, 0, 64, 20]}, nodes_method.SETTINGS, "Tidy"
         ),
         ("p",),
@@ -1051,7 +1050,7 @@ def test_a_slow_fill_cannot_spend_the_later_fills_time(first_spends, monkeypatch
     task = nodes_method._Task(
         document,
         Region(0, 0, 64, 64, target),
-        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("left", "right"),
         target,
     )
@@ -1089,7 +1088,7 @@ def test_fitting_a_later_path_sees_the_already_followed_shared_edge(monkeypatch)
     task = nodes_method._Task(
         document,
         Region(0, 0, 64, 64, target),
-        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("left", "right"),
         target,
         held=frozen_points(document, shared),
@@ -1147,7 +1146,7 @@ def test_a_bad_later_fit_does_not_discard_an_earlier_improvement(monkeypatch):
     task = nodes_method._Task(
         document,
         replace(region, image=target),
-        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("first", "last"),
         target,
     )
@@ -1345,7 +1344,7 @@ def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
     task = nodes_method._Task(
         document,
         replace(region, image=target),
-        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("p",),
         target,
     )
@@ -1526,7 +1525,7 @@ def test_simplifys_budget_includes_an_unselected_shared_neighbour():
     task = nodes_method._Task(
         document,
         region,
-        nodes_method.read_settings({"tolerance": 3}, nodes_method.SETTINGS, "Tidy"),
+        read_settings({"tolerance": 3}, nodes_method.SETTINGS, "Tidy"),
         ("ghost",),
         target,
         shared=tuple(shared),

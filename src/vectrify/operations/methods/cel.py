@@ -3,12 +3,15 @@ drawn over them as strokes."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.generate import (
@@ -16,7 +19,7 @@ from vectrify.operations.generate import (
     target_region,
     validate_generate,
 )
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 
 SETTINGS = {
     # How many filled regions the trace merges down to; 0 sizes it to the
@@ -51,24 +54,36 @@ def auto_regions(size: tuple[int, int]) -> int:
     return min(high, max(low, round(size[0] * size[1] / PIXELS_PER_REGION)))
 
 
-class Cel:
+class Cel(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = "cel"
+
     action: ClassVar[str] = "generate"
     name: ClassVar[str] = "cel"
     background: ClassVar[bool] = True
     needs_reference: ClassVar[bool] = True
     resources: ClassVar[frozenset[str]] = frozenset()
 
-    def validate(self, request: OperationRequest) -> None:
-        read_settings(request.settings, SETTINGS, "cel")
+    def normalize_settings(self, request: OperationRequest, settings: dict, /) -> dict:
+        if not settings["regions"]:
+            validate_generate(request)
+            settings["regions"] = auto_regions(target_region(request).image.size)
+        return settings
+
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
         validate_generate(request)
 
-    def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
         from vectrify.refine.cel import vectorize
 
-        settings = read_settings(request.settings, SETTINGS, "cel")
+        settings = prepared.settings
         region = target_region(request)
-        if not settings["regions"]:
-            settings["regions"] = auto_regions(region.image.size)
         context.progress(0, "Finding the lines and filling the regions…", total=2)
         svg, details = vectorize(region.image, alpha=region.alpha, **settings)
         context.progress(1, "Placing traced regions and lines…")

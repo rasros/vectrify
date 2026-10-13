@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from vectrify.operations.contract import (
     OperationCancelledError,
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.generate import (
@@ -16,7 +19,7 @@ from vectrify.operations.generate import (
     target_region,
     validate_generate,
 )
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 
 SETTINGS = {
     "complexity": Setting(int, 50, minimum=0, maximum=100),
@@ -31,22 +34,30 @@ SETTINGS = {
 }
 
 
-class CelPlanned:
+class CelPlanned(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = "planned cel"
+
     action: ClassVar[str] = "generate"
     name: ClassVar[str] = "cel-planned"
     background: ClassVar[bool] = True
     needs_reference: ClassVar[bool] = True
     resources: ClassVar[frozenset[str]] = frozenset()
 
-    def validate(self, request: OperationRequest) -> None:
-        read_settings(request.settings, SETTINGS, "planned cel")
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
         validate_generate(request)
 
-    def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
         from vectrify.refine.cel_plan.model import Options, PlanningStoppedError
         from vectrify.refine.cel_plan.pipeline import vectorize
 
-        options = Options(**read_settings(request.settings, SETTINGS, "planned cel"))
+        options = Options(**prepared.settings)
         region = target_region(request)
         context.progress(0, "Reading ink and surface evidence…", total=3)
         try:

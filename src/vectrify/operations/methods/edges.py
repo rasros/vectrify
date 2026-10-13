@@ -2,38 +2,44 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     Proposal,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.previews import render_previews
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 
 SETTINGS = {"tolerance": Setting(float, 1.0, minimum=0, label="contact distance")}
 
 
-def _tolerance(request: OperationRequest) -> float:
-    return read_settings(request.settings, SETTINGS, "snap")["tolerance"]
+class EdgeSnap(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = "snap"
 
-
-class EdgeSnap:
     action: ClassVar[str] = "snap"
     name: ClassVar[str] = "edges"
     background: ClassVar[bool] = False
     needs_reference: ClassVar[bool] = False
     resources: ClassVar[frozenset[str]] = frozenset()
 
-    def validate(self, request: OperationRequest) -> None:
-        _tolerance(request)
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        self.prepare(request)
 
-    def run(self, request: OperationRequest, _context: RunContext) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, _context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
         tx = request.transaction("Snap edges")
-        spans = tx.snap_edges(_tolerance(request))
+        spans = tx.snap_edges(prepared.settings["tolerance"])
         return OperationResult(
             Proposal(
                 tx,

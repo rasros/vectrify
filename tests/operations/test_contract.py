@@ -20,6 +20,7 @@ from vectrify.operations import (
     Permissions,
     Proposal,
     RunContext,
+    SettingsMethod,
     available,
     method,
 )
@@ -27,7 +28,7 @@ from vectrify.operations import (
 SVG = '<svg width="20" height="20"><path id="a" d="M0 0L10 0L10 10Z"/></svg>'
 
 
-class Recolour:
+class Recolour(SettingsMethod):
     action: ClassVar[str] = "improve"
     name: ClassVar[str] = "recolour"
     background: ClassVar[bool] = False
@@ -38,6 +39,7 @@ class Recolour:
         pass
 
     def run(self, request, context):
+        request = self.prepare(request).request
         context.progress(1, "Recolouring", total=1)
         tx = request.transaction("Recolour")
         tx.set_attributes("a", {"fill": "#ff0000"})

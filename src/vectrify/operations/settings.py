@@ -59,13 +59,9 @@ def read_settings(
 
 def method_settings(action: str, name: str) -> dict[str, Setting]:
     """The same schema used by job validation and discovery."""
-    import importlib
-
     from vectrify.operations.contract import method
 
-    chosen = method(action, name)
-    module = importlib.import_module(type(chosen).__module__)
-    return dict(getattr(module, "SETTINGS", {}))
+    return dict(method(action, name).settings_schema)
 
 
 def settings_schema(action: str, name: str) -> dict[str, Any]:

@@ -10,6 +10,7 @@ commands; coordinates are never rounded.
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from typing import ClassVar
 
 from vectrify.document import DocumentError, export_svg
@@ -17,11 +18,14 @@ from vectrify.operations.candidates import replay
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     Proposal,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.previews import render_previews
+from vectrify.operations.settings import Setting
 from vectrify.svg.cleanup import cleanup_svg_geometry
 
 SVG_NS = "http://www.w3.org/2000/svg"
@@ -69,23 +73,37 @@ def _restore(svg: str, kept: dict[str, str]) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
-class GeometryCleanup:
+class GeometryCleanup(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = {}
+    settings_label: ClassVar[str] = "cleanup"
+
     action: ClassVar[str] = "simplify"
     name: ClassVar[str] = "cleanup"
     background: ClassVar[bool] = False
     needs_reference: ClassVar[bool] = False
     resources: ClassVar[frozenset[str]] = frozenset()
 
-    def validate(self, request: OperationRequest) -> None:
-        if request.settings:
+    def prepare(
+        self, request: OperationRequest | PreparedOperation, /
+    ) -> PreparedOperation:
+        if isinstance(request, OperationRequest) and request.settings:
             raise DocumentError("Geometry cleanup takes no settings")
+        return super().prepare(request)
+
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
         if not (request.permissions.geometry and request.permissions.structure):
             raise DocumentError("Allow geometry and structure changes to clean up")
         document = request.snapshot.document
         if not document.selection_ids(request.snapshot.selection):
             raise DocumentError("Select objects, or the whole drawing, to clean up")
 
-    def run(self, request: OperationRequest, _context: RunContext) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, _context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
         document = request.snapshot.document
         scope = frozenset(document.selection_ids(request.snapshot.selection))
         svg, kept = _placeholders(export_svg(document), scope)

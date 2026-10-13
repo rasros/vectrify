@@ -362,6 +362,27 @@ node IDs and refuses to move or remove pinned endpoints.
 ## Writing a method
 
 Implement the `Method` protocol (`action`, `name`, `background`,
-`needs_reference`, `resources`, `validate`, `run`) and pass an instance to
-`register`. Put built-in methods in `vectrify/operations/methods/` and import
+`needs_reference`, `resources`, `settings_schema`, `prepare`, `validate`, `run`)
+and pass an instance to `register`. Schemas belong to method instances; multiple
+methods in one module can expose different schemas. Module-level `SETTINGS`
+and `effective_settings` functions are not discovered.
+
+Subclass `SettingsMethod` for typed settings. Declare `settings_schema` as a
+mapping of names to `Setting` values and `settings_label` for validation errors.
+Override `normalize_settings(request, settings)` for contextual defaults: it
+runs once after parsing and can inspect the original request's raw settings to
+distinguish omitted values from explicit defaults. Return the effective mapping.
+A method with no settings declares an empty schema.
+
+`prepare` returns a `PreparedOperation` containing the original request and the
+effective settings. `Job` prepares once, validates that object, executes that
+same object and reports its settings. Implement `validate` and `run` to accept
+`OperationRequest | PreparedOperation`; call `self.prepare(input)` and use its
+`request` and `settings`. Preparing an already prepared input returns it unchanged,
+so direct callers can still pass raw requests. Direct callers that validate then
+run should prepare once and share the result. Custom methods can implement
+`prepare` themselves, but must follow the same contract; there is no fallback
+for methods missing these capabilities.
+
+Put built-in methods in `vectrify/operations/methods/` and import
 them from that package's `__init__`.

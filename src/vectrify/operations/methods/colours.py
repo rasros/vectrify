@@ -22,6 +22,7 @@ changes by less than about two levels of 255 stays a flat fill.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
@@ -35,12 +36,14 @@ from vectrify.image_utils import preview_urls
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     Proposal,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.generate import Region, error, render_region, target_region
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 
 DRAWABLE = {"path", "rect", "circle", "ellipse", "use"}
 # What can take a gradient: an instance's user space is its source's.
@@ -299,23 +302,31 @@ def local_gradient(document: Document, oid: str, ramp: Ramp) -> LinearGradient:
     return LinearGradient(start, end, stops)
 
 
-class ColourFit:
+class ColourFit(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = "colour-fit"
+
     action: ClassVar[str] = "improve"
     name: ClassVar[str] = "colours"
     background: ClassVar[bool] = True
     needs_reference: ClassVar[bool] = True
     resources: ClassVar[frozenset[str]] = frozenset()
 
-    def validate(self, request: OperationRequest) -> None:
-        read_settings(request.settings, SETTINGS, "colour-fit")
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
         if not request.permissions.paint:
             raise DocumentError("Allow paint changes to fit colours")
         if not targets(request.snapshot.document, request):
             raise DocumentError("Select objects with a solid fill or a gradient")
         target_region(request)
 
-    def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        settings = read_settings(request.settings, SETTINGS, "colour-fit")
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
+        settings = prepared.settings
         linear = settings["fill"] == "linear"
         full = target_region(request)
         scale = min(1, settings["resolution"] / max(full.image.size))

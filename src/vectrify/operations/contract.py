@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from threading import Event
 from typing import Any, ClassVar, Protocol
 
@@ -19,6 +19,7 @@ from PIL import Image
 
 from vectrify.document import DocumentError, EditKind, Editor, Snapshot
 from vectrify.document.editor import Transaction
+from vectrify.operations.settings import Setting, read_settings
 
 ACTIONS = ("generate", "improve", "simplify", "snap")
 
@@ -99,6 +100,42 @@ class OperationRequest:
         )
 
 
+@dataclass(frozen=True)
+class PreparedOperation:
+    """One normalized configuration, with the original request kept intact.
+
+    Settings include request-dependent defaults. The original settings retain
+    omitted-key semantics; validation and execution use this prepared mapping.
+    """
+
+    request: OperationRequest
+    settings: dict[str, Any]
+
+
+class SettingsMethod:
+    """Typed preparation shared by methods that accept raw or prepared inputs."""
+
+    settings_schema: ClassVar[Mapping[str, Setting]] = {}
+    settings_label: ClassVar[str] = "operation"
+
+    def normalize_settings(
+        self, _request: OperationRequest, settings: dict[str, Any], /
+    ) -> dict[str, Any]:
+        """Resolve contextual defaults after typed parsing, before validation."""
+        return settings
+
+    def prepare(
+        self, request: OperationRequest | PreparedOperation, /
+    ) -> PreparedOperation:
+        if isinstance(request, PreparedOperation):
+            return request
+        request = replace(request, settings=dict(request.settings))
+        settings = read_settings(
+            request.settings, self.settings_schema, self.settings_label
+        )
+        return PreparedOperation(request, self.normalize_settings(request, settings))
+
+
 @dataclass
 class Proposal:
     """One candidate outcome. Applying commits its transaction as one edit."""
@@ -168,10 +205,20 @@ class Method(Protocol):
     # Shared resources the job must hold while running, e.g. {"gpu"}.
     resources: ClassVar[frozenset[str]]
 
-    def validate(self, request: OperationRequest, /) -> None:
+    settings_schema: ClassVar[Mapping[str, Setting]]
+
+    def prepare(
+        self, request: OperationRequest | PreparedOperation, /
+    ) -> PreparedOperation:
+        """Parse and normalize once; return prepared inputs unchanged."""
+        ...
+
+    def validate(self, request: OperationRequest | PreparedOperation, /) -> None:
         """Reject an impossible request quickly, before any job starts."""
 
-    def run(self, request: OperationRequest, context: RunContext, /) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext, /
+    ) -> OperationResult:
         """Do the work. Honour context.stop by returning the best result so far."""
         ...
 
