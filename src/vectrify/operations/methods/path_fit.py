@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from vectrify.document import DocumentError
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     Proposal,
     RunContext,
+    SettingsMethod,
     register,
 )
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 from vectrify.refine.selected import (
     FitOptions,
     fit_problem,
@@ -32,10 +35,12 @@ SETTINGS = {
 }
 
 
-def fit_options(request: OperationRequest) -> FitOptions:
+def fit_options(request: OperationRequest | PreparedOperation) -> FitOptions:
+    prepared = PathFit().prepare(request)
+    request = prepared.request
     options = FitOptions(
         steps=request.budget.steps or DEFAULT_STEPS,
-        **read_settings(request.settings, SETTINGS, "path-fit"),
+        **prepared.settings,
     )
     if (options.nodes or options.handles) and not request.permissions.geometry:
         raise DocumentError("Allow geometry changes to move nodes or handles")
@@ -44,14 +49,19 @@ def fit_options(request: OperationRequest) -> FitOptions:
     return options
 
 
-class PathFit:
+class PathFit(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = "path-fit"
+
     action: ClassVar[str] = "improve"
     name: ClassVar[str] = "path-fit"
     background: ClassVar[bool] = True
     needs_reference: ClassVar[bool] = True
     resources: ClassVar[frozenset[str]] = frozenset({"gpu"})
 
-    def validate(self, request: OperationRequest) -> None:
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
         if request.reference is None:
             raise DocumentError("Add a reference image before optimizing a path")
         problem = fit_problem()
@@ -59,12 +69,16 @@ class PathFit:
             raise DocumentError(problem)
         # Fills and round strokes fit on CPU too; miter outlines require CUDA.
         validate_selection(
-            request.snapshot.document, request.snapshot.selection, fit_options(request)
+            request.snapshot.document, request.snapshot.selection, fit_options(prepared)
         )
 
-    def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
         assert request.reference is not None
-        options = fit_options(request)
+        options = fit_options(prepared)
         context.progress(0, "Preparing…", total=options.steps)
         fit = fit_selected_path(
             request.snapshot.document,

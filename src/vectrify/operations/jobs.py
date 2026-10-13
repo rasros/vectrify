@@ -30,24 +30,11 @@ class Job:
     def __init__(
         self, method: Method, request: OperationRequest, context_key: Any = None
     ):
-        import importlib
-
-        from vectrify.operations.settings import read_settings
-
-        module = importlib.import_module(type(method).__module__)
-        schema = getattr(module, "SETTINGS", None)
-        self.effective_settings = (
-            read_settings(request.settings, schema, method.name)
-            if schema is not None
-            else dict(request.settings)
-        )
-        if callable(resolve := getattr(module, "effective_settings", None)):
-            resolved = resolve(request)
-            assert isinstance(resolved, dict)
-            self.effective_settings = resolved
-        method.validate(request)
+        self.prepared = method.prepare(request)
+        self.effective_settings = self.prepared.settings
+        method.validate(self.prepared)
         self.method = method
-        self.request = request
+        self.request = self.prepared.request
         self.id = uuid4().hex
         self.context = RunContext(total=request.budget.steps)
         self.context.listen(self._progress)
@@ -102,7 +89,7 @@ class Job:
                 self.status, self.message = "cancelled", "Stopped before starting"
             return
         try:
-            result = self.method.run(self.request, self.context)
+            result = self.method.run(self.prepared, self.context)
             with self._lock:
                 self.result = result
                 self.status = "ready"

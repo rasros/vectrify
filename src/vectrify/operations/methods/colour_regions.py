@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from vectrify.document import DocumentError
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
+    PreparedOperation,
     RunContext,
+    SettingsMethod,
     register,
 )
 from vectrify.operations.generate import (
@@ -16,7 +19,7 @@ from vectrify.operations.generate import (
     target_region,
     validate_generate,
 )
-from vectrify.operations.settings import Setting, read_settings
+from vectrify.operations.settings import Setting
 
 SETTINGS = {
     "colours": Setting(int, 32, minimum=2, maximum=256),
@@ -35,25 +38,33 @@ SETTINGS = {
 }
 
 
-class ColourRegions:
+class ColourRegions(SettingsMethod):
+    settings_schema: ClassVar[Mapping[str, Setting]] = SETTINGS
+    settings_label: ClassVar[str] = "colour-region"
+
     action: ClassVar[str] = "generate"
     name: ClassVar[str] = "colour-regions"
     background: ClassVar[bool] = True
     needs_reference: ClassVar[bool] = True
     resources: ClassVar[frozenset[str]] = frozenset({"gpu"})
 
-    def validate(self, request: OperationRequest) -> None:
-        read_settings(request.settings, SETTINGS, "colour-region")
+    def validate(self, request: OperationRequest | PreparedOperation) -> None:
+        prepared = self.prepare(request)
+        request = prepared.request
         validate_generate(request)
 
-    def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
+    def run(
+        self, request: OperationRequest | PreparedOperation, context: RunContext
+    ) -> OperationResult:
+        prepared = self.prepare(request)
+        request = prepared.request
         import torch
 
         from vectrify.refine.colour_regions import vectorize
 
         if not torch.cuda.is_available():
             raise DocumentError("Colour regions need a CUDA GPU")
-        settings = read_settings(request.settings, SETTINGS, "colour-region")
+        settings = prepared.settings
         region = target_region(request)
         context.progress(0, "Fitting the palette and tracing regions…", total=2)
         svg, details = vectorize(region.image, **settings)
