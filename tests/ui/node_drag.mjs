@@ -19,12 +19,19 @@ const geometry = {id: 'g', subpaths: [{nodes}]};
 let selected = ['p a', 'p b'], targets = [];
 const committed = [];
 const context = Object.assign(createEditorState(), {
+  stage: {focus() {}, setPointerCapture() {}, hasPointerCapture: () => false, classList: {remove() {}}},
+  gestures: {},
   DOMPoint: Point, snapPoint, snapIndex, clickPoint, clickPointPath, pointKey, splitKey,
   state: {bounds: [0, 0, 100, 100], selection: {objects: ['p']}}, zoom: 1, SNAP_RADIUS: 8,
   geometries: new Map([['p', geometry]]), geometryNodes: () => nodes,
   nodeAt: key => nodes.find(n => n.id === splitKey(key)[1]),
   point: event => new Point(event.clientX, event.clientY),
-  snapTargets: () => snapIndex(targets, 8), selectedPoints: () => selected, pointPaths: () => ['p'],
+  // Real target collection parses visible SVG paths rather than a mock index.
+  drawing: {querySelectorAll: () => targets.length ? [{
+    dataset: {objectId:'snap-targets'}, closest: () => null,
+    getAttribute: () => targets.map(([x,y]) => `M${x} ${y}`).join(' '),
+  }] : []},
+  selectedPoints: () => selected, pointPaths: () => ['p'],
   selectPoints: (objects, points) => { selected = points; },
   svgElement: () => ({hasAttribute() { return false; }, setAttribute() {}}), localToOverlay: () => ({inverse() { return this; }}),
   sharingPaths: () => [],
@@ -155,7 +162,7 @@ assert.deepEqual(selected, []);
 nodes[0].pinned = false;
 
 // Constrain against the original position, switching axes and releasing Shift.
-context.drag = {start: new Point(20, 30), part: 'endpoint', moving: []};
+context.drag = {start: new Point(20, 30), part: 'endpoint', moving: [], saved: new Map()};
 assert.deepEqual(position(snappedDrag(event(65, 36))), [65, 30]);
 assert.deepEqual(position(snappedDrag(event(24, 70))), [20, 70]);
 assert.deepEqual(position(snappedDrag(event(-10, 28))), [-10, 30]);
@@ -192,14 +199,15 @@ assert.deepEqual(position(snappedDrag(event(64, 35, {shiftKey: false}))), [63, 3
 // Run their clicks through both canvas handlers: release must keep what press
 // selected, while an empty click outside must still clear the selection.
 let circles = [];
+Object.assign(context.gestures, gestures);
 Object.assign(context, {
-  tool: 'nodes', space: false, POINT_REACH: 10, gestures, clickCycle: null, drag: null,
-  stage: {focus() {}, setPointerCapture() {}, hasPointerCapture: () => false, classList: {remove() {}}},
+  tool: 'nodes', space: false, POINT_REACH: 10, clickCycle: null, drag: null,
   $: () => ({getBoundingClientRect: () => ({left: 0, right: 100, top: 0, bottom: 100})}),
   overlay: {querySelectorAll: () => circles}, hitStack: () => [],
-  renderNodeInspector() {}, drawOverlay() {},
+  renderNodeInspector() {}, renderInspector() {}, drawOverlay() {},
   selectPoints: (objects, points) => { context.state.selection.objects = objects; selected = points; },
   selectObject: () => { context.state.selection.objects = []; },
+  action: async (_command, data) => {context.state.selection.objects = data.objects; return true;},
 });
 const context_selection = createSelectionController(context, {
   $: (...args) => context.$(...args),
