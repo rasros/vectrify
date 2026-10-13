@@ -178,7 +178,8 @@ class Session:
         self.editor = Editor(document)
         self.clipboard: Document | None = None
         self.name = name
-        self.reference = self.fit_reference(reference) if reference else None
+        self._reference = self.fit_reference(reference) if reference else None
+        self.reference_revision = 0
         self.epoch = uuid4().hex
         self.lock = RLock()
         self._svg_revision = -1
@@ -190,6 +191,34 @@ class Session:
         # What the person's window last said it shows (see set_view), and when.
         self.view: dict[str, Any] | None = None
         self.view_time = 0.0
+
+    @property
+    def reference(self) -> dict | None:
+        return self._reference
+
+    @reference.setter
+    def reference(self, value: dict | None) -> None:
+        if value != self._reference:
+            self.reference_revision += 1
+        self._reference = value
+
+    def restore_reference(self, reference: dict | None, revision: int) -> None:
+        """Restore a failed edit's reference checkpoint without a new version."""
+        self._reference = reference
+        self.reference_revision = revision
+
+    @property
+    def project_version(self) -> str:
+        """Persisted content within this epoch, excluding selection and view."""
+        return f"{self.editor.snapshot.revision}:{self.reference_revision}"
+
+    def content_version(self) -> dict:
+        return {
+            "epoch": self.epoch,
+            "revision": self.editor.snapshot.revision,
+            "reference_revision": self.reference_revision,
+            "project_version": self.project_version,
+        }
 
     def set_view(self, view: Any) -> None:
         """Keep what the page reports it shows: the visible document region
@@ -451,8 +480,7 @@ class Session:
         root = snapshot.document.root
         bounds = list(snapshot.document.artboard())
         result = {
-            "epoch": self.epoch,
-            "revision": snapshot.revision,
+            **self.content_version(),
             "name": self.name,
             "root": root.id,
             "clipboard": self.clipboard is not None,
@@ -593,6 +621,7 @@ class Session:
             revision, selection if selection is not None else base.selection
         )
         reference = self.reference
+        reference_revision = self.reference_revision
         self.editor = fork
         self._svg_revision = -1
         self._objects_document = None
@@ -610,7 +639,7 @@ class Session:
                 finally:
                     live.author = author
         except Exception:
-            self.reference = reference
+            self.restore_reference(reference, reference_revision)
             raise
         finally:
             self.editor = live
@@ -635,6 +664,7 @@ class Session:
             job.stop.set()
         self.jobs = {}
         self.editor, self.name, self.reference = editor, name, reference
+        self.reference_revision = 0
         self.epoch = uuid4().hex
         self._svg_revision = -1
 

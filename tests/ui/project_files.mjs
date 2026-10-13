@@ -18,9 +18,9 @@ function element() {
 }
 const context = {
   $: id => {if (!controls.has(id)) controls.set(id, element()); return controls.get(id);},
-  state: {name: 'drawing.svg', epoch: 'e', revision: 3}, session: 's', dirty: true,
+  state: {name: 'drawing.svg', epoch: 'e', revision: 3, project_version:'3:0'}, session: 's', dirty: true,
   queue: Promise.resolve(), bridge: null, setBusy() {},
-  request: async (path, body) => {requests.push({path, ...body}); return body.project ? result : {content: '<svg/>'};},
+  request: async (path, body) => {requests.push({path, ...body}); return {...context.state, ...(body.project ? result : {content: '<svg/>'})};},
   toast: (text, error) => {if (error) errors.push(text);},
   document: {getElementById: id => context.$(id), createElement: () => element()}, window: {confirm: () => true},
   Blob, atob, setTimeout: fn => fn(),
@@ -60,7 +60,7 @@ for (const name of ['document', 'window', 'FileReader', 'URL', 'setTimeout']) gl
 const files = projectFiles({
   getState: () => context.state, getSession: () => context.session,
   getBridge: () => context.bridge, waitForEdits: () => context.queue,
-  isDirty: () => context.dirty, markSaved: () => {context.dirty = false;},
+  isDirty: () => context.dirty, markSaved: (version = context.state) => {context.dirty = version.epoch !== context.state.epoch || version.revision !== context.state.revision || version.project_version !== context.state.project_version;},
   request: context.request, action: (...args) => context.action(...args), setBusy: context.setBusy,
   toast: context.toast, refreshDrawing: context.loadReference,
 });

@@ -490,6 +490,7 @@ class Agent:
         with session.lock, self._own_selection() as touched:
             self._check_seen(seen)
             revision = session.editor.snapshot.revision
+            project_version = session.project_version
             stale = seen[1] != revision
             if stale:
                 self._svg = self._index = None
@@ -509,8 +510,8 @@ class Agent:
                     self._svg = self._index = None
                     self._renders.clear()
             reply.data.update(self._where())
-            reply.data["changed"] = session.editor.snapshot.revision != revision
-            if reply.data["changed"]:
+            reply.data["changed"] = session.project_version != project_version
+            if session.editor.snapshot.revision != revision:
                 entry = session.editor.undo_entries[-1]
                 reply.data.update(step=entry.label, edit_id=entry.id)
             return reply
@@ -534,6 +535,9 @@ class Agent:
             before = {e.id for e in editor.snapshot.document.elements()}
             revision = editor.snapshot.revision
             since = len(editor.undo_entries)
+            reference = session.reference
+            reference_revision = session.reference_revision
+            project_version = session.project_version
             editor.label_prefix = AGENT_PREFIX
             editor.author = "agent"
             try:
@@ -551,6 +555,7 @@ class Agent:
                     # What each step selects, its targets and its results.
                     touched.update(editor.snapshot.selection.object_ids)
             except Exception as exc:
+                session.restore_reference(reference, reference_revision)
                 editor.rollback(since)
                 self._settle(revision)
                 if editor.snapshot.revision != revision:
@@ -567,7 +572,7 @@ class Agent:
             after = {e.id for e in snapshot.document.elements()}
             data: dict[str, Any] = {
                 **self._where(),
-                "changed": snapshot.revision != revision,
+                "changed": session.project_version != project_version,
                 "result": self._selection(),
             }
             if len(editor.undo_entries) > since:
@@ -1470,7 +1475,11 @@ class Agent:
         with self.session.lock:
             content = self.session.project() if project else self._document_svg()
             return Reply(
-                {**self._where(), "name": self.session.name, "content": content}
+                {
+                    **self.session.content_version(),
+                    "name": self.session.name,
+                    "content": content,
+                }
             )
 
     # Editing ------------------------------------------------------------

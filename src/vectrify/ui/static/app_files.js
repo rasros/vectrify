@@ -48,7 +48,8 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
           if(isDirty()&&!window.confirm('Replace this tab’s drawing with the saved copy?'))return;
           if(await action('open',{name:item.name,source:item.source,encoding:item.encoding},'Restoring saved project…')){
             forgetFile();
-            await recoveryStore('readwrite',getSession(),item);markSaved();
+            const version = getState();
+            await recoveryStore('readwrite',getSession(),item);markSaved(version);
             $('recovery-dialog').close();await refreshDrawing();
           }
         };
@@ -59,8 +60,8 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
     }catch(error){toast(error.message,true);}
   };
   $('recovery-close').onclick=()=>$('recovery-dialog').close();
-  function exportFile(project, name, version = getState()) {
-    return request('/api/export',{project,compressed:project&&!/\.json$/i.test(name),epoch:version.epoch,revision:version.revision});
+  function exportFile(project, name, version = getState(), exact = false) {
+    return request('/api/export',{project,compressed:project&&!/\.json$/i.test(name),epoch:version.epoch,revision:version.revision,...(exact ? {project_version:version.project_version} : {})});
   }
   function fileContent(result) {
     return result.encoding==='base64'?Uint8Array.from(atob(result.content),char=>char.charCodeAt(0)):result.content;
@@ -87,9 +88,9 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
       }else target=currentName();
       const name=target.split(/[\\/]/).pop(), project=/\.(vectrify|json)$/i.test(name);
       await waitForEdits();setBusy('Saving file…',1);busy=true;
-      const {epoch,revision}=getState(),result=await exportFile(project,name);
+      const result=await exportFile(project,name);
       // Even SVG saves keep a full project for recovery after a restart.
-      const recovery=project?result:await exportFile(true,'recovery.vectrify',{epoch,revision});
+      const recovery=project?result:await exportFile(true,'recovery.vectrify',result,true);
       if(api){
         if(!await api.save(name,result.content,result.encoding||null))return;
       }else if(handle){
@@ -99,7 +100,7 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
       }else browserDownload(result,name,project);
       fileHandle=handle;fileName=name;
       await recoveryStore('readwrite',getSession(),{source:recovery.content,encoding:recovery.encoding,summary:recovery.summary,name,savedAt:Date.now()});
-      if(getState().epoch===epoch&&getState().revision===revision)markSaved();
+      if(getState().epoch===result.epoch)markSaved(result);
       $('filename').textContent=name;
       toast('File saved.');
     }catch(error){if(error.name!=='AbortError')toast(error.message,true);}
@@ -123,7 +124,7 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
       }
       if(project){
         await recoveryStore('readwrite',getSession(),{source:result.content,encoding:result.encoding,summary:result.summary,name,savedAt:Date.now()});
-        if(getState().epoch===epoch&&getState().revision===revision)markSaved();
+        if(getState().epoch===result.epoch)markSaved(result);
       }
       toast(project?'Project saved, with a browser recovery copy.':'SVG exported.');
     }catch(error){toast(error.message,true);}finally{saving=false;if(busy)setBusy('',-1);}
