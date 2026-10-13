@@ -59,13 +59,13 @@ def test_job_parses_and_normalizes_once_for_validation_execution_and_state(monke
             settings["amount"] *= operation.budget.steps
             return settings
 
-        def validate(self, operation):
-            prepared = self.prepare(operation)
+        def validate(self, request):
+            prepared = self.prepare(request)
             seen.append(prepared)
             assert prepared.settings == {"amount": 6.0}
 
-        def run(self, operation, context):
-            prepared = self.prepare(operation)
+        def run(self, request, context):
+            prepared = self.prepare(request)
             seen.append(prepared)
             return super().run(prepared, context)
 
