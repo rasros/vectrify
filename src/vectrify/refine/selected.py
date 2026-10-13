@@ -36,7 +36,6 @@ from vectrify.document.editor import Transaction
 from vectrify.document.join import path_style
 from vectrify.document.transforms import ancestry_matrix, root_matrix
 from vectrify.image_utils import on_white, preview_urls
-from vectrify.refine.crossings import crossed_nodes, crossings
 from vectrify.svg_render import cached_rendering, render_image
 
 # How many times the nodes of crossing segments are moved halfway back before
@@ -453,666 +452,70 @@ def fit_selected_path(
     progress: Callable[[int, str], None] | None = None,
     corners: frozenset[str] = frozenset(),
 ) -> FitResult:
-    """Expose the path-fit mutator's filled-path optimizer for an explicit selection."""
+    """Fit in a frozen context, publishing only a retained exact-render candidate."""
     problem = fit_problem()
     if problem:
         raise DocumentError(problem)
-    import torch
-
-    from vectrify.refine.paths import fit_filled_svg, to_path_d
+    from vectrify.refine.paths import fit_filled_svg
+    from vectrify.refine.selected_fit.cleanup import CleanupPass
+    from vectrify.refine.selected_fit.controls import FitControls
+    from vectrify.refine.selected_fit.objective import ExactObjective
+    from vectrify.refine.selected_fit.observe import CrossingRollback, FitObserver
+    from vectrify.refine.selected_fit.policy import RetainedFit
+    from vectrify.refine.selected_fit.stroke import StrokeCoverage
 
     stop = stop or Event()
     report = progress or (lambda _step, _message: None)
     report(0, "Preparing clipping and surrounding artwork…")
     context = FitContext(document, selection, target, options)
-    device = fit_device()
-    original = torch.tensor(context.local, dtype=torch.float32, device=device)
-    linear = original.new_tensor(context.linear)
-    offset = original.new_tensor(context.offset)
-    origin = original.new_tensor(context.crop[:2])
-    scale = original.new_tensor(context.scale)
-    mask = []
-    for node in context.nodes:
-        selected = not selection.node_ids or node.id in selection.node_ids
-        mask.extend([selected and options.handles] * (len(node.values) // 2 - 1))
-        mask.append(selected and options.nodes and not node.pinned)
-    movable = original.new_tensor(mask)[:, None]
-    seed = original
-    if options.snap and (options.nodes or options.handles) and not stop.is_set():
-        from vectrify.operations.generate import Region
-        from vectrify.refine.frozen import Frozen, Paths, frozen
-        from vectrify.refine.lines import fit_lines
-        from vectrify.refine.snap import snap
-
-        paths = Paths({context.oid: context.geometry})
-        held = frozen(paths).endpoints | frozenset(
-            node.id
-            for node in context.nodes
-            if not options.nodes
-            or (selection.node_ids and node.id not in selection.node_ids)
-        )
-        fixed = Frozen(held)
-        left, top, right, bottom = context.crop
-        region = Region(left, top, right - left, bottom - top, on_white(context.target))
-        if context.stroke_only:
-            prepared = fit_lines(
-                document, [context.oid], region, fixed, False
-            ).geometry_for(context.oid)
-        else:
-            prepared = snap(
-                document,
-                paths,
-                region,
-                fixed,
-                detail=False,
-                deadline=min(
-                    getattr(stop, "deadline", float("inf")), time.monotonic() + 0.25
-                ),
-            ).geometries[context.oid]
-        by_id = {n.id: n for sub in prepared.subpaths for n in sub.nodes}
-        rows = []
-        for node in context.nodes:
-            values = by_id.get(node.id, node).values
-            if len(values) != len(node.values):
-                # Fixed-topology fitting never adds handles to a straight node.
-                values = values[-2:] if len(node.values) == 2 else node.values
-            rows.extend(zip(values[::2], values[1::2], strict=True))
-        delta = (original.new_tensor(rows) - original) * movable
-        distance = delta.norm(dim=-1, keepdim=True).clamp_min(1e-12)
-        seed = original + delta * (options.displacement / distance).clamp(max=1)
-    from vectrify.refine.parameters import ControlMap
-
-    parameters = ControlMap(
-        context.geometry,
-        context.local,
-        original,
-        linear,
-        offset,
-        origin,
-        scale,
-        movable,
-        options.displacement,
-        stroke_only=context.stroke_only,
-        corners=corners,
-    )
-    counts = parameters.counts
-    controls_from_local = parameters.controls_from_local
-
-    def local_from_controls(paths):
-        return parameters.local_from_controls(paths[0])
-
-    def project(paths):
-        constrained = controls_from_local(local_from_controls(paths))
-        for dest, source in zip(paths[0], constrained, strict=True):
-            dest.copy_(source)
-
-    work = ET.Element("svg", width=str(context.size[0]), height=str(context.size[1]))
-    # The low-level fitter reads six-digit colours. Editor paths can also use
-    # CSS names, short hex or rgb(), all already validated as solid paint.
-    working_fill = "#" + "".join(
-        f"{round(channel * 255):02x}"
-        for channel in color(
-            context.style["stroke"] if context.stroke_only else context.style["fill"]
-        )[:3]
-    )
-    ET.SubElement(
-        work,
-        "path",
-        {
-            "d": " ".join(
-                to_path_d(c.cpu().tolist(), precision=9) + " Z"
-                for c in controls_from_local(original)
-            ),
-            "fill": working_fill,
-            "fill-rule": context.style["fill-rule"],
-        },
-    )
-
-    def score(image):
-        pixels = context.array(image)
-        error = (pixels - context.array(context.target)) ** 2
-        if protected is not None:
-            error += (
-                8
-                * protected[..., None]
-                * (pixels - context.array(context.before_image)) ** 2
-            )
-        if context.alpha:
-            # Mean RGB error and opacity error each contribute half the score.
-            return float(np.mean((error[:, :, :3].sum(-1) + 3 * error[:, :, 3]) / 6))
-        return float(np.mean(error))
-
-    from vectrify.refine.enclosure import protected_pixels
-    from vectrify.refine.snap import _Frame
-
-    protected = protected_pixels(
-        document,
-        context.oid,
-        context.geometry,
-        _Frame(
-            context.linear * context.scale[:, None],
-            (context.offset - context.crop[:2]) * context.scale,
-        ),
-        context.size,
-    )
-    loss_transform = None
-    if protected is not None:
-        held_pixels = original.new_tensor(protected)[..., None].bool()
-        weights = torch.where(held_pixels, 3.0, 1.0)
-        previous_pixels = None
-
-        def loss_transform(rendered, goal, _step):
-            nonlocal previous_pixels
-            if previous_pixels is None:
-                # Keep the renderer's own starting coverage. Comparing its
-                # soft antialiasing to Cairo here would bias a stationary edge.
-                previous_pixels = rendered.detach().clone()
-            return rendered * weights, torch.where(
-                held_pixels, previous_pixels, goal
-            ) * weights
-
-    _, _, vw, vh = document.artboard()
-    fairness_scale = (
-        target.width / vw / context.scale[0],
-        target.height / vh / context.scale[1],
-    )
-    paint = np.asarray(
-        color(
-            context.style["fill"]
-            if not context.stroke_only
-            else context.style["stroke"]
-        )[:3]
-    )
-    contrast = float(
-        np.square(context.delta[..., :3] + context.transmission[..., :3] * paint).mean()
-    )
-    reference_area = context.size[0] * context.size[1] * np.prod(fairness_scale)
-    perimeter = float(
-        (
-            (parameters.initial_controls[:, 3] - parameters.initial_controls[:, 0])
-            * original.new_tensor(fairness_scale)
-        )
-        .norm(dim=-1)
-        .sum()
-    )
-    # Scale a turn's cost like a few reference pixels of edge mismatch,
-    # independent of the crop resolution and the fill's contrast.
-    fairness_weight = 4 * contrast * perimeter / reference_area
-    if options.cleanup:
-        parameters.guard_smooth_joins(controls_from_local(original))
-
-    def outline_coverage(geometry, padding=0):
-        coordinates = original.new_tensor(
-            [
-                point
-                for s in geometry.subpaths
-                for n in s.nodes
-                for point in zip(n.values[::2], n.values[1::2], strict=True)
-            ]
-        )
-        silhouette = ET.fromstring(ET.tostring(work))
-        silhouette[0].set("fill", "black")
-        if padding:
-            silhouette.set("width", str(context.size[0] + 2 * padding))
-            silhouette.set("height", str(context.size[1] + 2 * padding))
-            silhouette[0].set("transform", f"translate({padding} {padding})")
-        silhouette[0].set(
-            "d",
-            " ".join(
-                to_path_d(c.cpu().tolist(), precision=9) + " Z"
-                for c in controls_from_local(coordinates)
-            ),
-        )
-        return (
-            1
-            - np.asarray(render_image(ET.tostring(silhouette)), dtype=float).mean(-1)
-            / 255
-        )
-
-    guide = None
-    if (
-        options.cleanup
-        and options.nodes
-        and options.handles
-        and not context.stroke_only
-    ):
-        from vectrify.refine.edge_profiles import EdgeProfiles
-        from vectrify.refine.snap import _Frame
-
-        response = context.delta.copy()
-        response[..., :3] += context.transmission[..., :3] * paint
-        base, guide_target = context.base.copy(), context.array(context.target).copy()
-        if context.alpha:
-            for field in (response, base, guide_target):
-                field[..., 3] *= np.sqrt(3)
-        guide = EdgeProfiles(
-            base,
-            response,
-            guide_target,
-            outline_coverage(context.geometry),
-            _Frame(
-                context.linear * context.scale[:, None],
-                (context.offset - context.crop[:2]) * context.scale,
-            ),
-            float(np.mean(fairness_scale)),
-        )
-
-    def quality(geometry, actual, smoothing=1):
-        if not options.cleanup or context.stroke_only:
-            return actual
-        coordinates = original.new_tensor(
-            [
-                point
-                for s in geometry.subpaths
-                for n in s.nodes
-                for point in zip(n.values[::2], n.values[1::2], strict=True)
-            ]
-        )
-        with torch.no_grad():
-            penalty = parameters.fairness_loss(
-                controls_from_local(coordinates), fairness_scale
-            )
-        return actual + smoothing * fairness_weight * float(penalty)
-
-    before = best = least_difference = score(context.before_image)
-    best_quality = checked = quality(context.geometry, before)
-    best_values, best_fill, best_image = {}, None, context.before_image
-    completed = folded = 0
-    folds = crossings(context.geometry)
-    best_crossings = folds
-    node_index = {node.id: i for i, node in enumerate(context.nodes)}
-    # The node each row of coordinates belongs to.
-    owners = np.repeat(
-        np.arange(len(context.nodes)), [len(n.values) // 2 for n in context.nodes]
-    )
-    coupled = parameters.coupled.cpu().numpy()
-    # Where the outline last stood without crossing itself more than at first.
-    unfolded = context.local
-
-    def unfold(coordinates):
-        """*coordinates* with the nodes of any new crossing moved back towards
-        where they last were without it; (coordinates, values, geometry)."""
-        values, geometry = context.reshaped(coordinates)
-        for attempt in range(HALVINGS + 2):
-            count, crossed = crossed_nodes(geometry) if values else (0, set())
-            if count <= folds:
-                break
-            back = np.isin(owners, [node_index[i] for i in crossed])
-            # A rollback must keep a smooth knot and both arms together too.
-            back = np.isin(coupled, coupled[back])
-            if attempt > HALVINGS:
-                back[:] = True
-            share = 0.5 if attempt < HALVINGS else 1.0
-            coordinates = coordinates.copy()
-            coordinates[back] += (unfolded[back] - coordinates[back]) * share
-            values, geometry = context.reshaped(coordinates)
-        return coordinates, values, geometry
-
-    # Keep edge-seeking as a candidate within this fit. Gradient descent starts
-    # from the original geometry so a poor heuristic cannot trap it in a worse
-    # basin; exact rendering chooses between both approaches.
-    if seed is not original:
-        with torch.no_grad():
-            bounded_seed = local_from_controls([controls_from_local(seed)])
-        coordinates = context.local + (bounded_seed - original).cpu().numpy()
-        _, values, geometry = unfold(coordinates)
-        paint = color(
-            context.style["stroke"] if context.stroke_only else context.style["fill"]
-        )
-        fill, image = context.candidate(geometry, paint[:3], options)
-        actual = score(image)
-        count = crossings(geometry)
-        proposed_quality = quality(geometry, actual)
-        if actual < before and (
-            actual <= least_difference + before * 0.01
-            and (count, proposed_quality) < (best_crossings, best_quality)
-            if options.cleanup
-            else actual < best
-        ):
-            best, best_values, best_fill, best_image = actual, values, fill, image
-            best_crossings = count
-            best_quality = proposed_quality
-            least_difference = min(least_difference, actual)
-
-    def observe(step, paths, colors):
-        nonlocal completed, folded, best, best_values, best_fill, best_image
-        nonlocal unfolded, checked
-        nonlocal folds, best_crossings, best_quality
-        nonlocal least_difference
-        completed = step
-        report(step, f"Fitting path · step {step}/{options.steps}")
-        if step and (step % 10 == 0 or step == options.steps or stop.is_set()):
-            with torch.no_grad():
-                shifts = (local_from_controls(paths) - original) * movable
-                # Avoid float32 round-tripping untouched or pinned coordinates.
-                reached = context.local + shifts.cpu().numpy()
-            # An outline folding over itself more than it started is no fit,
-            # however well it covers the reference. The nodes of the segments
-            # that cross go back, and the fit carries on from there with the
-            # rest of the outline where it got to.
-            coordinates, values, geometry = unfold(reached)
-            if coordinates is not reached:
-                folded += 1
-                with torch.no_grad():
-                    back = controls_from_local(original.new_tensor(coordinates))
-                    for dest, source in zip(paths[0], back, strict=True):
-                        dest.copy_(source)
-            unfolded = coordinates
-            count = crossings(geometry)
-            if options.cleanup:
-                folds = min(folds, count)
-            fill, image = context.candidate(
-                geometry, colors[0].detach().clamp(0, 1).cpu().numpy(), options
-            )
-            actual = score(image)
-            # A strong edge proposal must not stop the gradient fit before it
-            # has had time to improve on its own starting geometry.
-            proposed_quality = quality(geometry, actual)
-            stalled = proposed_quality > checked * (1 - options.stall)
-            checked = proposed_quality
-            if actual < before and (
-                actual <= least_difference + before * 0.01
-                and (count, proposed_quality) < (best_crossings, best_quality)
-                if options.cleanup
-                else actual < best
-            ):
-                best, best_values, best_fill, best_image = actual, values, fill, image
-                best_crossings = count
-                best_quality = proposed_quality
-                least_difference = min(least_difference, actual)
-            # The projected gradient fit needs time to settle after a native
-            # cleanup seed. Its first ten-step check can temporarily regress
-            # or render identically even though later checks improve the edge.
-            minimum_steps = min(30, options.steps) if options.cleanup else 10
-            if step >= minimum_steps and options.stall and stalled:
-                return False
-        return not stop.is_set()
-
-    stroke_tiles = {}
-    stroke_width = 0.0
-    if context.style["stroke"] != "none":
-        mapping = linear * scale[:, None]
-        singular = torch.linalg.svdvals(mapping)
-        if abs(float(singular[0] / singular[1]) - 1) > 0.02:
-            raise DocumentError("Outlined path fitting requires a uniform scale")
-        stroke_width = float(context.style["stroke-width"]) * float(singular.mean())
-        miter = context.style["stroke-linejoin"] == "miter"
-        limit = float(context.style["stroke-miterlimit"]) if miter else 1
-        reach = stroke_width / 2 * limit + options.displacement * float(singular[0]) + 2
-        # Fixed conservative tiles include all permitted movement. Most contours
-        # in a landscape are tiny; never evaluate each one over the whole crop.
-        for contour_index, contour in (
-            enumerate(controls_from_local(original)) if device == "cuda" else []
-        ):
-            contour = contour[: counts[contour_index]]
-            for start in range(0, len(contour), 16):
-                chunk = contour[start : start + 16].cpu().numpy().reshape(-1, 2)
-                low = np.floor(chunk.min(0) - reach).astype(int)
-                high = np.ceil(chunk.max(0) + reach).astype(int)
-                left, top = np.maximum(low, (0, 0))
-                right, bottom = np.minimum(high, context.size)
-                if right <= left or bottom <= top:
-                    continue
-                width = min(context.size[0], math.ceil((right - left) / 32) * 32)
-                height = min(context.size[1], math.ceil((bottom - top) / 32) * 32)
-                left = min(left, context.size[0] - width)
-                top = min(top, context.size[1] - height)
-                rows = torch.arange(height, device=device)[:, None] + int(top)
-                cols = torch.arange(width, device=device)[None, :] + int(left)
-                pixels = (rows * context.size[0] + cols).reshape(-1)
-                stroke_tiles.setdefault((width, height), []).append(
-                    (contour_index, start, int(left), int(top), pixels)
-                )
-
-    def include_stroke(paths, alphas):
-        if device == "cpu":
-            from vectrify.refine.soft_coverage import soft_stroke_coverage
-
-            contours = [c[:n] for c, n in zip(paths[0], counts, strict=True)]
-            stroke = soft_stroke_coverage(contours, (0, 0, *context.size), stroke_width)
-            return (
-                stroke[None]
-                if context.stroke_only
-                else (1 - (1 - alphas[0]) * (1 - stroke))[None]
-            )
-        from vectrify.refine.cuda_renderer import stroke_coverage
-        from vectrify.refine.miter import incoming_directions, miter_stroke_coverage
-
-        miter = context.style["stroke-linejoin"] == "miter"
-        incoming = [incoming_directions(c) for c in paths[0]] if miter else []
-        samples, indices = [], []
-        for (width, height), tiles in stroke_tiles.items():
-            for start in range(0, len(tiles), 8):
-                packed, tangents = [], []
-                for contour_index, offset, left, top, pixels in tiles[
-                    start : start + 8
-                ]:
-                    chunk = paths[0][contour_index][offset : offset + 16]
-                    if miter:
-                        direction = incoming[contour_index][offset : offset + 16]
-                        tangents.append(
-                            torch.cat(
-                                (direction, direction.new_zeros((16 - len(chunk), 2)))
-                            )
-                        )
-                    if len(chunk) < 16:
-                        chunk = torch.cat(
-                            (chunk, chunk[-1:, 3:4].expand(16 - len(chunk), 4, 2))
-                        )
-                    packed.append(chunk - chunk.new_tensor((left, top)))
-                    indices.append(pixels)
-                batch = torch.stack(packed)
-                widths = batch.new_full((len(batch),), stroke_width)
-                stroke = (
-                    miter_stroke_coverage(
-                        batch,
-                        torch.stack(tangents),
-                        widths,
-                        (0, 0, width, height),
-                        miter_limit=float(context.style["stroke-miterlimit"]),
-                    )
-                    if miter
-                    else stroke_coverage(batch, widths, (0, 0, width, height))
-                )
-                if stroke is None:
-                    raise DocumentError("CUDA stroke coverage is unavailable")
-                samples.append(stroke.reshape(-1))
-        if not samples:
-            return alphas
-        stroke = (
-            alphas.new_zeros(context.size[0] * context.size[1])
-            .scatter_reduce(0, torch.cat(indices), torch.cat(samples), reduce="amax")
-            .reshape(context.size[1], context.size[0])
-        )
-        return (
-            stroke[None]
-            if context.stroke_only
-            else (1 - (1 - alphas[0]) * (1 - stroke))[None]
-        )
-
-    def cleanup_best(stopped, *, polish=False):
-        nonlocal best, best_values, best_image
-        nonlocal best_crossings, best_quality, least_difference
-        if not (
-            options.cleanup
-            and options.nodes
-            and options.handles
-            and not context.stroke_only
-        ):
-            return
-        from vectrify.refine.cleanup import cleaned
-        from vectrify.refine.snap import _Frame
-
-        held = frozenset(
-            n.id
-            for n in context.nodes
-            if (selection.node_ids and n.id not in selection.node_ids)
-            or n.pinned
-            or n.feature is not None
-        )
-        geometry = replace(
-            context.geometry,
-            subpaths=tuple(
-                replace(
-                    s,
-                    nodes=tuple(
-                        replace(n, values=best_values.get(n.id, n.values))
-                        for n in s.nodes
-                    ),
-                )
-                for s in context.geometry.subpaths
-            ),
-        )
-        paint = color(context.style["fill"])
-        smoothing = 4 if polish else 1
-        best_quality = quality(geometry, best, smoothing)
-        if guide is not None:
-            guide.coverage = outline_coverage(geometry)
-        bridge_folds = crossings(geometry)
-        original_values = {n.id: n.values for n in context.nodes}
-
-        def accept_bridge(candidate, *, allow_error=False):
-            nonlocal best, best_values, best_image
-            nonlocal bridge_folds, best_crossings, best_quality, least_difference
-            count = crossings(candidate)
-            if count > bridge_folds:
-                return False
-            rgb = color(best_fill)[:3] if best_fill is not None else paint[:3]
-            _, image = context.candidate(candidate, np.array(rgb), options)
-            actual = score(image)
-            proposed_quality = quality(candidate, actual, smoothing)
-            # Use the same bounded quality comparison as gradient proposals.
-            # A repair that removes kinks or crossings may give back a little
-            # pixel error, but stays better than the starting artwork and near
-            # the best image match already found in this fit.
-            if (
-                (not allow_error and actual >= best)
-                or actual >= before
-                or actual > least_difference + before * 0.01
-                or (count, proposed_quality) >= (bridge_folds, best_quality)
-            ):
-                return False
-            best, best_image = actual, image
-            bridge_folds = count
-            best_crossings = count
-            best_quality = proposed_quality
-            least_difference = min(least_difference, actual)
-            best_values = {
-                n.id: n.values
-                for s in candidate.subpaths
-                for n in s.nodes
-                if n.values != original_values[n.id]
-            }
-            if guide is not None:
-                guide.coverage = outline_coverage(candidate)
-            return True
-
-        vx, vy, vw, vh = document.artboard()
-        pixels = np.diag([target.width / vw, target.height / vh])
-        if guide is not None:
-            from vectrify.refine.boundary import field_loops, reconstructed
-
-            padding = max(8, round(8 / float(np.mean(fairness_scale))))
-            contours = field_loops(
-                guide.raw_signal,
-                guide.power,
-                outline_coverage(geometry, padding),
-                padding,
-            )
-            geometry = reconstructed(
-                geometry,
-                context.geometry,
-                guide.frame,
-                contours,
-                float(np.mean(fairness_scale)),
-                options.displacement,
-                held,
-                lambda candidate: accept_bridge(candidate, allow_error=True),
-                stopped,
-            )
-        cleaned(
-            geometry,
-            context.geometry,
-            _Frame(pixels @ context.linear, pixels @ (context.offset - [vx, vy])),
-            options.displacement,
-            held,
-            accept_bridge,
-            stopped,
-            guide=guide,
-        )
-
+    controls = FitControls(context, selection, options, fit_device(), corners)
+    seed = controls.edge_seed(stop)
+    objective = ExactObjective(context, options, controls, target)
+    retained = RetainedFit(context, options, objective)
+    rollback = CrossingRollback(context, controls, HALVINGS)
+    observer = FitObserver(controls, retained, rollback, options, stop, report)
+    # Edge seeking competes with descent without changing its stall baseline.
+    # Cleanup-enabled runs can then start from the retained post-cleanup geometry.
+    observer.consider_seed(seed)
+    stroke = StrokeCoverage(context, options, controls)
+    cleanup = CleanupPass(retained, selection, target)
     cleanup_deadline = min(
         getattr(stop, "deadline", float("inf")), time.monotonic() + 2.0
     )
-    cleanup_best(lambda: stop.is_set() or time.monotonic() >= cleanup_deadline)
-    if options.cleanup and best_values:
-        coordinates = original.new_tensor(
-            [
-                point
-                for node in context.nodes
-                for point in zip(
-                    best_values.get(node.id, node.values)[::2],
-                    best_values.get(node.id, node.values)[1::2],
-                    strict=True,
-                )
-            ]
-        )
-        work[0].set(
-            "d",
-            " ".join(
-                to_path_d(c.cpu().tolist(), precision=9) + " Z"
-                for c in controls_from_local(coordinates)
-            ),
-        )
-        unfolded = coordinates.detach().cpu().numpy()
-        _, seeded_geometry = context.reshaped(unfolded)
-        folds = min(folds, crossings(seeded_geometry))
-        parameters.guard_smooth_joins(controls_from_local(coordinates))
-        best_quality = quality(seeded_geometry, best)
-        checked = best_quality
+    cleanup.run(lambda: stop.is_set() or time.monotonic() >= cleanup_deadline)
+    if options.cleanup and retained.best.values:
+        observer.initialize_from_cleanup()
 
     fit_filled_svg(
-        ET.tostring(work, encoding="unicode"),
+        ET.tostring(controls.work, encoding="unicode"),
         context.target,
         steps=options.steps,
         point_learning_rate=0.25 if options.nodes or options.handles else 0,
         color_learning_rate=0.01 if options.color else 0,
-        # The Xing term only sees a cubic's own handles crossing; the
-        # folds a fit makes are mostly neighbouring segments crossing at a
-        # node, which observe undoes, and the term did not reduce them.
+        # The Xing term only sees a cubic's own handles crossing. Observation
+        # rolls back the neighbouring segment folds without penalizing handles.
         xing_weight=0,
         monolithic=True,
         fit_context=(context.base, context.delta, context.transmission),
-        project_controls=project,
-        control_transform=lambda paths: [
-            controls_from_local(local_from_controls(paths))
-        ],
-        control_loss=(
-            lambda paths: (
-                fairness_weight * parameters.fairness_loss(paths[0], fairness_scale)
-                if options.cleanup
-                else 0.001 * parameters.bending_loss(paths[0])
-            )
-        )
-        if not context.stroke_only
-        else None,
-        loss_transform=loss_transform,
-        observe=observe,
-        coverage_transform=include_stroke
-        if context.style["stroke"] != "none"
-        else None,
-        device=device,
+        project_controls=controls.project,
+        control_transform=controls.transform,
+        control_loss=objective.control_loss if not context.stroke_only else None,
+        loss_transform=objective.loss_transform,
+        observe=observer,
+        coverage_transform=stroke if context.style["stroke"] != "none" else None,
+        device=controls.device,
     )
-    cleanup_best(stop.is_set, polish=True)
+    cleanup.run(stop.is_set, polish=True)
+    best = retained.best
     return FitResult(
         context.oid,
-        best_values,
-        None if context.stroke_only else best_fill,
-        before,
-        best,
-        preview_urls(context.target, context.before_image, best_image),
-        completed,
+        best.values,
+        None if context.stroke_only else best.fill,
+        retained.before,
+        best.error,
+        preview_urls(context.target, context.before_image, best.image),
+        observer.completed,
         context.size,
-        stroke=best_fill if context.style["stroke"] != "none" else None,
-        folded=folded,
+        stroke=best.fill if context.style["stroke"] != "none" else None,
+        folded=observer.folded,
     )
