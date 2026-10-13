@@ -1,10 +1,10 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createGradientsController} from '../../src/vectrify/ui/static/app_gradients.js';
+import {createColorsController} from '../../src/vectrify/ui/static/app_colors.js';
+import {createPaintController} from '../../src/vectrify/ui/static/app_paint.js';
 // Manual gradient controls work without a reference and use local shape bounds.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const controls = source.slice(source.indexOf('function gradientRefusal()'), source.indexOf('// The context menu offers'));
 const fields = new Map();
 const field = id => {
   if (!fields.has(id)) fields.set(id, {value: '', style: {}, children: [], querySelector: () => ({}), replaceChildren() {this.children = [];}, append(child) {this.children.push(child);}});
@@ -15,7 +15,7 @@ const bounds = {x: 10, y: 20, width: 120, height: 60};
 let item = {id: 'shape', tag: 'rect', inherited_locks: []};
 let value = '#33669980';
 const edits = [], queued = [], errors = [];
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   $: field,
   document: {querySelectorAll: () => directions, createElement: () => ({children: [], setAttribute() {}, append(...children) {this.children.push(...children);}, querySelectorAll() {return this.children.slice(0, 3);}})},
   state: {selection: {objects: ['shape']}},
@@ -34,7 +34,33 @@ const context = vm.createContext({
   gradientCss: () => null,
   paintGradient: () => null,
 });
-vm.runInContext(controls, context);
+const context_gradients = createGradientsController(context, {
+  $: (...args) => context.$(...args),
+  action: (...args) => context.action(...args),
+  colorHex: (...args) => context.colorHex(...args),
+  cssColour: (...args) => context.cssColour(...args),
+  document: context.document,
+  gradientCss: (...args) => context.gradientCss(...args),
+  later: (...args) => context.later(...args),
+  oneObject: (...args) => context.oneObject(...args),
+  paintColour: (...args) => context.paintColour(...args),
+  paintGradient: (...args) => context.paintGradient(...args),
+  paintValue: (...args) => context.paintValue(...args),
+  renderInspector: (...args) => context.renderInspector(...args),
+  resolvedPaint: (...args) => context.resolvedPaint(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  toast: (...args) => context.toast(...args),
+});
+context_gradients.wire();
+context.gradientRefusal = context_gradients.gradientRefusal;
+context.gradientEndpoints = context_gradients.gradientEndpoints;
+context.createFillGradient = context_gradients.createFillGradient;
+context.setFillType = context_gradients.setFillType;
+context.renderFillGradient = context_gradients.renderFillGradient;
+context.fillGradientValue = context_gradients.fillGradientValue;
+context.gradientEdit = context_gradients.gradientEdit;
+context.saveGradient = context_gradients.saveGradient;
+context.saveFillGradient = context_gradients.saveFillGradient;
 // Selecting the fill type waits behind running edits before reading the shape.
 field('fill-type').onchange({target: {value: 'linear'}});
 assert.equal(edits.length, 0);
@@ -70,25 +96,25 @@ assert.deepEqual(edits.at(-1).gradient.stops, [
 
 // Zero-width shapes still get distinct endpoints; none starts with black.
 bounds.width = 0; value = 'none';
-vm.runInContext('createFillGradient()', context);
+(context.createFillGradient());
 fill = edits.at(-1).changes.fill;
 assert.equal(fill.end[0] - fill.start[0], 1);
 assert.equal(fill.stops[0].colour, '#000000');
-value = '#ffffff'; vm.runInContext('createFillGradient()', context);
+value = '#ffffff'; (context.createFillGradient());
 assert.equal(edits.at(-1).changes.fill.stops[1].colour, '#000000');
 
 // Groups, multiple selections and locked paint cannot create a gradient.
 const count = edits.length;
 for (const rejected of [null, {...item, tag: 'g'}, {...item, resource: true}, {...item, inherited_locks: ['paint']}]) {
   item = rejected;
-  vm.runInContext('createFillGradient()', context);
+  (context.createFillGradient());
 }
 assert.equal(edits.length, count);
 assert.equal(errors.length, 4);
 item = {id: 'shape', tag: 'path', inherited_locks: []};
-vm.runInContext("setFillType('none')", context);
+(context.setFillType('none'));
 assert.equal(edits.at(-1).changes.fill, 'none');
-value = 'none'; vm.runInContext("setFillType('solid')", context);
+value = 'none'; (context.setFillType('solid'));
 assert.equal(edits.at(-1).changes.fill, '#000000');
 
 // Shared resources show the same editor, retain imported settings, and edit
@@ -98,14 +124,14 @@ item = {id: 'ramp', tag: 'linearGradient', inherited_locks: [], fill_gradient: {
   attributes: {gradientTransform: 'rotate(20)', spreadMethod: 'reflect'},
   stops: [{'offset': '0', 'stop-color': '#ff0000', 'stop-opacity': '0'}, {'offset': '100%', 'stop-color': '#0000ff'}],
 }};
-vm.runInContext('renderFillGradient(oneObject())', context);
+(context.renderFillGradient(context.oneObject()));
 assert.equal(field('fill-gradient').hidden, false);
 assert.equal(field('fill-controls').hidden, true);
 assert.equal(field('stroke-controls').hidden, true);
 assert.match(field('gradient-scope').textContent, /all 2 shapes/);
 assert.equal(field('gradient-x2').value, '100%');
 assert.equal(field('gradient-units').value, 'objectBoundingBox');
-vm.runInContext('saveFillGradient()', context); queued.shift()();
+(context.saveFillGradient()); queued.shift()();
 assert.equal(edits.at(-1).gradient.id, 'ramp');
 assert.equal(edits.at(-1).gradient.attributes.x2, '100%');
 assert.equal(edits.at(-1).gradient.attributes.gradientTransform, 'rotate(20)');
@@ -117,17 +143,41 @@ assert.equal(edits.at(-1).gradient.attributes.y2, '1');
 
 // Imported stops are shown at SVG's effective offsets, clamped and ordered.
 item.fill_gradient.stops = ['-10%', '80%', '20%', '120%'].map(offset => ({offset, 'stop-color': '#000000'}));
-vm.runInContext('renderFillGradient(oneObject())', context);
+(context.renderFillGradient(context.oneObject()));
 assert.deepEqual(field('gradient-stops').children.map(row=>row.children[0].value), [0, 80, 80, 100]);
 
 // The preview combines stop opacity with the colour's alpha, including zero.
-const previews = vm.createContext({
-  paintGradient: () => ({querySelectorAll: () => [
+const previews = Object.assign(createEditorState(), {
+  paintGradient: () => ({localName:'linearGradient', querySelectorAll: () => [
     {attributes: {offset: '0', 'stop-opacity': '0'}, colour: 'rgb(255, 0, 0)'},
     {attributes: {offset: '100%', 'stop-opacity': '0.5'}, colour: 'rgba(0, 0, 255, 0.5)'},
   ].map(stop => ({...stop, getAttribute: name => stop.attributes[name] ?? null}))}),
   getComputedStyle: stop => ({stopColor: stop.colour}),
 });
-vm.runInContext(source.slice(source.indexOf('function colorHex('), source.indexOf('// A fill or stroke of url')), previews);
-vm.runInContext(source.slice(source.indexOf('function gradientStops('), source.indexOf('// One colour where a single one')), previews);
-assert.equal(vm.runInContext("gradientCss('url(#ramp)')", previews), 'linear-gradient(90deg, #ff000000 0.0%, #0000ff40 100.0%)');
+const previews_colors = createColorsController(previews, {
+});
+previews.colorHex = previews_colors.colorHex;
+previews.drawing = {querySelector: () => previews.paintGradient()};
+previews.CSS = {escape: id => id};
+const previews_paint = createPaintController(previews, {
+  $: (...args) => previews.$(...args),
+  CSS: previews.CSS,
+  action: (...args) => previews.action(...args),
+  colorHex: (...args) => previews.colorHex(...args),
+  document: previews.document,
+  drawing: previews.drawing,
+  getComputedStyle: previews.getComputedStyle,
+  later: (...args) => previews.later(...args),
+  object: (...args) => previews.object(...args),
+  oneObject: (...args) => previews.oneObject(...args),
+  renderCommands: (...args) => previews.renderCommands(...args),
+  renderFillGradient: (...args) => previews.renderFillGradient(...args),
+  renderNodeInspector: (...args) => previews.renderNodeInspector(...args),
+  renderStrokeControls: (...args) => previews.renderStrokeControls(...args),
+  scheduleStrip: (...args) => previews.scheduleStrip(...args),
+  selectObject: (...args) => previews.selectObject(...args),
+  svgElement: (...args) => previews.svgElement(...args),
+});
+previews.gradientStops = previews_paint.gradientStops;
+previews.gradientCss = previews_paint.gradientCss;
+assert.equal((previews.gradientCss('url(#ramp)')), 'linear-gradient(90deg, #ff000000 0.0%, #0000ff40 100.0%)');

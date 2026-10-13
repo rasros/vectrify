@@ -1,6 +1,11 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createFramesController} from '../../src/vectrify/ui/static/app_frames.js';
+import {createOverlayController} from '../../src/vectrify/ui/static/app_overlay.js';
+import {createCanvasController} from '../../src/vectrify/ui/static/app_canvas.js';
+import {createHitsController} from '../../src/vectrify/ui/static/app_hits.js';
+import {createSelectionController} from '../../src/vectrify/ui/static/app_selection.js';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+
 import {clippingFrames} from '../../src/vectrify/ui/static/clipping.js';
 import {pickTarget} from '../../src/vectrify/ui/static/selection.js';
 
@@ -64,8 +69,7 @@ assert.equal(clippingFrames(contour, drawing, null).length, 0);
 
 // Run the editor's actual selection and coordinate helpers. Clip definitions
 // must select their own contour, never their painted consumers or defs group.
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+
 const items = [
   {id:'defs', parent:'root', tag:'defs', resource:true},
   {id:'clip', parent:'defs', tag:'clipPath', resource:true},
@@ -84,7 +88,7 @@ const overlay = {
   contains: element => element === hit,
   getScreenCTM: () => ({...new Matrix().scale(2), inverse() { return Matrix.fromMatrix(this).inverse(); }, multiply() { throw Error('legacy SVGMatrix cannot multiply DOMMatrix'); }}),
 };
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   DOMMatrix: Matrix, clippingFrames, drawing, overlay, clipConsumers: new Map(), pickTarget,
   svgElement: id => elements.get(id), object: id => byId.get(id),
   state: {root:'root'}, scope: null, level: () => 'objects',
@@ -92,16 +96,126 @@ const context = vm.createContext({
   document: {elementsFromPoint: () => [hit, paint, gradient]},
 });
 drawing.contains = element => [paint, gradient].includes(element);
-vm.runInContext(`
-  ${section('let overlayFrame =', 'function selectionContour(')}
-  ${section('function selectionTargets(', 'function clipSelection(')}
-  ${section('function targetId(', 'function topSelection(')}
-  ${section('function hitStack(', 'function sameClickSpot(')}
-  ${section('function clickTargets(', 'async function selectAtPoint(')}
-`, context);
-assert.equal(vm.runInContext('selectionTargets("contour")[0]', context), contour);
-assert.equal(vm.runInContext('selectionTargets("clip")[0]', context), contour);
-assert.deepEqual(Array.from(vm.runInContext('hitStack(0, 0)', context)), ['contour', 'paint']);
-assert.deepEqual(Array.from(vm.runInContext('clickTargets(hitStack(0, 0))', context)), ['contour', 'paint']);
-assert.ok(vm.runInContext('localToOverlay(svgElement("clip"))', context), 'clipPath has a frame without getScreenCTM');
-assert.ok(vm.runInContext('screenMatrix(svgElement("contour"))', context) instanceof Matrix, 'convert legacy SVGMatrix before multiplying');
+const context_frames = createFramesController(context, {
+  DOMMatrix: context.DOMMatrix,
+  document: context.document,
+  drawOverlayContent: (...args) => context.drawOverlayContent(...args),
+  drawing: context.drawing,
+  overlay: context.overlay,
+});
+context.localToOverlay = context_frames.localToOverlay;
+context.screenMatrix = context_frames.screenMatrix;
+const context_overlay = createOverlayController(context, {
+  $: (...args) => context.$(...args),
+  CSS: context.CSS,
+  DOMPoint: context.DOMPoint,
+  drawFlash: (...args) => context.drawFlash(...args),
+  drawKnife: (...args) => context.drawKnife(...args),
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  drawPathDraft: (...args) => context.drawPathDraft(...args),
+  drawPoints: (...args) => context.drawPoints(...args),
+  drawRedraw: (...args) => context.drawRedraw(...args),
+  drawSnap: (...args) => context.drawSnap(...args),
+  drawing: context.drawing,
+  getComputedStyle: context.getComputedStyle,
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  localToOverlay: (...args) => context.localToOverlay(...args),
+  nodeAt: (...args) => context.nodeAt(...args),
+  nodeHandles: (...args) => context.nodeHandles(...args),
+  object: (...args) => context.object(...args),
+  overlay: context.overlay,
+  renderStatus: (...args) => context.renderStatus(...args),
+  resizeRefusal: (...args) => context.resizeRefusal(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  topSelection: (...args) => context.topSelection(...args),
+  xmlElement: (...args) => context.xmlElement(...args),
+});
+context.selectionTargets = context_overlay.selectionTargets;
+const context_canvas = createCanvasController(context, {
+  $: (...args) => context.$(...args),
+  DOMPoint: context.DOMPoint,
+  action: (...args) => context.action(...args),
+  clickEmpty: (...args) => context.clickEmpty(...args),
+  clickTargets: (...args) => context.clickTargets(...args),
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  drawing: context.drawing,
+  finishPath: (...args) => context.finishPath(...args),
+  frameAt: (...args) => context.frameAt(...args),
+  geometryNodes: (...args) => context.geometryNodes(...args),
+  gestures: context.gestures,
+  hitStack: (...args) => context.hitStack(...args),
+  hoverResize: (...args) => context.hoverResize(...args),
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  loadGeometries: (...args) => context.loadGeometries(...args),
+  localToOverlay: (...args) => context.localToOverlay(...args),
+  nearKey: (...args) => context.nearKey(...args),
+  nearestPoint: (...args) => context.nearestPoint(...args),
+  nodeAt: (...args) => context.nodeAt(...args),
+  nodeHandles: (...args) => context.nodeHandles(...args),
+  object: (...args) => context.object(...args),
+  overlay: context.overlay,
+  parents: (...args) => context.parents(...args),
+  point: (...args) => context.point(...args),
+  pointPaths: (...args) => context.pointPaths(...args),
+  pressFrame: (...args) => context.pressFrame(...args),
+  redrawLines: (...args) => context.redrawLines(...args),
+  renderDrawing: (...args) => context.renderDrawing(...args),
+  renderInspector: (...args) => context.renderInspector(...args),
+  renderNodeInspector: (...args) => context.renderNodeInspector(...args),
+  renderStatus: (...args) => context.renderStatus(...args),
+  requestAnimationFrame: context.requestAnimationFrame,
+  sameClickSpot: (...args) => context.sameClickSpot(...args),
+  screenMatrix: (...args) => context.screenMatrix(...args),
+  selectPoints: (...args) => context.selectPoints(...args),
+  selectedHandle: (...args) => context.selectedHandle(...args),
+  selectedPoints: (...args) => context.selectedPoints(...args),
+  setTool: (...args) => context.setTool(...args),
+  sharingPaths: (...args) => context.sharingPaths(...args),
+  stage: context.stage,
+  startGesture: (...args) => context.startGesture(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  toast: (...args) => context.toast(...args),
+});
+context.targetId = context_canvas.targetId;
+const context_hits = createHitsController(context, {
+  document: context.document,
+  object: (...args) => context.object(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  targetId: (...args) => context.targetId(...args),
+});
+context.hitStack = context_hits.hitStack;
+const context_selection = createSelectionController(context, {
+  $: (...args) => context.$(...args),
+  action: (...args) => context.action(...args),
+  contourAt: (...args) => context.contourAt(...args),
+  document: context.document,
+  focusSelection: (...args) => context.focusSelection(...args),
+  geometryNodes: (...args) => context.geometryNodes(...args),
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  nodeAt: (...args) => context.nodeAt(...args),
+  object: (...args) => context.object(...args),
+  overlay: context.overlay,
+  parents: (...args) => context.parents(...args),
+  pointPaths: (...args) => context.pointPaths(...args),
+  pointTargetsNow: (...args) => context.pointTargetsNow(...args),
+  renderCommands: (...args) => context.renderCommands(...args),
+  request: (...args) => context.request(...args),
+  revealObject: (...args) => context.revealObject(...args),
+  runCommand: (...args) => context.runCommand(...args),
+  scheduleStrip: (...args) => context.scheduleStrip(...args),
+  selectPoints: (...args) => context.selectPoints(...args),
+  selectedPoints: (...args) => context.selectedPoints(...args),
+  sharingPaths: (...args) => context.sharingPaths(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  toast: (...args) => context.toast(...args),
+});
+context.clickTargets = context_selection.clickTargets;
+assert.equal((context.selectionTargets("contour")[0]), contour);
+assert.equal((context.selectionTargets("clip")[0]), contour);
+assert.deepEqual(Array.from((context.hitStack(0, 0))), ['contour', 'paint']);
+assert.deepEqual(Array.from((context.clickTargets(context.hitStack(0, 0)))), ['contour', 'paint']);
+assert.ok((context.localToOverlay(context.svgElement("clip"))), 'clipPath has a frame without getScreenCTM');
+assert.ok((context.screenMatrix(context.svgElement("contour"))) instanceof Matrix, 'convert legacy SVGMatrix before multiplying');

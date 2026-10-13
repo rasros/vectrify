@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {gzipSync, gunzipSync} from 'node:zlib';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app_files.js', import.meta.url), 'utf8');
-const {projectFiles} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+import {projectFiles} from '../../src/vectrify/ui/static/app_files.js';
 const original = JSON.stringify({vectrify_editor: 1, document: {
   root: {children: [{children: []}]}, geometries: [{subpaths: [{nodes: [1, 2, 3]}]}],
 }, reference: {name: 'räven.png', data_url: 'data:image/png;base64,abcd', opacity: 0.35}});

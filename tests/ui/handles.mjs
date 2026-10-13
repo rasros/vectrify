@@ -1,11 +1,13 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createCanvasController} from '../../src/vectrify/ui/static/app_canvas.js';
+import {createSelectionController} from '../../src/vectrify/ui/static/app_selection.js';
+import {createOverlayController} from '../../src/vectrify/ui/static/app_overlay.js';
+import {createCommandsController} from '../../src/vectrify/ui/static/app_commands.js';
 // Exercise the editor's handle selection, rendering and command routing.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+
 import {clickPoint, clickPointPath, pointKey, splitKey} from '../../src/vectrify/ui/static/selection.js';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 class Point {
   constructor(x, y) { this.x = x; this.y = y; }
   matrixTransform() { return this; }
@@ -17,13 +19,13 @@ let nodes = [
 ];
 let selected = ['p b'], closed = false;
 const sent = [], children = [];
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   DOMPoint: Point, clickPoint, clickPointPath, pointKey, splitKey,
   state: {selection: {objects: ['p']}}, tool: 'nodes', zoom: 1, HANDLE_SPREAD: 16, nearPoint: null,
   geometries: new Map([['p', {id: 'g', get subpaths() { return [{nodes, closed}]; }}]]),
   nodeAt: key => nodes.find(n => n.id === splitKey(key)[1]),
   contourAt: () => ({nodes, closed}), selectedPoints: () => selected, pointPaths: () => ['p'],
-  selectPoints: (_objects, points) => { selected = points; vm.runInContext('activeHandle = null', context); },
+  selectPoints: (_objects, points) => { selected = points; (context.activeHandle = null); },
   geometryNodes: () => nodes,
   svgElement: () => ({hasAttribute() { return false; }, setAttribute() {}}), localToOverlay: () => ({inverse() { return this; }}), sharingPaths: () => [], renderDrawing() {},
   startGesture: (_kind, _event, _common, details) => { context.drag = details; },
@@ -34,16 +36,151 @@ const context = vm.createContext({
   overlayFrame: {content: {append: item => children.push(item)}},
   xmlElement: (name, attrs) => ({name, ...attrs, dataset: {}}),
 });
-vm.runInContext(`let activeHandle = null, focusPoint = null;
-  ${section('function pathData(', '// Press on a point:')}
-  ${section('async function finishPointDrag(', "stage.addEventListener('pointerup'")}
-  ${section('function nodeHandles(', '// The point section')}
-  ${section('function pressPoint(', '// Box select:')}
-  ${section('function drawHandles(', '// The rubber band')}
-  ${section('function deleteSelection(', 'const segmentPicked')}
-  ${section('async function stepUp()', "stage.addEventListener('pointercancel'")}
-`, context);
-const call = name => vm.runInContext(name, context);
+context.activeHandle = null, context.focusPoint = null;
+const context_canvas = createCanvasController(context, {
+  $: (...args) => context.$(...args),
+  DOMPoint: context.DOMPoint,
+  action: (...args) => context.action(...args),
+  clickEmpty: (...args) => context.clickEmpty(...args),
+  clickTargets: (...args) => context.clickTargets(...args),
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  drawing: context.drawing,
+  finishPath: (...args) => context.finishPath(...args),
+  frameAt: (...args) => context.frameAt(...args),
+  geometryNodes: (...args) => context.geometryNodes(...args),
+  gestures: context.gestures,
+  hitStack: (...args) => context.hitStack(...args),
+  hoverResize: (...args) => context.hoverResize(...args),
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  loadGeometries: (...args) => context.loadGeometries(...args),
+  localToOverlay: (...args) => context.localToOverlay(...args),
+  nearKey: (...args) => context.nearKey(...args),
+  nearestPoint: (...args) => context.nearestPoint(...args),
+  nodeAt: (...args) => context.nodeAt(...args),
+  nodeHandles: (...args) => context.nodeHandles(...args),
+  object: (...args) => context.object(...args),
+  overlay: context.overlay,
+  parents: (...args) => context.parents(...args),
+  point: (...args) => context.point(...args),
+  pointPaths: (...args) => context.pointPaths(...args),
+  pressFrame: (...args) => context.pressFrame(...args),
+  redrawLines: (...args) => context.redrawLines(...args),
+  renderDrawing: (...args) => context.renderDrawing(...args),
+  renderInspector: (...args) => context.renderInspector(...args),
+  renderNodeInspector: (...args) => context.renderNodeInspector(...args),
+  renderStatus: (...args) => context.renderStatus(...args),
+  requestAnimationFrame: context.requestAnimationFrame,
+  sameClickSpot: (...args) => context.sameClickSpot(...args),
+  screenMatrix: (...args) => context.screenMatrix(...args),
+  selectPoints: (...args) => context.selectPoints(...args),
+  selectedHandle: (...args) => context.selectedHandle(...args),
+  selectedPoints: (...args) => context.selectedPoints(...args),
+  setTool: (...args) => context.setTool(...args),
+  sharingPaths: (...args) => context.sharingPaths(...args),
+  stage: context.stage,
+  startGesture: (...args) => context.startGesture(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  toast: (...args) => context.toast(...args),
+});
+context.pathData = context_canvas.pathData;
+context.valuesById = context_canvas.valuesById;
+context.restoreValues = context_canvas.restoreValues;
+context.carryHandles = context_canvas.carryHandles;
+context.previewPointDrag = context_canvas.previewPointDrag;
+context.finishPointDrag = context_canvas.finishPointDrag;
+context.pressPoint = context_canvas.pressPoint;
+context.stepUp = context_canvas.stepUp;
+const context_selection = createSelectionController(context, {
+  $: (...args) => context.$(...args),
+  action: (...args) => context.action(...args),
+  contourAt: (...args) => context.contourAt(...args),
+  document: context.document,
+  focusSelection: (...args) => context.focusSelection(...args),
+  geometryNodes: (...args) => context.geometryNodes(...args),
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  nodeAt: (...args) => context.nodeAt(...args),
+  object: (...args) => context.object(...args),
+  overlay: context.overlay,
+  parents: (...args) => context.parents(...args),
+  pointPaths: (...args) => context.pointPaths(...args),
+  pointTargetsNow: (...args) => context.pointTargetsNow(...args),
+  renderCommands: (...args) => context.renderCommands(...args),
+  request: (...args) => context.request(...args),
+  revealObject: (...args) => context.revealObject(...args),
+  runCommand: (...args) => context.runCommand(...args),
+  scheduleStrip: (...args) => context.scheduleStrip(...args),
+  selectPoints: (...args) => context.selectPoints(...args),
+  selectedPoints: (...args) => context.selectedPoints(...args),
+  sharingPaths: (...args) => context.sharingPaths(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  toast: (...args) => context.toast(...args),
+});
+context.nodeHandles = context_selection.nodeHandles;
+context.handleCount = context_selection.handleCount;
+context.selectedHandle = context_selection.selectedHandle;
+context.straightenHandles = context_selection.straightenHandles;
+const context_overlay = createOverlayController(context, {
+  $: (...args) => context.$(...args),
+  CSS: context.CSS,
+  DOMPoint: context.DOMPoint,
+  drawFlash: (...args) => context.drawFlash(...args),
+  drawKnife: (...args) => context.drawKnife(...args),
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  drawPathDraft: (...args) => context.drawPathDraft(...args),
+  drawPoints: (...args) => context.drawPoints(...args),
+  drawRedraw: (...args) => context.drawRedraw(...args),
+  drawSnap: (...args) => context.drawSnap(...args),
+  drawing: context.drawing,
+  getComputedStyle: context.getComputedStyle,
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  localToOverlay: (...args) => context.localToOverlay(...args),
+  nodeAt: (...args) => context.nodeAt(...args),
+  nodeHandles: (...args) => context.nodeHandles(...args),
+  object: (...args) => context.object(...args),
+  overlay: context.overlay,
+  renderStatus: (...args) => context.renderStatus(...args),
+  resizeRefusal: (...args) => context.resizeRefusal(...args),
+  svgElement: (...args) => context.svgElement(...args),
+  topSelection: (...args) => context.topSelection(...args),
+  xmlElement: (...args) => context.xmlElement(...args),
+});
+context.drawHandles = context_overlay.drawHandles;
+const context_commands = createCommandsController(context, {
+  $: (...args) => context.$(...args),
+  COMMANDS: context.COMMANDS,
+  action: (...args) => context.action(...args),
+  clickTargets: (...args) => context.clickTargets(...args),
+  colorHex: (...args) => context.colorHex(...args),
+  commandById: context.commandById,
+  commandName: (...args) => context.commandName(...args),
+  commandRefusal: (...args) => context.commandRefusal(...args),
+  document: context.document,
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  enable: (...args) => context.enable(...args),
+  hitStack: (...args) => context.hitStack(...args),
+  joinEnds: (...args) => context.joinEnds(...args),
+  later: (...args) => context.later(...args),
+  level: (...args) => context.level(...args),
+  object: (...args) => context.object(...args),
+  paintSwatch: (...args) => context.paintSwatch(...args),
+  pointContours: (...args) => context.pointContours(...args),
+  pointPairs: (...args) => context.pointPairs(...args),
+  pointPaths: (...args) => context.pointPaths(...args),
+  renderInspector: (...args) => context.renderInspector(...args),
+  resolvedPaint: (...args) => context.resolvedPaint(...args),
+  selectObject: (...args) => context.selectObject(...args),
+  selectPoints: (...args) => context.selectPoints(...args),
+  selectedHandle: (...args) => context.selectedHandle(...args),
+  selectedPoints: (...args) => context.selectedPoints(...args),
+  stage: context.stage,
+  toast: (...args) => context.toast(...args),
+  window: context.window,
+});
+context.deleteSelection = context_commands.deleteSelection;
+const call = name => context[name];
 const handle = () => call('selectedHandle')();
 const press = (node, part, anchor) => call('pressPoint')({target: {dataset: {object: 'p', node, part, anchor}}}, {shift: false});
 const plain = value => JSON.parse(JSON.stringify(value));

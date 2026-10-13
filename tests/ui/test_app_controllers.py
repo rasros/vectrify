@@ -8,8 +8,11 @@ import pytest
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_operation_dialog_lifetimes():
-    script = Path(__file__).with_name("app_controllers.mjs")
+@pytest.mark.parametrize(
+    "filename", ["app_controllers.mjs", "application_wiring.mjs", "transport.mjs"]
+)
+def test_operation_dialog_lifetimes(filename):
+    script = Path(__file__).with_name(filename)
     result = subprocess.run(
         ["node", str(script)], capture_output=True, text=True, check=False
     )

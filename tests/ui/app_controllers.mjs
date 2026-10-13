@@ -1,9 +1,7 @@
 // Test the exported job controller against async replies and real control events.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app_jobs.js', import.meta.url), 'utf8');
-const {createJobDialog} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+import {createJobDialog} from '../../src/vectrify/ui/static/app_jobs.js';
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((yes, no) => {resolve = yes; reject = no;});

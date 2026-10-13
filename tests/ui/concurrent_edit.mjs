@@ -1,15 +1,13 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createActionsController} from '../../src/vectrify/ui/static/app_actions.js';
+import {createGeometryLoader} from '../../src/vectrify/ui/static/app_geometry.js';
 // Exercise the real command and geometry-loading code with requests racing MCP edits.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const actionSource = source.slice(source.indexOf('function action('), source.indexOf('let svgElements ='));
-const geometrySource = source.slice(source.indexOf('async function loadGeometries('), source.indexOf('function paintReference('));
 const calls = [], errors = [], loaded = [], polls = [];
 let conflict = false, pinnedDelete = false, confirmed = false;
 const confirmations = [];
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   window: {confirm: message => { confirmations.push(message); return confirmed; }},
   $: () => ({}),
   setBusy: () => {},
@@ -25,14 +23,28 @@ const context = vm.createContext({
   },
   applyState: async state => { loaded.push(state); },
 });
-vm.runInContext(`
-  let queue = Promise.resolve(), clickCycle = null, dirty = false, session = 'window';
-  let state = {epoch: 'drawing', revision: 0, svg: '<svg/>', selection: {objects: ['a'], nodes: []}, undo_ids: ['manual-edit'], redo_ids: ['undone-edit']};
-  const geometries = new Map();
-  ${actionSource}
-  ${geometrySource}
-`, context);
-const action = vm.runInContext('action', context);
+context.queue = Promise.resolve(), context.clickCycle = null, context.dirty = false, context.session = 'window';
+   context.state = {epoch: 'drawing', revision: 0, svg: '<svg/>', selection: {objects: ['a'], nodes: []}, undo_ids: ['manual-edit'], redo_ids: ['undone-edit']};
+   context.geometries = new Map();
+const context_actions = createActionsController(context, {
+  $: (...args) => context.$(...args),
+  applyState: (...args) => context.applyState(...args),
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  renderDrawing: (...args) => context.renderDrawing(...args),
+  renderInspector: (...args) => context.renderInspector(...args),
+  request: (...args) => context.request(...args),
+  setBusy: (...args) => context.setBusy(...args),
+  toast: (...args) => context.toast(...args),
+  window: context.window,
+});
+context.action = context_actions.action;
+const context_geometry = createGeometryLoader(context, {
+  missingGeometries: (...args) => context.missingGeometries(...args),
+  request: (...args) => context.request(...args),
+  schedulePoll: (...args) => context.schedulePoll(...args),
+});
+context.loadGeometries = context_geometry.loadGeometries;
+const action = (context.action);
 assert.equal(await action('paint', {changes: {fill: 'green'}}), true);
 assert.deepEqual(calls[0].payload.selection, {objects: ['a'], nodes: []});
 assert.equal(calls[0].payload.revision, 0);
@@ -49,8 +61,8 @@ assert.equal(calls.at(-1).path, '/api/session', 'automatically load the live sta
 assert.equal(loaded.at(-1).revision, 2);
 assert.equal(errors.length, 1);
 assert.ok(!errors[0].toLowerCase().includes('refresh'));
-await vm.runInContext('loadGeometries()', context);
-assert.equal(vm.runInContext('geometries.size', context), 0, 'do not cache newer geometry under an older revision');
+await (context.loadGeometries());
+assert.equal((context.geometries.size), 0, 'do not cache newer geometry under an older revision');
 assert.deepEqual(polls, [0]);
 
 conflict = false;

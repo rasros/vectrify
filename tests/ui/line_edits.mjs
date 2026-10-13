@@ -1,7 +1,7 @@
 // Checks which line edits selected points allow; run by test_line_edits.py.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+import {createCommandRegistryController} from '../../src/vectrify/ui/static/app_command_registry.js';
+import {createJoinController} from '../../src/vectrify/ui/static/app_join.js';
 import {breakable, contourPoints, freeEnd, segmentAmong} from '../../src/vectrify/ui/static/lines.js';
 
 const node = (id, command, ...values) => ({id, command, values});
@@ -39,10 +39,8 @@ assert.ok(idReads < 4000, `read ids ${idReads} times for 2000 nodes`);
 
 // Add node stays available at either end of an open path. A lone point has
 // no segment to subdivide.
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const commandStart = source.indexOf("{id: 'split-edge'");
 let selected = ['a'], contour = line;
-const context = vm.createContext({
+const context = ({
   noPoints: () => !selected.length && 'Select points first',
   selectedPoints: () => selected,
   contourAt: () => contour,
@@ -50,7 +48,11 @@ const context = vm.createContext({
   level: () => 'points',
   joinCandidates: () => [{id: 'a'}, {id: 'b'}],
 });
-const command = vm.runInContext(`(${source.slice(commandStart, source.indexOf(",\n  {id: 'delete-contour'", commandStart))})`, context);
+const registry = createCommandRegistryController(context, {
+  noPoints:context.noPoints, selectedPoints:context.selectedPoints, contourAt:context.contourAt,
+  noSelection:context.noSelection, level:context.level, joinCandidates:context.joinCandidates,
+});
+const command = registry.commandById.get('split-edge');
 assert.ok(!command.disabled());
 selected = ['c'];
 assert.ok(!command.disabled());
@@ -64,18 +66,16 @@ assert.equal(command.disabled(), 'Select points first');
 
 // Grouping one object and combining the selected paths from Nodes are useful
 // object operations too, without requiring a tool or selection change.
-const groupStart = source.indexOf("{id: 'group'");
-const group = vm.runInContext(`(${source.slice(groupStart, source.indexOf(",\n  {id: 'ungroup'", groupStart))})`, context);
+const group = registry.commandById.get('group');
 assert.ok(!group.disabled());
-const combineStart = source.indexOf("{id: 'combine-paths'");
-const combine = vm.runInContext(`(${source.slice(combineStart, source.indexOf(",\n  {id: 'convert-lines'", combineStart))})`, context);
+const combine = registry.commandById.get('combine-paths');
 assert.ok(!combine.disabled());
 
 // A filled compound path can already be one object: Join must remain visible
 // and union its contours directly, without routing to line ends or a colour dialog.
 const edits = [];
 let candidates = [{id: 'a'}], fills = candidates, lines = [], points = false;
-const joinContext = vm.createContext({
+const joinContext = ({
   joinCandidates: () => candidates,
   fillPaths: () => fills,
   linePaths: () => lines,
@@ -86,9 +86,16 @@ const joinContext = vm.createContext({
   joinEnds: () => edits.push(['join_ends']),
   openJoin: () => edits.push(['dialog']),
 });
-vm.runInContext(source.slice(source.indexOf('// Join: two selected points'), source.indexOf('// Every selected line')), joinContext);
-const joinStart = source.indexOf("{id: 'join'");
-const joinCommand = vm.runInContext(`(${source.slice(joinStart, source.indexOf(",\n  {id: 'combine-paths'", joinStart))})`, joinContext);
+joinContext.zoom = 1;
+const joining = createJoinController(joinContext, {
+  action:joinContext.action, fillPaths:joinContext.fillPaths, joinCandidates:joinContext.joinCandidates,
+  linePaths:joinContext.linePaths, openJoin:joinContext.openJoin, twoEnds:joinContext.twoEnds,
+  pointPairs:joinContext.pointPairs, plural:() => '', toast() {},
+});
+const joinRegistry = createCommandRegistryController(joinContext, {
+  ...joinContext, join:joining.join, joinOpensDialog:joining.joinOpensDialog,
+});
+const joinCommand = joinRegistry.commandById.get('join');
 assert.ok(!joinCommand.disabled());
 assert.equal(joinCommand.label(), 'Join');
 joinCommand.run();

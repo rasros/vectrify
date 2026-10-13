@@ -1,14 +1,24 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createStrokeController} from '../../src/vectrify/ui/static/app_stroke.js';
+import {createArrowsController} from '../../src/vectrify/ui/static/app_arrows.js';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
+
 const fields = new Map(), field = id => { if (!fields.has(id)) fields.set(id, {value:'', hidden:false, disabled:false}); return fields.get(id); };
 const path = id => ({id, tag:'path', open_path:true, attributes:{}, inherited_locks:[]});
 const items = new Map([['a', path('a')], ['b', path('b')]]), edits = [], errors = [];
 const state = {selection:{objects:['a']}};
-const ctx = vm.createContext({$:field, state, object:id=>items.get(id), resolvedPaint:(id,key,fallback)=>items.get(id).attributes[key] || fallback, enable:(f,reason)=>{f.disabled=!!reason;}, paint:c=>edits.push(c), toast:m=>errors.push(m)});
-vm.runInContext(source.slice(source.indexOf('// Stroke endpoint and corner controls'),source.indexOf('function gradientRefusal()')),ctx);
-const render=()=>vm.runInContext('renderStrokeControls()',ctx);
+const ctx = Object.assign(createEditorState(), {$:field, state, object:id=>items.get(id), resolvedPaint:(id,key,fallback)=>items.get(id).attributes[key] || fallback, enable:(f,reason)=>{f.disabled=!!reason;}, paint:c=>edits.push(c), toast:m=>errors.push(m)});
+const ctx_stroke = createStrokeController(ctx, {
+  $: (...args) => ctx.$(...args),
+  enable: (...args) => ctx.enable(...args),
+  object: (...args) => ctx.object(...args),
+  paint: (...args) => ctx.paint(...args),
+  resolvedPaint: (...args) => ctx.resolvedPaint(...args),
+  toast: (...args) => ctx.toast(...args),
+});
+ctx_stroke.wire();
+ctx.renderStrokeControls = ctx_stroke.renderStrokeControls;
+const render=()=>(ctx.renderStrokeControls());
 render();assert.equal(field('path-end-controls').hidden,false);assert.equal(field('stroke-linecap').value,'butt');
 field('stroke-linecap').onchange({target:{value:'round'}});assert.equal(edits.at(-1)['stroke-linecap'],'round');
 field('end-arrow').onchange({target:{value:'arrow'}});assert.equal(edits.at(-1)['data-vectrify-arrow-end'],'arrow');
@@ -24,8 +34,13 @@ const attrs={'data-vectrify-arrow-start':'arrow','data-vectrify-arrow-end':'arro
 const element={dataset:{objectId:'a'},hasAttribute:k=>k in attrs,getAttribute:k=>attrs[k]??null};
 const arrows=[0,1].map(()=>({attrs:{},getAttribute:k=>k==='data-vectrify-arrow-owner'?'a':null,setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];}}));
 const g={subpaths:[{closed:false,nodes:[{values:[20,50]},{values:[20,50,80,80,80,80]}]}]};
-const preview=vm.createContext({svgElement:()=>element,drawing:{querySelectorAll:()=>arrows},geometries:new Map([['a',g]]),getComputedStyle:()=>({strokeWidth:'2'})});
-vm.runInContext(source.slice(source.indexOf('function syncArrowPreview('),source.indexOf('new MutationObserver(', source.indexOf('function syncArrowPreview('))),preview);
-vm.runInContext('syncArrowPreview(svgElement())',preview);assert.ok(arrows[1].attrs.d.startsWith('M80 80'));assert.equal(arrows[0].attrs.transform,'translate(10 20)');
+const preview=Object.assign(createEditorState(), {svgElement:()=>element,drawing:{querySelectorAll:()=>arrows},geometries:new Map([['a',g]]),getComputedStyle:()=>({strokeWidth:'2'})});
+const preview_arrows = createArrowsController(preview, {
+  drawing: preview.drawing,
+  getComputedStyle: preview.getComputedStyle,
+  svgElement: (...args) => preview.svgElement(...args),
+});
+preview.syncArrowPreview = preview_arrows.syncArrowPreview;
+(preview.syncArrowPreview(preview.svgElement()));assert.ok(arrows[1].attrs.d.startsWith('M80 80'));assert.equal(arrows[0].attrs.transform,'translate(10 20)');
 g.subpaths[0].nodes[1].values=[20,50,90,30,90,30];delete attrs.transform;
-vm.runInContext('syncArrowPreview(svgElement())',preview);assert.ok(arrows[1].attrs.d.startsWith('M90 30'));assert.equal(arrows[0].attrs.transform,undefined);
+(preview.syncArrowPreview(preview.svgElement()));assert.ok(arrows[1].attrs.d.startsWith('M90 30'));assert.equal(arrows[0].attrs.transform,undefined);

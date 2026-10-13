@@ -1,9 +1,8 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createReferenceController} from '../../src/vectrify/ui/static/app_reference.js';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/reference_error.js', import.meta.url), 'utf8');
-const {errorView} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+import {errorView} from '../../src/vectrify/ui/static/reference_error.js';
 const deferred = () => {
   let resolve, reject;
   const result = new Promise((yes, no) => {resolve = yes; reject = no;});
@@ -48,7 +47,7 @@ calls[4].reject(new Error('obsolete')); await flush();
 assert.equal(failures.length, 1, 'obsolete failures are ignored');
 
 // Exercise the app's actual view controls and wraparound in both directions.
-const app = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
+
 const controls = new Map();
 const $ = id => {
   if (!controls.has(id)) controls.set(id, {style: {}, setAttribute() {}, removeAttribute() {}});
@@ -56,27 +55,51 @@ const $ = id => {
 };
 const buttons = ['drawing', 'overlay', 'reference', 'error'].map(view => ({dataset: {view}, setAttribute(name, value) {this[name] = value;}}));
 const updates = [];
-const context = vm.createContext({$, stage: {classList: {toggle() {}}}, document: {querySelectorAll: () => buttons},
+const context = Object.assign(createEditorState(), {$, stage: {classList: {toggle() {}}}, document: {querySelectorAll: () => buttons},
   reportView() {}, scheduleStrip() {}, toast() {}, errorView: () => ({update: (...args) => updates.push(args)})});
-vm.runInContext(`let reference = {name: 'ref', data_url: 'ref-url', opacity: 0}; let state = {svg: '<svg/>', bounds: [40,20,320,240]};
-  ${app.slice(app.indexOf('const VIEWS ='), app.indexOf('// The panel folds'))}`, context);
-const run = code => vm.runInContext(code, context);
-run("setView('drawing'); cycleReference(-1)");
-assert.equal(run('referenceView'), 'error');
+context.reference = {name: 'ref', data_url: 'ref-url', opacity: 0};  context.state = {svg: '<svg/>', bounds: [40,20,320,240]};
+const context_reference = createReferenceController(context, {
+  $: (...args) => context.$(...args),
+  errorView: context.errorView,
+  FileReader: context.FileReader,
+  action: (...args) => context.action(...args),
+  document: context.document,
+  fit: (...args) => context.fit(...args),
+  loadReference: (...args) => context.loadReference(...args),
+  localStorage: context.localStorage,
+  renderInspector: (...args) => context.renderInspector(...args),
+  reportView: (...args) => context.reportView(...args),
+  request: (...args) => context.request(...args),
+  scheduleStrip: (...args) => context.scheduleStrip(...args),
+  stage: context.stage,
+  toast: (...args) => context.toast(...args),
+  viewReport: (...args) => context.viewReport(...args),
+});
+for (const button of buttons) button.onclick = () => context_reference.setView(button.dataset.view);
+context.VIEWS = context_reference.VIEWS;
+context.errorStatus = context_reference.errorStatus;
+context.referenceError = context_reference.referenceError;
+context.refreshErrorView = context_reference.refreshErrorView;
+context.showReference = context_reference.showReference;
+context.setView = context_reference.setView;
+context.cycleReference = context_reference.cycleReference;
+
+context.setView('drawing'); context.cycleReference(-1);
+assert.equal(context.referenceView, 'error');
 assert.equal($('reference-image').hidden, true);
 assert.equal($('drawing').style.opacity, '0');
 assert.equal(buttons[3]['aria-pressed'], 'true');
 assert.equal(updates.at(-1)[2], 'ref-url', 'error ignores overlay opacity');
-run('cycleReference()'); assert.equal(run('referenceView'), 'drawing');
+context.cycleReference(); assert.equal(context.referenceView, 'drawing');
 assert.equal($('drawing').style.visibility, '');
 assert.equal(updates.at(-1)[2], null);
 for (const expected of ['overlay', 'reference', 'error', 'drawing']) {
-  run('cycleReference()'); assert.equal(run('referenceView'), expected);
+  context.cycleReference(); assert.equal(context.referenceView, expected);
 }
 for (const expected of ['error', 'reference', 'overlay', 'drawing']) {
-  run('cycleReference(-1)'); assert.equal(run('referenceView'), expected);
+  context.cycleReference(-1); assert.equal(context.referenceView, expected);
 }
-run("setView('error'); reference = null; showReference(); cycleReference()");
+context.setView('error'); context.reference = null; context.showReference(); context.cycleReference();
 assert.equal($('drawing').style.visibility, '');
 assert.equal($('reference-toggle').hidden, true);
 assert.equal(updates.at(-1)[2], null);
