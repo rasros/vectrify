@@ -4,7 +4,7 @@ import subprocess
 import sys
 from dataclasses import FrozenInstanceError, fields, replace
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -91,7 +91,7 @@ def test_contract_fields_defaults_and_legacy_identity_are_preserved():
     }
     proposal = Proposal("test", (), (), "parent", import_svg("<svg/>"), Box(0, 0, 1, 1))
     with pytest.raises(FrozenInstanceError):
-        proposal.operator = "changed"
+        cast(Any, proposal).operator = "changed"
 
 
 def test_conservative_bounds_preserve_control_hull_transform_and_stroke_padding():
