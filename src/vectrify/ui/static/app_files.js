@@ -108,9 +108,11 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
   async function download(project) {
     if(saving)return;
     saving=true;
-    await waitForEdits(); setBusy(project?'Saving project…':'Exporting SVG…',1);
+    let busy=false;
     try {
-      const result=await request('/api/export',{project,compressed:project,epoch:getState().epoch,revision:getState().revision});
+      await waitForEdits();setBusy(project?'Saving project…':'Exporting SVG…',1);busy=true;
+      const {epoch,revision,name}=getState();
+      const result=await request('/api/export',{project,compressed:project,epoch,revision});
       const filename=currentName().replace(/\.(svg|json|vectrify)$/i,'')+(project?'.vectrify':'.svg');
       if(getBridge()){
         const api=await getBridge();
@@ -120,11 +122,11 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
         browserDownload(result,filename,project);
       }
       if(project){
-        await recoveryStore('readwrite',getSession(),{source:result.content,encoding:result.encoding,summary:result.summary,name:getState().name,savedAt:Date.now()});
-        markSaved();
+        await recoveryStore('readwrite',getSession(),{source:result.content,encoding:result.encoding,summary:result.summary,name,savedAt:Date.now()});
+        if(getState().epoch===epoch&&getState().revision===revision)markSaved();
       }
       toast(project?'Project saved, with a browser recovery copy.':'SVG exported.');
-    }catch(error){toast(error.message,true);}finally{saving=false;setBusy('',-1);}
+    }catch(error){toast(error.message,true);}finally{saving=false;if(busy)setBusy('',-1);}
   }
   $('save-project').onclick=()=>save();$('save-as').onclick=()=>save(true);$('export-svg').onclick=()=>download(false);
   $('open-file').onclick=async()=>{
@@ -165,12 +167,19 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
   };
   async function recover(previous, result) {
     if (!previous || getSession() === previous) return result;
-    const saved = await recoveryStore('readonly', previous);
-    if (!saved) return result;
-    const restored = await request('/api/action', {command:'open', ...saved, epoch:result.epoch, revision:result.revision});
-    forgetFile();
-    await recoveryStore('readwrite', getSession(), saved);
-    toast('Restored your saved project after the server restart. Earlier undo history is unavailable.');
+    let restored = result;
+    try {
+      const saved = await recoveryStore('readonly', previous);
+      if (!saved) return result;
+      restored = await request('/api/action', {command:'open', ...saved, epoch:result.epoch, revision:result.revision});
+      forgetFile();
+      await recoveryStore('readwrite', getSession(), saved);
+      toast('Restored your saved project after the server restart. Earlier undo history is unavailable.');
+    } catch (error) {
+      toast(`Browser recovery failed: ${error.message}`, true);
+    }
+    // The backend may already have restored a new epoch before storing its
+    // recovery copy fails. Always show that drawing so the tab stays usable.
     return restored;
   }
   return {save, download, recover, currentName};
