@@ -64,7 +64,9 @@ def test_reported_error_view_renders_the_comparison():
     pixels = np.asarray(Image.open(io.BytesIO(reply.images[0][1])))
     assert (pixels == 0).all(axis=2).any()
     assert (pixels > 0).any()
-    session.reference["opacity"] = 0.75
+    reference = session.reference
+    assert reference is not None
+    session.reference = {**reference, "opacity": 0.75}
     assert session.reference_error() is full, "overlay opacity is irrelevant"
 
     # A zoomed/panned MCP view crops the shared image, including black outside.
