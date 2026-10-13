@@ -13,9 +13,9 @@ import math
 from dataclasses import dataclass, replace
 
 from vectrify.document import Document, Geometry
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.refine import _bounds
 
 # Reuse the established search seed footprint, without widening local edits.
 MAX_OBJECTS = 8_192
@@ -199,7 +199,7 @@ class ComponentEdit:
         for document, record in zip((before, after), records, strict=True):
             for oid in declared & record.keys():
                 _check(work)
-                a, b, c, d = _bounds(document, oid)
+                a, b, c, d = conservative_bounds(document, oid)
                 if (
                     math.floor(a) < box.x
                     or math.floor(b) < box.y

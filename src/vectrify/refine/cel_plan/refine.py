@@ -34,12 +34,16 @@ from vectrify.operations.methods.colours import (
 )
 from vectrify.refine import shared
 from vectrify.refine.cel_plan import constraints as chains
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.frontier import Entry, Frontier
 from vectrify.refine.cel_plan.model import Evidence, Options, Work
 from vectrify.refine.cel_plan.score import composite
 from vectrify.refine.frozen import Frozen, Paths
 from vectrify.refine.simplify import simplify
 from vectrify.refine.snap import snap
+
+# Deliberate compatibility alias for the former private helper.
+_bounds = conservative_bounds
 
 MAX_PATH_NODES = 512
 MAX_GEOMETRY_NODES = 32_000
@@ -63,34 +67,10 @@ def _paths(document: Document) -> list[str]:
     ]
 
 
-def _bounds(document: Document, oid: str) -> tuple[float, float, float, float]:
-    """Conservative control-hull bounds, including transformed stroke width."""
-    a, b, c, d, e, f = root_matrix(document, oid)
-    points = np.array(
-        [
-            node.values[i : i + 2]
-            for subpath in document.geometry_for(oid).subpaths
-            for node in subpath.nodes
-            for i in range(0, len(node.values), 2)
-        ]
-    ).reshape(-1, 2)
-    if not len(points):
-        return (0, 0, 0, 0)
-    linear = np.array([[a, c], [b, d]])
-    points = points @ linear.T + (e, f)
-    style = path_style(document, document.element(oid))
-    width = float(style["stroke-width"]) if style["stroke"] != "none" else 0
-    # Include miter paint in the proposal crop, even at acute corners. Exact
-    # full validation later includes all layers and all native pixels.
-    pad = 4 + width * float(np.linalg.norm(linear, ord=2)) * 5
-    low, high = points.min(axis=0) - pad, points.max(axis=0) + pad
-    return (float(low[0]), float(low[1]), float(high[0]), float(high[1]))
-
-
 def _region(
     document: Document, oid: str, image: Image.Image, *, downsample: bool = False
 ) -> Region | None:
-    left, top, right, bottom = _bounds(document, oid)
+    left, top, right, bottom = conservative_bounds(document, oid)
     x, y = max(0, math.floor(left)), max(0, math.floor(top))
     end_x, end_y = (
         min(image.width, math.ceil(right)),
@@ -106,7 +86,7 @@ def _region(
 
 def _spatial_order(document: Document, oids: list[str], limit: int) -> list[str]:
     """Largest supported shapes first, rotating through occupied spatial cells."""
-    bounds = {oid: _bounds(document, oid) for oid in oids}
+    bounds = {oid: conservative_bounds(document, oid) for oid in oids}
     if not bounds:
         return []
     left = min(box[0] for box in bounds.values())

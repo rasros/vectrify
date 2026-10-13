@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections import OrderedDict
+from copy import deepcopy
 from dataclasses import replace
 from weakref import WeakValueDictionary
 
@@ -26,12 +27,15 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan import constraints as chains
 from vectrify.refine.cel_plan.attached_outlines import AttachedOutlines
 from vectrify.refine.cel_plan.band_plans import BandPlans
+from vectrify.refine.cel_plan.bounds import conservative_bounds
+from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.filled_bands import FilledBands
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.ink_models import models as source_ink_models
 from vectrify.refine.cel_plan.ink_replace import InkReplacement
+from vectrify.refine.cel_plan.limits import EXPANSIONS, MAX_EDIT_OBJECTS
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import (
@@ -46,18 +50,11 @@ from vectrify.refine.cel_plan.overlays import ClosedOverlays
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.refine import (
     MAX_PATH_NODES,
-    _bounds,
     _geometry_proposal,
     _paths,
     _spatial_order,
 )
 from vectrify.refine.cel_plan.score import composite
-from vectrify.refine.cel_plan.search import (
-    EXPANSIONS,
-    MAX_EDIT_OBJECTS,
-    Proposal,
-    State,
-)
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
 from vectrify.refine.cel_plan.source_strokes import SourceStrokes
 from vectrify.refine.crossings import crossings
@@ -72,7 +69,7 @@ def bounds(before, after, ids) -> Box:
     boxes = []
     for document in (before, after):
         known = {element.id for element in document.elements()}
-        boxes.extend(_bounds(document, oid) for oid in ids if oid in known)
+        boxes.extend(conservative_bounds(document, oid) for oid in ids if oid in known)
     return Box(
         math.floor(min(box[0] for box in boxes)),
         math.floor(min(box[1] for box in boxes)),
@@ -158,6 +155,34 @@ class Operators:
             "source_graph_cache_bytes": 0,
             "source_graph_cache_peak_bytes": 0,
         }
+
+    def report(self) -> dict:
+        """Return detached diagnostics without constructing optional operators."""
+        return deepcopy(
+            {
+                "scheduling": dict(self.schedule_diagnostics),
+                **self.families.report(),
+                "opacity_fields": dict(self.opacity_fields.diagnostics),
+                "ink_replacement": dict(self.replacements.diagnostics),
+                "source_ridges": dict(self.ridges.diagnostics),
+                "source_strokes": dict(self.strokes.diagnostics),
+                "source_silhouette_strokes": dict(self.strokes.silhouettes.diagnostics)
+                if self.strokes.silhouettes is not None
+                else {},
+                "source_ridge_models": dict(self.ridges.rim_diagnostics),
+                "source_ridge_underpaint_rejections": dict(
+                    self.ridges.underpaint_rejections
+                ),
+                "source_ridge_restoration_rejections": dict(
+                    self.ridges.restoration_rejections
+                ),
+                "closed_overlays": dict(self.overlays.diagnostics),
+                "nested_overlay_rejections": dict(self.overlays.nesting_rejections),
+                "paint_restoration_rejections": dict(
+                    self.replacements.restoration_rejections
+                ),
+            }
+        )
 
     @staticmethod
     def _graph_allocations(graph):

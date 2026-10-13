@@ -30,6 +30,7 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.families import Families, _opacity
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
@@ -41,7 +42,6 @@ from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
 from vectrify.refine.cel_plan.nested import opaque_fill
 from vectrify.refine.cel_plan.opacity import fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.search import Proposal, State
 from vectrify.refine.crossings import crossings
 from vectrify.refine.tracing import _loops
 

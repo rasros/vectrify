@@ -30,6 +30,7 @@ from scripts.bench_cel_planned import (
     source_hash,
 )
 from vectrify.document import export_svg, import_svg
+from vectrify.refine.cel_plan.contracts import State
 from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.core_materials import candidate
 from vectrify.refine.cel_plan.evidence import collect
@@ -49,7 +50,6 @@ from vectrify.refine.cel_plan.score import (
     render,
     svg_metrics,
 )
-from vectrify.refine.cel_plan.search import State
 from vectrify.refine.cel_plan.source_strokes import SourceStrokes
 
 

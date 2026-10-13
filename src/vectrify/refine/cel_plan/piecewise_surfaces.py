@@ -30,6 +30,7 @@ from vectrify.refine import cel
 from vectrify.refine.cel_plan import shade_edges
 from vectrify.refine.cel_plan.atoms import MAX_CUTS, Atoms
 from vectrify.refine.cel_plan.constraints import discard, merged
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.layer_order import ordered_surfaces
@@ -38,7 +39,6 @@ from vectrify.refine.cel_plan.materials import MAX_REGIONS
 from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.nested import enclosed, in_core
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.cel_plan.supported_boundaries import supported
 from vectrify.refine.cel_plan.surface_models import prediction
 from vectrify.refine.cel_plan.surface_splits import SurfaceSplits, fit, lines

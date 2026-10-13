@@ -39,8 +39,10 @@ from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.atoms import AtomLimitError, Atoms
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.facet_lines import FacetLines
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.fill_winding import resolved
@@ -55,9 +57,7 @@ from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import in_core, opaque_fill
 from vectrify.refine.cel_plan.opacity import Paint
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import render
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.cel_plan.source_roles import moments as role_moments
 from vectrify.refine.cel_plan.source_roles import observations
 from vectrify.refine.cel_plan.surface_models import prediction
@@ -1382,7 +1382,7 @@ class CoreCells:
             ):
                 continue
             matrix = root_matrix(state.document, child.id)
-            a, b, c, d = _bounds(state.document, child.id)
+            a, b, c, d = conservative_bounds(state.document, child.id)
             if self.joint:
                 a, b, c, d = curve_path(
                     transformed_geometry(state.document.geometry_for(child.id), matrix),
@@ -1442,7 +1442,7 @@ class CoreCells:
                 return False
             if child.id in removed:
                 continue
-            p, q, r, s = _bounds(document, child.id)
+            p, q, r, s = conservative_bounds(document, child.id)
             if max(a, p) >= min(c, r) or max(b, q) >= min(d, s):
                 continue
             if child.tag != "path" or child.id not in known:

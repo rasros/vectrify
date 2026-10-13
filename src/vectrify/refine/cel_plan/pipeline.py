@@ -14,6 +14,7 @@ from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.frontier import Frontier, Observation
 from vectrify.refine.cel_plan.graph import build
+from vectrify.refine.cel_plan.limits import MAX_EDIT_OBJECTS
 from vectrify.refine.cel_plan.materials import coherent_labels
 from vectrify.refine.cel_plan.model import (
     Candidate,
@@ -34,7 +35,6 @@ from vectrify.refine.cel_plan.score import (
     opacity_measurements,
     render,
 )
-from vectrify.refine.cel_plan.search import MAX_EDIT_OBJECTS
 from vectrify.refine.cel_plan.search import search as local_search
 
 
@@ -128,47 +128,6 @@ def material_seed(
         "generation_status": details["status"],
         "seconds": time.monotonic() - began,
         "validation_seconds": time.monotonic() - validation,
-    }
-
-
-def _operator_diagnostics(operators: Operators) -> dict:
-    """Copy optional operator reports without forcing their construction."""
-    return {
-        "scheduling": dict(operators.schedule_diagnostics),
-        "surface_families": dict(operators.families.diagnostics),
-        "material_surfaces": dict(operators.families.surface_models.diagnostics),
-        "source_splits": dict(operators.families._split_models.diagnostics)
-        if operators.families._split_models is not None
-        else {},
-        "piecewise_surfaces": dict(operators.families._piecewise_models.diagnostics)
-        if operators.families._piecewise_models is not None
-        else {},
-        "core_material_cells": dict(operators.families._core_models.diagnostics)
-        if operators.families._core_models is not None
-        else {},
-        "joint_material_cells": dict(operators.families._joint_models.diagnostics)
-        if operators.families._joint_models is not None
-        else {},
-        "opacity_fields": dict(operators.opacity_fields.diagnostics),
-        "ink_replacement": dict(operators.replacements.diagnostics),
-        "source_ridges": dict(operators.ridges.diagnostics),
-        "source_strokes": dict(operators.strokes.diagnostics),
-        "source_silhouette_strokes": dict(operators.strokes.silhouettes.diagnostics)
-        if operators.strokes.silhouettes is not None
-        else {},
-        "source_ridge_models": dict(operators.ridges.rim_diagnostics),
-        "source_ridge_underpaint_rejections": dict(
-            operators.ridges.underpaint_rejections
-        ),
-        "source_ridge_restoration_rejections": dict(
-            operators.ridges.restoration_rejections
-        ),
-        "closed_overlays": dict(operators.overlays.diagnostics),
-        "nested_surface_rejections": dict(operators.families.nesting_rejections),
-        "nested_overlay_rejections": dict(operators.overlays.nesting_rejections),
-        "paint_restoration_rejections": dict(
-            operators.replacements.restoration_rejections
-        ),
     }
 
 
@@ -520,9 +479,7 @@ class _PlanningRun:
                 "validation_seconds_unavailable": True,
             }
         if operators is not None:
-            self.structural_search["operator_diagnostics"] = _operator_diagnostics(
-                operators
-            )
+            self.structural_search["operator_diagnostics"] = operators.report()
         self.search_ran = True
         self.structural_search["discovery_allocation_seconds"] = local_seconds
         self.validation_seconds += self.structural_search.get("validation_seconds", 0)

@@ -27,6 +27,7 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
 from vectrify.project_file import decode_source
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
+from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.graph import build
@@ -36,7 +37,6 @@ from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators, bounds
 from vectrify.refine.cel_plan.score import render
-from vectrify.refine.cel_plan.search import Proposal, State
 
 
 def run(case, captured, output, *, seconds=180):

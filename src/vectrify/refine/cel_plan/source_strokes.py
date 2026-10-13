@@ -27,6 +27,7 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.fill_winding import resolved
 from vectrify.refine.cel_plan.ink_models import (
     carrier_width,
@@ -45,7 +46,6 @@ from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import opaque_fill
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.cel_plan.silhouette_ink import SilhouetteInk
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
 from vectrify.refine.colour_regions import colour

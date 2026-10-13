@@ -24,15 +24,15 @@ from vectrify.document import Editor, Geometry, Selection, export_svg
 from vectrify.document.join import curve_path, path_style
 from vectrify.document.model import paint_server
 from vectrify.refine import cel
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError
-from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import render
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.crossings import crossings
 
 MAX_POINTS = 16_384
@@ -329,7 +329,9 @@ class FilledBands:
                 if not comparison["qualified_samples"] or comparison["rejections"]:
                     self.diagnostics["source_exclusions"] += 1
                     continue
-                boxes = [_bounds(d, surface.id) for d in (document, proposed)]
+                boxes = [
+                    conservative_bounds(d, surface.id) for d in (document, proposed)
+                ]
                 box = Box(
                     math.floor(min(b[0] for b in boxes)),
                     math.floor(min(b[1] for b in boxes)),
