@@ -18,12 +18,12 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.constraints import discard, merged
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.nested import in_core
 from vectrify.refine.cel_plan.opacity import fit_samples
 from vectrify.refine.cel_plan.ownership import Surface
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.cel_plan.surface_models import prediction
 from vectrify.refine.crossings import crossings
 

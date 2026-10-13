@@ -27,13 +27,13 @@ from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.constraints import merged
+from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.families import Families, _gradient, _opacity
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.nested import in_core
 from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Surface
-from vectrify.refine.cel_plan.search import Proposal, State
 from vectrify.refine.crossings import crossings
 
 MAX_PIXELS = 1536**2

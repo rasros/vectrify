@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from copy import deepcopy
 from dataclasses import replace
 
 import numpy as np
@@ -25,8 +26,10 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.boundary_evidence import shade_fragment
 from vectrify.refine.cel_plan.constraints import discard, merged
+from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.layer_order import ordered
+from vectrify.refine.cel_plan.limits import EXPANSIONS, MAX_EDIT_OBJECTS
 from vectrify.refine.cel_plan.local import (
     MAX_CROP_PIXELS,
     Box,
@@ -37,12 +40,6 @@ from vectrify.refine.cel_plan.model import Boundary, Evidence, Graph, Options, W
 from vectrify.refine.cel_plan.nested import enclosed, in_core
 from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.search import (
-    EXPANSIONS,
-    MAX_EDIT_OBJECTS,
-    Proposal,
-    State,
-)
 
 MAX_PATHS = 128
 MAX_NODES = 6_000
@@ -127,6 +124,30 @@ class Families:
         self._core_models = None
         self._joint_models = None
         self.band_planner = None
+
+    def report(self) -> dict:
+        """Copy observed diagnostics without initializing any lazy model."""
+        return deepcopy(
+            {
+                "surface_families": self.diagnostics,
+                "material_surfaces": self._surface_models.diagnostics
+                if self._surface_models is not None
+                else {},
+                "source_splits": self._split_models.diagnostics
+                if self._split_models is not None
+                else {},
+                "piecewise_surfaces": self._piecewise_models.diagnostics
+                if self._piecewise_models is not None
+                else {},
+                "core_material_cells": self._core_models.diagnostics
+                if self._core_models is not None
+                else {},
+                "joint_material_cells": self._joint_models.diagnostics
+                if self._joint_models is not None
+                else {},
+                "nested_surface_rejections": self.nesting_rejections,
+            }
+        )
 
     def _same_ink(self, edge: Boundary, work: Work) -> bool:
         """An internal paint partition is not a gap in a continuous dark mark.

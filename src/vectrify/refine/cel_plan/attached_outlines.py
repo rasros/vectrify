@@ -11,9 +11,9 @@ import numpy as np
 from vectrify.refine.cel_plan.attached_spans import AttachedSpans
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.score import representation
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.cel_plan.source_family import MAX_FAMILIES, SourceFamily
 from vectrify.refine.cel_plan.span_body_fit import SpanBodyFit
 

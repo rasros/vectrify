@@ -26,9 +26,9 @@ from vectrify.document.model import paint_server
 from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan.contracts import State
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Work
-from vectrify.refine.cel_plan.search import State
 
 MAX_MARKS = 64
 MAX_NODES = 6_000

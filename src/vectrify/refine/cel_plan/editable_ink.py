@@ -19,10 +19,10 @@ from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, _check
+from vectrify.refine.cel_plan.limits import MAX_SEED_NODES, MAX_SEED_OBJECTS
 from vectrify.refine.cel_plan.line_fidelity import MAX_PROFILES
 from vectrify.refine.cel_plan.local import _native_raster, _render_tree
 from vectrify.refine.cel_plan.model import Work
-from vectrify.refine.cel_plan.search import MAX_SEED_NODES, MAX_SEED_OBJECTS
 from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE
 from vectrify.refine.cel_plan.source_family import _data
 from vectrify.refine.cel_plan.span_body_fit import _stroke_root

@@ -25,9 +25,9 @@ from vectrify.document.model import paint_server
 from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.nested import in_core
-from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.shade_edges import predict
 from vectrify.refine.cel_plan.surface_models import prediction
@@ -218,7 +218,7 @@ def supported(
         if child.tag != "path":
             return reject("unsupported-lower-object")
         # Avoid a proof or allocation for distant current geometry.
-        bounds = _bounds(document, child.id)
+        bounds = conservative_bounds(document, child.id)
         probe = Box(
             math.floor((bounds[0] - ox) * sx),
             math.floor((bounds[1] - oy) * sy),

@@ -21,6 +21,7 @@ from PIL import Image
 from scripts.bench_cel_planned import DATA, MANIFEST, source_hash
 from vectrify.document import export_svg, import_svg, load_project, save_project
 from vectrify.project_file import decode_source
+from vectrify.refine.cel_plan.contracts import State
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
@@ -29,7 +30,6 @@ from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
-from vectrify.refine.cel_plan.search import State
 
 
 def run(case, parent: Path, output: Path, *, seconds=180):

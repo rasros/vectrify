@@ -25,9 +25,9 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.ownership import Surface
-from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.crossings import crossings
 
 MAX_PIXELS = 1536**2

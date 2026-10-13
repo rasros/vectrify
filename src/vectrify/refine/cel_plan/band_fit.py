@@ -24,10 +24,10 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.filled_bands import MAX_WIDTH, _check
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box, _native_raster
-from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import composite, render
 from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE, SourceAbsence
 from vectrify.refine.crossings import crossings
@@ -75,7 +75,7 @@ def painted_context(document, bounds, work, *, keep=()):
         style = path_style(document, element)
         if style["stroke"] != "none" and float(style["stroke-miterlimit"]) > 10:
             continue
-        x, y, right, bottom = _bounds(document, element.id)
+        x, y, right, bottom = conservative_bounds(document, element.id)
         if x > bounds[2] or y > bounds[3] or right < bounds[0] or bottom < bounds[1]:
             remove.add(element.id)
     root = ET.fromstring(export_svg(document))

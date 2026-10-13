@@ -12,11 +12,19 @@ from dataclasses import dataclass, field, fields, is_dataclass, replace
 from vectrify.document import Document, export_svg, import_svg
 from vectrify.document.join import path_style
 from vectrify.document.model import paint_server
+from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.component_edits import (
     MAX_OBJECTS as MAX_COMPONENT_OBJECTS,
 )
-from vectrify.refine.cel_plan.component_edits import ComponentEdit
+
+# Deliberate compatibility reexports; contracts and limits own these values.
+from vectrify.refine.cel_plan.contracts import Proposal as Proposal
+from vectrify.refine.cel_plan.contracts import State as State
 from vectrify.refine.cel_plan.frontier import Entry, Frontier
+from vectrify.refine.cel_plan.limits import EXPANSIONS as EXPANSIONS
+from vectrify.refine.cel_plan.limits import MAX_EDIT_OBJECTS as MAX_EDIT_OBJECTS
+from vectrify.refine.cel_plan.limits import MAX_SEED_NODES as MAX_SEED_NODES
+from vectrify.refine.cel_plan.limits import MAX_SEED_OBJECTS as MAX_SEED_OBJECTS
 from vectrify.refine.cel_plan.local import (
     HALO,
     MAX_CROP_PIXELS,
@@ -24,48 +32,16 @@ from vectrify.refine.cel_plan.local import (
     Box,
     LocalLimitError,
     LocalPolicy,
-    Snapshot,
     tile_boxes,
 )
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import SCORE_VERSION, representation
 
 LIMITS = {"fast": (1, 16), "balanced": (4, 48), "high": (8, 128)}
-EXPANSIONS = {"fast": 4, "balanced": 8, "high": 16}
 ANCHORS = (50, 0, 100, 25, 75)
 MAX_BYTES = 64 * 1024 * 1024
 MAX_REJECTIONS = 256
-MAX_SEED_NODES = 32_000
-MAX_SEED_OBJECTS = 8_192
-MAX_EDIT_OBJECTS = 256
-
-
-@dataclass(frozen=True)
-class State:
-    document: Document
-    svg: str
-    snapshot: Snapshot
-    key: str
-    details: dict
-    edits: tuple[dict, ...] = ()
-    partition: Partition | None = None
-
-
-@dataclass(frozen=True)
-class Proposal:
-    operator: str
-    ids: tuple[str, ...]
-    parameters: tuple
-    parent: str
-    document: Document
-    bounds: Box
-    estimate: float = 0
-    details: dict | None = None
-    dependencies: tuple[str, ...] = ()
-    partition: Partition | None = None
-    component: ComponentEdit | None = None
 
 
 def identity(svg: str, partition: Partition | None) -> str:
@@ -132,7 +108,7 @@ class Rejections:
                     continue
                 style = path_style(document, element)
                 if element.tag == "path" and float(style["stroke-miterlimit"]) <= 5:
-                    left, top, right, bottom = _bounds(document, element.id)
+                    left, top, right, bottom = conservative_bounds(document, element.id)
                     native = Box(
                         int(left // 1),
                         int(top // 1),
