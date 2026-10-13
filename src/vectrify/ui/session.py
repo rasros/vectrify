@@ -1009,7 +1009,12 @@ class Session:
                 ends = []
                 for oid, nid in points:
                     copies: dict[str, set[str]] = {}
-                    with contextlib.suppress(EditRejectedError):
+                    geometry = tx.preview.geometry_for(oid)
+                    free_end = any(
+                        not sp.closed and nid in {sp.nodes[0].id, sp.nodes[-1].id}
+                        for sp in geometry.subpaths
+                    )
+                    if not free_end:
                         copies = tx.break_points(oid, [nid])
                     # A closed contour's start opens under other IDs.
                     found: set[str] = set()
