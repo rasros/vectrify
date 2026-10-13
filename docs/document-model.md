@@ -57,6 +57,10 @@ Transactions capture document revision, selection, and edit permissions when
 created. They edit a private snapshot and apply all changes as one undo entry.
 An exception aborts the transaction. A rejected command poisons the transaction
 so catching the exception cannot accidentally commit an earlier partial edit.
+This includes input validation and failures in nested commands; composite
+commands normalize private paint and validate the document after the whole
+command succeeds. `snap_edges` explicitly permits a recoverable preflight
+refusal, as described below.
 Explicit `abort()` discards a preview; no-op transactions create no history.
 
 Transactions are strict by default: they cannot commit after another revision.
