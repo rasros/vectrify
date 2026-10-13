@@ -1,10 +1,9 @@
 // Exercise the actual Tidy dialog request and change handlers with its HTML defaults.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {runInNewContext} from 'node:vm';
+import {createCommandRegistryController} from '../../src/vectrify/ui/static/app_command_registry.js';
+import {operationDialogs} from '../../src/vectrify/ui/static/app_jobs.js';
 
-const app = readFileSync(new URL('../../src/vectrify/ui/static/app_jobs.js', import.meta.url), 'utf8');
-const {operationDialogs} = await import(`data:text/javascript;base64,${Buffer.from(app).toString('base64')}`);
 const html = readFileSync(new URL('../../src/vectrify/ui/static/index.html', import.meta.url), 'utf8');
 const inputs = new Map();
 for (const [tag, id] of Array.from(html.matchAll(/<input\b[^>]*id="(nodes-[^"]+)"[^>]*>/g), m => [m[0], m[1]])) {
@@ -104,12 +103,10 @@ assert.equal($('nodes-detail').disabled, false, 'settings read the new reference
 
 // Startup evaluates the real command availability callback in app.js.
 // Exercise the integration binding, not just the dialog's private helper.
-const main = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const binding = main.match(/^function tidyTargets\(\).*$/m)?.[0] || '';
-const command = main.match(/\{id: 'tidy',[\s\S]*?disabled:[^\n]*\}/)?.[0];
-assert.ok(command, 'Tidy command is present');
-const context = {dialogs, state, openTidy:() => {}};
-const tidy = runInNewContext(`${binding}\n(${command})`, context);
+const context = {state};
+const tidy = createCommandRegistryController(context, {
+  tidyTargets: () => dialogs.tidyTargets(), openTidy: () => {},
+}).commandById.get('tidy');
 for (const [objects, reference, enabled] of [
   [[], false, false], [['path'], false, true], [['group'], false, true],
   [['use'], false, true],

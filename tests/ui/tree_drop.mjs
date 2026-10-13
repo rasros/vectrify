@@ -1,7 +1,8 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createTreeDragController} from '../../src/vectrify/ui/static/app_tree_drag.js';
 // Checks where rows dragged in the Objects tree land; run by test_tree_drop.py.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+
 import {dropIndex, dropRefusal, dropTarget, replayDrop} from '../../src/vectrify/ui/static/tree.js';
 
 // The drawing holds g (a, b) then c, back to front; rows are 20px tall.
@@ -61,17 +62,26 @@ assert.match(replayDrop({parent: 'g', into: true}, new Set(['c']), objects.map(i
 // Tree-row dragging scrolls at the visible edges, but leaving the tree in
 // any direction keeps its viewport still while the pointer moves elsewhere.
 const list = {scrollTop: 240, classList: {add() {}}, getBoundingClientRect: () => ({left: 50, right: 250, top: 100, bottom: 500})};
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   $: () => list, state: {epoch: 'drawing', revision: 0, selection: {objects: ['c']}},
   object: id => objects.find(item => item.id === id),
   treeDropAt: () => ({target: null, refusal: ''}), showTreeDrop() {},
 });
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-vm.runInContext(`
-  let treeDrag = {item: 'c', x: 150, y: 300, active: false};
-  ${source.slice(source.indexOf('function moveTreeDrag('), source.indexOf('// Where rows dropped'))}
-`, context);
-const moveTreeDrag = vm.runInContext('moveTreeDrag', context);
+
+context.treeDrag = {item: 'c', x: 150, y: 300, active: false};
+const context_tree_drag = createTreeDragController(context, {
+  $: (...args) => context.$(...args),
+  action: (...args) => context.action(...args),
+  later: (...args) => context.later(...args),
+  object: (...args) => context.object(...args),
+  showTreeDrop: (...args) => context.showTreeDrop(...args),
+  toast: (...args) => context.toast(...args),
+  treeDropAt: (...args) => context.treeDropAt(...args),
+  treeDropLine: context.treeDropLine,
+  window: context.window,
+});
+context.moveTreeDrag = context_tree_drag.moveTreeDrag;
+const moveTreeDrag = (context.moveTreeDrag);
 const move = (clientX, clientY) => moveTreeDrag({clientX, clientY});
 move(150, 200);
 assert.equal(list.scrollTop, 240, 'dragging in the middle does not scroll');

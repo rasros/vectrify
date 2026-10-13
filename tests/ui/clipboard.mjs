@@ -1,20 +1,19 @@
-import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+import {createKeysController} from '../../src/vectrify/ui/static/app_keys.js';
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const keys = source.slice(source.indexOf("window.addEventListener('keydown',event=>{"), source.indexOf("window.addEventListener('keyup',event=>"));
+import assert from 'node:assert/strict';
+
 const document = {activeElement: {tagName: 'BODY'}, querySelector: () => null};
 const queued = [], commands = [];
 const saves = [];
 let listener;
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   document, window: {addEventListener: (_, fn) => { listener = fn; }},
   pending: 0, input: {waiting: 0}, tool: 'select', treeDrag: null,
   later: fn => queued.push(fn), runCommand: id => commands.push(id),
   files: {save: saveAs => saves.push(!!saveAs)},
 });
-vm.runInContext(keys, context);
+listener = createKeysController(context, {document, window:context.window, later:context.later, runCommand:context.runCommand, files:context.files, input:context.input}).keyDown;
 function press(key, extra = {}) {
   const event = {key, code: `Key${key.toUpperCase()}`, ctrlKey: true, preventDefault() { this.prevented = true; }, ...extra};
   listener(event);

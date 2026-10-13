@@ -1,7 +1,10 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createOverlayController} from '../../src/vectrify/ui/static/app_overlay.js';
+import {createResizingController} from '../../src/vectrify/ui/static/app_resizing.js';
+import {createCanvasController} from '../../src/vectrify/ui/static/app_canvas.js';
 // Canvas previews, completion and cancellation, without a browser DOM.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
+
 import {canvasGestures} from '../../src/vectrify/ui/static/gestures.js';
 import {HeldGesture} from '../../src/vectrify/ui/static/input.js';
 import {selectionContains} from '../../src/vectrify/ui/static/selection.js';
@@ -187,11 +190,10 @@ assert.equal(named('knife').length, 1);
 
 // Select must box-select even on selected objects and frame edges. Exercise
 // the actual canvas dispatch and frame hit testing, not just the controllers.
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+
 const frameShapes = [];
 let hits = ['a'];
-const dispatch = vm.createContext({
+const dispatch = Object.assign(createEditorState(), {
   tool: 'select', space: false, drag: null, zoom: 1, FRAME_REACH: 6,
   performance: {now: () => 0},
   state: {root: 'root', selection: {objects: ['a']}},
@@ -215,10 +217,101 @@ const dispatch = vm.createContext({
   },
   pressFrame: (_event, common, handle) => {dispatch.drag = {...common, kind: 'resize', handle};},
 });
-vm.runInContext(`${section('function drawFrame()', '// The cursor over the frame:')}\n${section('function frameCursor(', 'let frameHover =')}\n${section('function pressStage(', '// In Nodes the unselected')}`, dispatch);
-const pressStage = vm.runInContext('pressStage', dispatch);
-const frameCursor = vm.runInContext('frameCursor', dispatch);
-const drawFrame = vm.runInContext('drawFrame', dispatch);
+const dispatch_overlay = createOverlayController(dispatch, {
+  $: (...args) => dispatch.$(...args),
+  CSS: dispatch.CSS,
+  DOMPoint: dispatch.DOMPoint,
+  drawFlash: (...args) => dispatch.drawFlash(...args),
+  drawKnife: (...args) => dispatch.drawKnife(...args),
+  drawOverlay: (...args) => dispatch.drawOverlay(...args),
+  drawPathDraft: (...args) => dispatch.drawPathDraft(...args),
+  drawPoints: (...args) => dispatch.drawPoints(...args),
+  drawRedraw: (...args) => dispatch.drawRedraw(...args),
+  drawSnap: (...args) => dispatch.drawSnap(...args),
+  drawing: dispatch.drawing,
+  getComputedStyle: dispatch.getComputedStyle,
+  later: (...args) => dispatch.later(...args),
+  level: (...args) => dispatch.level(...args),
+  localToOverlay: (...args) => dispatch.localToOverlay(...args),
+  nodeAt: (...args) => dispatch.nodeAt(...args),
+  nodeHandles: (...args) => dispatch.nodeHandles(...args),
+  object: (...args) => dispatch.object(...args),
+  overlay: dispatch.overlay,
+  renderStatus: (...args) => dispatch.renderStatus(...args),
+  resizeRefusal: (...args) => dispatch.resizeRefusal(...args),
+  svgElement: (...args) => dispatch.svgElement(...args),
+  topSelection: (...args) => dispatch.topSelection(...args),
+  xmlElement: (...args) => dispatch.xmlElement(...args),
+});
+dispatch.drawFrame = dispatch_overlay.drawFrame;
+const dispatch_resizing = createResizingController(dispatch, {
+  resizeRefusal: (...args) => dispatch.resizeRefusal(...args),
+  DOMMatrix: dispatch.DOMMatrix,
+  DOMPoint: dispatch.DOMPoint,
+  hitStack: (...args) => dispatch.hitStack(...args),
+  localToOverlay: (...args) => dispatch.localToOverlay(...args),
+  object: (...args) => dispatch.object(...args),
+  overlay: dispatch.overlay,
+  parents: (...args) => dispatch.parents(...args),
+  point: (...args) => dispatch.point(...args),
+  requestAnimationFrame: dispatch.requestAnimationFrame,
+  stage: dispatch.stage,
+  startGesture: (...args) => dispatch.startGesture(...args),
+  svgElement: (...args) => dispatch.svgElement(...args),
+  topSelection: (...args) => dispatch.topSelection(...args),
+});
+dispatch.frameAt = dispatch_resizing.frameAt;
+dispatch.frameCursor = dispatch_resizing.frameCursor;
+const dispatch_canvas = createCanvasController(dispatch, {
+  $: (...args) => dispatch.$(...args),
+  DOMPoint: dispatch.DOMPoint,
+  action: (...args) => dispatch.action(...args),
+  clickEmpty: (...args) => dispatch.clickEmpty(...args),
+  clickTargets: (...args) => dispatch.clickTargets(...args),
+  drawOverlay: (...args) => dispatch.drawOverlay(...args),
+  drawing: dispatch.drawing,
+  finishPath: (...args) => dispatch.finishPath(...args),
+  frameAt: (...args) => dispatch.frameAt(...args),
+  geometryNodes: (...args) => dispatch.geometryNodes(...args),
+  gestures: dispatch.gestures,
+  hitStack: (...args) => dispatch.hitStack(...args),
+  hoverResize: (...args) => dispatch.hoverResize(...args),
+  later: (...args) => dispatch.later(...args),
+  level: (...args) => dispatch.level(...args),
+  loadGeometries: (...args) => dispatch.loadGeometries(...args),
+  localToOverlay: (...args) => dispatch.localToOverlay(...args),
+  nearKey: (...args) => dispatch.nearKey(...args),
+  nearestPoint: (...args) => dispatch.nearestPoint(...args),
+  nodeAt: (...args) => dispatch.nodeAt(...args),
+  nodeHandles: (...args) => dispatch.nodeHandles(...args),
+  object: (...args) => dispatch.object(...args),
+  overlay: dispatch.overlay,
+  parents: (...args) => dispatch.parents(...args),
+  point: (...args) => dispatch.point(...args),
+  pointPaths: (...args) => dispatch.pointPaths(...args),
+  pressFrame: (...args) => dispatch.pressFrame(...args),
+  redrawLines: (...args) => dispatch.redrawLines(...args),
+  renderDrawing: (...args) => dispatch.renderDrawing(...args),
+  renderInspector: (...args) => dispatch.renderInspector(...args),
+  renderNodeInspector: (...args) => dispatch.renderNodeInspector(...args),
+  renderStatus: (...args) => dispatch.renderStatus(...args),
+  requestAnimationFrame: dispatch.requestAnimationFrame,
+  sameClickSpot: (...args) => dispatch.sameClickSpot(...args),
+  screenMatrix: (...args) => dispatch.screenMatrix(...args),
+  selectPoints: (...args) => dispatch.selectPoints(...args),
+  selectedHandle: (...args) => dispatch.selectedHandle(...args),
+  selectedPoints: (...args) => dispatch.selectedPoints(...args),
+  setTool: (...args) => dispatch.setTool(...args),
+  sharingPaths: (...args) => dispatch.sharingPaths(...args),
+  stage: dispatch.stage,
+  startGesture: (...args) => dispatch.startGesture(...args),
+  svgElement: (...args) => dispatch.svgElement(...args),
+  toast: (...args) => dispatch.toast(...args),
+});
+dispatch.pressStage = dispatch_canvas.pressStage;
+const pressStage = (dispatch.pressStage);
+const frameCursor = (dispatch.frameCursor);
+const drawFrame = (dispatch.drawFrame);
 for (const stack of [['a'], ['unselected'], []]) {
   hits = stack;
   for (const [x, y] of [[50, 50], [10, 50], [10, 10]]) {

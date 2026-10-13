@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app_files.js', import.meta.url), 'utf8');
-const {projectFiles} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+import {projectFiles} from '../../src/vectrify/ui/static/app_files.js';
 
 function setup({readError = false, writeError = false, editDuringSave = null, queueError = false, restoreError = false} = {}) {
   const controls = new Map(), requests = [], errors = [], writes = [], recovery = [];

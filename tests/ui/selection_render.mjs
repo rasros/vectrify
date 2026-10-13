@@ -1,8 +1,9 @@
+import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
+import {createSessionController} from '../../src/vectrify/ui/static/app_session.js';
+import {createTreeController} from '../../src/vectrify/ui/static/app_tree.js';
 // Run the editor's state application and tree rendering with a small DOM stand-in.
 // Counting row/paint work makes this regression independent of machine load.
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
 
 class Element {
   constructor() {
@@ -33,7 +34,7 @@ const $ = id => {
   return elements.get(id);
 };
 const counts = {paint: 0, drawing: 0, inspector: 0, fit: 0, loads: 0};
-const context = vm.createContext({
+const context = Object.assign(createEditorState(), {
   $, counts,
   document: {createElement: () => new Element(), createDocumentFragment: () => Object.assign(new Element(), {fragment: true})},
   overlay: new Element(),
@@ -49,24 +50,51 @@ const context = vm.createContext({
   later: fn => fn(), pressTreeRow: () => {},
   CSS: {escape: id => id},
 });
-const source = readFileSync(new URL('../../src/vectrify/ui/static/app.js', import.meta.url), 'utf8');
-const apply = source.slice(source.indexOf('async function applyState('), source.indexOf('const level ='));
-const tree = source.slice(source.indexOf('let objectRows ='), source.indexOf('// Dragging rows in the tree'));
-const reveal = source.slice(source.indexOf('function revealObject('), source.indexOf('function hitStack('));
-vm.runInContext(`
-  let state, savedVersion = null, objectsById = new Map(), dirty = false, scope = null;
-  let focusPoint = null, pointMemory = null, geometries = new Map();
-  let clickCycle = null, lastPick = null, pathHoles = new Map();
-  let treeDrag = null, treeDragEnded = false, treeDropLine = {};
-  let toolLevel = 'objects';
-  const level = () => toolLevel;
-  const object = id => objectsById.get(id);
-  const files = {currentName: () => state.name};
-  ${apply}
-  ${tree}
-  ${reveal}
-`, context);
-const applyState = vm.runInContext('applyState', context);
+
+context.state = undefined, context.savedVersion = null, context.objectsById = new Map(), context.dirty = false, context.scope = null;
+   context.focusPoint = null, context.pointMemory = null, context.geometries = new Map();
+   context.clickCycle = null, context.lastPick = null, context.pathHoles = new Map();
+   context.treeDrag = null, context.treeDragEnded = false, context.treeDropLine = {};
+   context.toolLevel = 'objects';
+   context.level = () => context.toolLevel;
+   context.object = id => context.objectsById.get(id);
+   context.files = {currentName: () => context.state.name};
+const context_session = createSessionController(context, {
+  $: (...args) => context.$(...args),
+  document: context.document,
+  drawOverlay: (...args) => context.drawOverlay(...args),
+  files: context.files,
+  fit: (...args) => context.fit(...args),
+  level: (...args) => context.level(...args),
+  loadGeometries: (...args) => context.loadGeometries(...args),
+  loadReference: (...args) => context.loadReference(...args),
+  missingGeometries: (...args) => context.missingGeometries(...args),
+  overlay: context.overlay,
+  renderDrawing: (...args) => context.renderDrawing(...args),
+  renderInspector: (...args) => context.renderInspector(...args),
+  renderObjects: (...args) => context.renderObjects(...args),
+  selectedHandle: (...args) => context.selectedHandle(...args),
+  updateObjectSelection: (...args) => context.updateObjectSelection(...args),
+});
+context.applyState = context_session.applyState;
+context.object = context_session.object;
+const context_tree = createTreeController(context, {
+  $: (...args) => context.$(...args),
+  CSS: context.CSS,
+  document: context.document,
+  enterObject: (...args) => context.enterObject(...args),
+  later: (...args) => context.later(...args),
+  object: (...args) => context.object(...args),
+  objectContext: (...args) => context.objectContext(...args),
+  paintSwatch: (...args) => context.paintSwatch(...args),
+  pressTreeRow: (...args) => context.pressTreeRow(...args),
+  selectObject: (...args) => context.selectObject(...args),
+});
+context.setGroupExpanded = context_tree.setGroupExpanded;
+context.updateObjectSelection = context_tree.updateObjectSelection;
+context.renderObjects = context_tree.renderObjects;
+context.revealObject = context_tree.revealObject;
+const applyState = (context.applyState);
 const rows = () => $('objects').children.slice(0, -1);
 const objects = Array.from({length: 772}, (_, i) => ({id: `p${i}`, parent: 'root', tag: 'path', label: `Path ${i}`, depth: 0, inherited_locks: []}));
 const initial = {epoch: 'first', revision: 0, name: 'large.svg', root: 'root', objects, bounds: [0, 0, 1000, 1000], selection: {objects: [], nodes: []}, undo: [], redo: [], svg: '<svg/>'};
@@ -90,17 +118,17 @@ await applyState({epoch: 'first', revision: 0, selection: {objects: [], nodes: [
 assert.equal(original[19].attributes['aria-selected'], 'false');
 // Search rebuilds the visible rows; selecting a hidden row must be harmless.
 $('object-search').value = 'Path 771';
-vm.runInContext('renderObjects()', context);
+(context.renderObjects());
 assert.equal(rows().length, 1);
 await applyState({epoch: 'first', revision: 0, selection: {objects: ['p0'], nodes: []}});
 $('object-search').value = '';
-vm.runInContext('renderObjects()', context);
+(context.renderObjects());
 assert.equal(rows()[0].attributes['aria-selected'], 'true');
 // Document edits and reopen at revision zero replace labels/paint/lookup entries.
 const edited = objects.map((item, i) => i ? item : {...item, label: 'Renamed'});
 await applyState({...initial, revision: 1, objects: edited});
 assert.notEqual(rows()[0], original[0]);
-assert.equal(vm.runInContext('object("p0").label', context), 'Renamed');
+assert.equal((context.object("p0").label), 'Renamed');
 assert.equal(rows()[0].children[2].children[0].textContent, 'Renamed');
 // Saving repeated canvas point/handle drags refreshes the tree's rows without
 // changing where the user has scrolled, even far from the selected path.
@@ -114,10 +142,10 @@ for (let revision = 2; revision <= 4; revision++) {
 }
 await applyState({...initial, epoch: 'second', objects: objects.slice(-1)});
 assert.equal(rows().length, 1);
-assert.equal(vm.runInContext('object("p0")', context), undefined);
+assert.equal((context.object("p0")), undefined);
 assert.equal(counts.fit, 2);
 // Point tools still load geometry and refresh their inspector after the load.
-vm.runInContext('toolLevel = "points"', context);
+(context.toolLevel = "points");
 await applyState({epoch: 'second', revision: 0, selection: {objects: ['p771'], nodes: []}});
 assert.equal(counts.loads, 1);
 
@@ -141,7 +169,7 @@ assert.equal(stopped, 3, 'disclosure does not select, enter or drag the group');
 assert.deepEqual(ids(), ['g', 'inner', 'sibling', 'outside']);
 assert.equal(toggle('inner').attributes['aria-expanded'], 'false');
 assert.equal(toggle('inner').focused, true);
-assert.deepEqual(vm.runInContext('state.selection.objects', context), ['leaf']);
+assert.deepEqual((context.state.selection.objects), ['leaf']);
 toggle('g').onclick(click);
 assert.deepEqual(ids(), ['g', 'outside']);
 await applyState({...nestedState, revision: 1});
@@ -150,14 +178,14 @@ toggle('g').onclick(click);
 assert.deepEqual(ids(), ['g', 'inner', 'sibling', 'outside'], 'nested group stays folded');
 toggle('g').onclick(click);
 $('object-search').value = 'leaf';
-vm.runInContext('renderObjects()', context);
+(context.renderObjects());
 assert.deepEqual(ids(), ['g', 'inner', 'leaf']);
 assert.equal(toggle('g').disabled, true);
 assert.equal(rows()[2].attributes['aria-selected'], 'true');
 $('object-search').value = '';
-vm.runInContext('renderObjects()', context);
+(context.renderObjects());
 assert.deepEqual(ids(), ['g', 'outside'], 'clearing search restores folds');
-vm.runInContext('revealObject("leaf")', context);
+(context.revealObject("leaf"));
 assert.deepEqual(ids(), ['g', 'inner', 'leaf', 'sibling', 'outside']);
 assert.equal(rows()[2].revealed, true);
 const key = {target: rows()[0], key: 'ArrowLeft', preventDefault() {}, stopPropagation() {}};
