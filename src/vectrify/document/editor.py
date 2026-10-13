@@ -546,6 +546,7 @@ class Transaction:
         self._label = label
         self._closed = False
         self._failed = False
+        self._change_depth = 0
         self._node_remap: dict[str, set[str]] = {}
         self._object_remap: dict[str, set[str]] = {}
         self._rebase = rebase
@@ -670,13 +671,26 @@ class Transaction:
 
     @contextmanager
     def _change(self):
+        """Guard a whole command, including validation and nested mutations.
+
+        Composite commands normalize only once, after all their helpers finish.
+        Any failure is permanent, even when an enclosing command catches it.
+        """
         if self._closed or self._failed:
             raise EditRejectedError("Transaction is closed or has a failed edit")
-        self._failed = True
-        yield
-        self._private_paints()
-        self._working.validate()
-        self._failed = False
+        self._change_depth += 1
+        try:
+            yield
+            if self._failed:
+                raise EditRejectedError("Transaction has a failed edit")
+            if self._change_depth == 1:
+                self._private_paints()
+                self._working.validate()
+        except BaseException:
+            self._failed = True
+            raise
+        finally:
+            self._change_depth -= 1
 
     def _private_paints(self) -> None:
         """Copy private paint with copied shapes, and collect abandoned assets.
@@ -1353,49 +1367,55 @@ class Transaction:
         asking again for one moves it to the other side. Closed contours wrap
         through their closing segment; its endpoint and the moveto are one point.
         """
-        if count not in {0, 1, 2}:
-            raise EditRejectedError("A point has no handles, one or two")
-        geometry = self._working.geometry_for(object_id)
-        proposal = with_node_handles(geometry, node_id, count)
-        if proposal is None:
-            raise EditRejectedError("This point has no segment to hold a handle")
-        self.reshape_path(object_id, proposal)
-        if geometry.node(node_id).handles_aligned:
-            self.set_node_handle_alignment(object_id, node_id, True)
+        with self._change():
+            if count not in {0, 1, 2}:
+                raise EditRejectedError("A point has no handles, one or two")
+            geometry = self._working.geometry_for(object_id)
+            proposal = with_node_handles(geometry, node_id, count)
+            if proposal is None:
+                raise EditRejectedError("This point has no segment to hold a handle")
+            self.reshape_path(object_id, proposal)
+            if geometry.node(node_id).handles_aligned:
+                self.set_node_handle_alignment(object_id, node_id, True)
 
     def delete_handle(self, object_id: str, node_id: str, offset: int) -> None:
         """Retract just one control point, preserving the other handle."""
-        if offset not in {0, 2}:
-            raise EditRejectedError("Choose an incoming or outgoing handle")
-        geometry = self._working.geometry_for(object_id)
-        _, subpath, position = node_location(geometry, node_id)
-        if subpath.nodes[position].command != "C" or position == 0:
-            raise EditRejectedError("This segment has no curve handle")
-        self.reshape_path(object_id, without_handle(geometry, node_id, offset))
+        with self._change():
+            if offset not in {0, 2}:
+                raise EditRejectedError("Choose an incoming or outgoing handle")
+            geometry = self._working.geometry_for(object_id)
+            _, subpath, position = node_location(geometry, node_id)
+            if subpath.nodes[position].command != "C" or position == 0:
+                raise EditRejectedError("This segment has no curve handle")
+            self.reshape_path(object_id, without_handle(geometry, node_id, offset))
 
     def set_node_handle_alignment(
         self, object_id: str, node_id: str, aligned: bool, side: int | None = None
     ) -> None:
         """Toggle a point's aligned handles, straightening them when enabled."""
-        if aligned:
-            self.straighten_node_handles(object_id, node_id, side)
-        geometry = self._working.geometry_for(object_id)
-        self.reshape_path(object_id, with_handle_alignment(geometry, node_id, aligned))
+        with self._change():
+            if aligned:
+                self.straighten_node_handles(object_id, node_id, side)
+            geometry = self._working.geometry_for(object_id)
+            self.reshape_path(
+                object_id, with_handle_alignment(geometry, node_id, aligned)
+            )
 
     def move_handle(
         self, object_id: str, node_id: str, offset: int, point: tuple[float, float]
     ) -> None:
         """Move one handle, keeping its opposite aligned when toggled on."""
-        if offset not in {0, 2}:
-            raise EditRejectedError("Choose an incoming or outgoing handle")
-        geometry = self._working.geometry_for(object_id)
-        node = geometry.node(node_id)
-        if node.command != "C":
-            raise EditRejectedError("This segment has no curve handle")
-        proposal, anchor = moved_handle(geometry, node_id, offset, point)
-        self.update_node(object_id, node_id, proposal)
-        if anchor.handles_aligned:
-            self.straighten_node_handles(object_id, anchor.id, offset)
+        with self._change():
+            if offset not in {0, 2}:
+                raise EditRejectedError("Choose an incoming or outgoing handle")
+            geometry = self._working.geometry_for(object_id)
+            node = geometry.node(node_id)
+            if node.command != "C":
+                raise EditRejectedError("This segment has no curve handle")
+            proposal, anchor = moved_handle(geometry, node_id, offset, point)
+            self.update_node(object_id, node_id, proposal)
+            if anchor.handles_aligned:
+                self.straighten_node_handles(object_id, anchor.id, offset)
 
     def straighten_node_handles(
         self, object_id: str, node_id: str, side: int | None = None
@@ -1406,12 +1426,13 @@ class Transaction:
         rotate the other. Otherwise minimize their total squared movement.
         Retracted handles stay retracted; no new handles are introduced.
         """
-        if side not in {None, 0, 2}:
-            raise EditRejectedError("Choose an incoming or outgoing handle")
-        geometry = self._working.geometry_for(object_id)
-        proposal = with_straightened_handles(geometry, node_id, side)
-        if proposal is not None:
-            self.reshape_path(object_id, proposal)
+        with self._change():
+            if side not in {None, 0, 2}:
+                raise EditRejectedError("Choose an incoming or outgoing handle")
+            geometry = self._working.geometry_for(object_id)
+            proposal = with_straightened_handles(geometry, node_id, side)
+            if proposal is not None:
+                self.reshape_path(object_id, proposal)
 
     def reshape_path(self, object_id: str, geometry: Geometry) -> None:
         """Give a path new contours while its surviving nodes keep their identity.
@@ -1445,38 +1466,40 @@ class Transaction:
         each piece ending on its own copy of the point, and a closed contour
         opens. Both copies stay selected. Returns the points' IDs, old to new:
         a closed contour's start may come out under other IDs."""
-        geometry = self._working.geometry_for(object_id)
-        copies: dict[str, set[str]] = {}
-        for node_id in node_ids:
-            geometry, mapping = break_at(geometry, node_id)
-            copies.update(mapping)
-        if not copies:
-            raise EditRejectedError(
-                "Break a line at a point between its ends, or a closed contour "
-                "at any point: a line's ends are free already"
-            )
-        self.reshape_path(object_id, geometry)
-        self._record_remap(copies)
-        return copies
+        with self._change():
+            geometry = self._working.geometry_for(object_id)
+            copies: dict[str, set[str]] = {}
+            for node_id in node_ids:
+                geometry, mapping = break_at(geometry, node_id)
+                copies.update(mapping)
+            if not copies:
+                raise EditRejectedError(
+                    "Break a line at a point between its ends, or a closed contour "
+                    "at any point: a line's ends are free already"
+                )
+            self.reshape_path(object_id, geometry)
+            self._record_remap(copies)
+            return copies
 
     def delete_segments(self, object_id: str, node_ids: frozenset[str]) -> None:
         """Take out the segments between neighbouring points among
         *node_ids*: the contour splits there, or a closed one opens."""
-        geometry = self._working.geometry_for(object_id)
-        removed: dict[str, set[str]] = {}
-        segments = segments_among(geometry, node_ids)
-        if not segments:
-            raise EditRejectedError(
-                "Select the two points at the ends of the segment to delete"
-            )
-        for segment in segments:
-            geometry, gone = delete_segment(geometry, segment)
-            removed.update(gone)
-        if not geometry.subpaths:
-            self.delete_objects(frozenset({object_id}))
-            return
-        self.reshape_path(object_id, geometry)
-        self._record_remap(removed)
+        with self._change():
+            geometry = self._working.geometry_for(object_id)
+            removed: dict[str, set[str]] = {}
+            segments = segments_among(geometry, node_ids)
+            if not segments:
+                raise EditRejectedError(
+                    "Select the two points at the ends of the segment to delete"
+                )
+            for segment in segments:
+                geometry, gone = delete_segment(geometry, segment)
+                removed.update(gone)
+            if not geometry.subpaths:
+                self.delete_objects(frozenset({object_id}))
+                return
+            self.reshape_path(object_id, geometry)
+            self._record_remap(removed)
 
     def join_ends(
         self,
@@ -1775,7 +1798,8 @@ class Transaction:
         self, object_ids: frozenset[str], *, color_source: str | None = None
     ) -> str:
         """Union one path's contours, or join paths with mixed or source colors."""
-        return self._merge_paths(object_ids, color_source)
+        with self._change():
+            return self._merge_paths(object_ids, color_source)
 
     def combine_paths(
         self, object_ids: frozenset[str], *, paint_source: str | None = None
@@ -1786,7 +1810,8 @@ class Transaction:
         Transforms are resolved when necessary; clipping is never cut into
         the geometry. Overlaps retain the source style's compound fill rule.
         """
-        return self._merge_paths(object_ids, paint_source, combine=True)
+        with self._change():
+            return self._merge_paths(object_ids, paint_source, combine=True)
 
     def _merge_paths(
         self,
@@ -2303,87 +2328,94 @@ class Transaction:
         difference (a partial overlap), the outer outline is recomputed as a
         curved boolean difference instead. Returns the outer path's ID.
         """
-        self._whole_objects()
-        document = self._working
-        elements = [e for e in document.elements() if e.id in object_ids]
-        if len(object_ids) != 2 or len(elements) != 2:
-            raise EditRejectedError("Select two paths: a shape and one to cut out")
-        if any(
-            e.tag != "path"
-            or any(a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id))
-            for e in elements
-        ):
-            raise EditRejectedError("Select two drawing paths to cut a hole")
-        styles = [path_style(document, e) for e in elements]
-        if any(style["fill"] == "none" for style in styles):
-            raise EditRejectedError("Both paths need a fill to cut a hole")
-        matrices = [root_matrix(document, e.id) for e in elements]
-        geometries = [document.geometry_for(e.id) for e in elements]
-        regions = [
-            mapped(filled_region(g, style["fill-rule"]), matrix)
-            for g, style, matrix in zip(geometries, styles, matrices, strict=True)
-        ]
-        tolerance = 1e-6 * max(r.area for r in regions) + 1e-9
-        if regions[0].intersection(regions[1]).area <= tolerance:
-            raise EditRejectedError("The two paths do not overlap")
-        # The back path is the outer one unless the front one contains it.
-        inside = [
-            regions[i].difference(regions[1 - i]).area <= 1e-4 * regions[i].area
-            for i in (0, 1)
-        ]
-        outer, inner = (1, 0) if inside[0] and not inside[1] else (0, 1)
-        outer_element, inner_element = elements[outer], elements[inner]
-        outer_geometry, inner_geometry = geometries[outer], geometries[inner]
-        if any(outer_element.id in references(e) for e in document.elements()):
-            raise EditRejectedError(
-                "This path is referenced; detach its instances before cutting a hole"
-            )
-        if sum(e.geometry_id == outer_geometry.id for e in document.elements()) != 1:
-            raise EditRejectedError("Detach shared geometry before cutting a hole")
-        rule, cutter_rule = styles[outer]["fill-rule"], styles[inner]["fill-rule"]
-        cutter = transformed_geometry(
-            inner_geometry,
-            multiply(inverse_matrix(matrices[outer]), matrices[inner]),
-        ).detached()
-        cutter = replace(
-            cutter,
-            subpaths=tuple(
-                replace(
-                    s,
-                    closed=True,
-                    nodes=tuple(replace(n, pinned=False) for n in s.nodes),
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            elements = [e for e in document.elements() if e.id in object_ids]
+            if len(object_ids) != 2 or len(elements) != 2:
+                raise EditRejectedError("Select two paths: a shape and one to cut out")
+            if any(
+                e.tag != "path"
+                or any(a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id))
+                for e in elements
+            ):
+                raise EditRejectedError("Select two drawing paths to cut a hole")
+            styles = [path_style(document, e) for e in elements]
+            if any(style["fill"] == "none" for style in styles):
+                raise EditRejectedError("Both paths need a fill to cut a hole")
+            matrices = [root_matrix(document, e.id) for e in elements]
+            geometries = [document.geometry_for(e.id) for e in elements]
+            regions = [
+                mapped(filled_region(g, style["fill-rule"]), matrix)
+                for g, style, matrix in zip(geometries, styles, matrices, strict=True)
+            ]
+            tolerance = 1e-6 * max(r.area for r in regions) + 1e-9
+            if regions[0].intersection(regions[1]).area <= tolerance:
+                raise EditRejectedError("The two paths do not overlap")
+            # The back path is the outer one unless the front one contains it.
+            inside = [
+                regions[i].difference(regions[1 - i]).area <= 1e-4 * regions[i].area
+                for i in (0, 1)
+            ]
+            outer, inner = (1, 0) if inside[0] and not inside[1] else (0, 1)
+            outer_element, inner_element = elements[outer], elements[inner]
+            outer_geometry, inner_geometry = geometries[outer], geometries[inner]
+            if any(outer_element.id in references(e) for e in document.elements()):
+                raise EditRejectedError(
+                    "This path is referenced; detach its instances "
+                    "before cutting a hole"
                 )
-                for s in cutter.subpaths
-            ),
-        )
-        expected = filled_region(outer_geometry, rule).difference(
-            filled_region(cutter, cutter_rule)
-        )
-        if expected.area <= tolerance:
-            raise EditRejectedError("Cutting this hole would leave nothing")
-        for contours in (
-            cutter.subpaths,
-            tuple(reversed_subpath(s) for s in cutter.subpaths),
-        ):
-            candidate = replace(
-                outer_geometry, subpaths=outer_geometry.subpaths + contours
+            if (
+                sum(e.geometry_id == outer_geometry.id for e in document.elements())
+                != 1
+            ):
+                raise EditRejectedError("Detach shared geometry before cutting a hole")
+            rule, cutter_rule = styles[outer]["fill-rule"], styles[inner]["fill-rule"]
+            cutter = transformed_geometry(
+                inner_geometry,
+                multiply(inverse_matrix(matrices[outer]), matrices[inner]),
+            ).detached()
+            cutter = replace(
+                cutter,
+                subpaths=tuple(
+                    replace(
+                        s,
+                        closed=True,
+                        nodes=tuple(replace(n, pinned=False) for n in s.nodes),
+                    )
+                    for s in cutter.subpaths
+                ),
             )
-            result = filled_region(candidate, rule)
-            if result.symmetric_difference(expected).area <= 1e-5 * expected.area:
-                self.reshape_path(outer_element.id, candidate)
-                break
-        else:
-            try:
-                difference = pathops.op(
-                    curve_path(outer_geometry, rule),
-                    curve_path(cutter, cutter_rule),
-                    pathops.PathOp.DIFFERENCE,
+            expected = filled_region(outer_geometry, rule).difference(
+                filled_region(cutter, cutter_rule)
+            )
+            if expected.area <= tolerance:
+                raise EditRejectedError("Cutting this hole would leave nothing")
+            for contours in (
+                cutter.subpaths,
+                tuple(reversed_subpath(s) for s in cutter.subpaths),
+            ):
+                candidate = replace(
+                    outer_geometry, subpaths=outer_geometry.subpaths + contours
                 )
-            except pathops.PathOpsError as exc:
-                raise EditRejectedError("Could not resolve the hole's outline") from exc
-            self.replace_geometry(outer_element.id, path_geometry(difference))
-        self.delete_objects(frozenset({inner_element.id}))
-        return outer_element.id
+                result = filled_region(candidate, rule)
+                if result.symmetric_difference(expected).area <= 1e-5 * expected.area:
+                    self.reshape_path(outer_element.id, candidate)
+                    break
+            else:
+                try:
+                    difference = pathops.op(
+                        curve_path(outer_geometry, rule),
+                        curve_path(cutter, cutter_rule),
+                        pathops.PathOp.DIFFERENCE,
+                    )
+                except pathops.PathOpsError as exc:
+                    raise EditRejectedError(
+                        "Could not resolve the hole's outline"
+                    ) from exc
+                self.replace_geometry(outer_element.id, path_geometry(difference))
+            self.delete_objects(frozenset({inner_element.id}))
+            return outer_element.id
 
     def extract_region(
         self,
@@ -2524,9 +2556,10 @@ class Transaction:
         geometries: tuple[Geometry, ...] = (),
     ) -> str:
         """Insert an identified subtree into an explicitly selected container."""
-        return self.insert_objects(
-            parent_id, (element,), index=index, geometries=geometries
-        )[0]
+        with self._change():
+            return self.insert_objects(
+                parent_id, (element,), index=index, geometries=geometries
+            )[0]
 
     def insert_objects(
         self,
@@ -2735,49 +2768,50 @@ class Transaction:
         stroke along its longer axis, as SVG strokes follow their transform.
         Locked position or geometry refuses the edit.
         """
-        sx, sy = scale
-        if not all(math.isfinite(v) for v in (*anchor, sx, sy)) or min(sx, sy) <= 0:
-            raise EditRejectedError("Resize needs a positive, finite scale")
-        document = self._working
-        if not object_ids:
-            raise EditRejectedError("Choose objects to resize")
-        if document.root.id in object_ids:
-            raise EditRejectedError("Cannot resize the document root")
-        ax, ay = anchor
-        page = (sx, 0.0, 0.0, sy, ax - sx * ax, ay - sy * ay)
-        changes: list[tuple[str, dict[str, str | None]]] = []
-        for object_id in sorted(object_ids):
-            ancestry = document.ancestry(object_id)
-            if any(a.id in object_ids for a in ancestry[:-1]):
-                continue
-            if any(a.tag in {"defs", "clipPath"} for a in ancestry):
-                raise EditRejectedError(
-                    "Definitions and clipping boundaries cannot be resized"
-                )
-            for kind, name in (
-                (EditKind.TRANSFORM, "position"),
-                (EditKind.GEOMETRY, "geometry"),
-            ):
-                if any(kind in a.locks for a in ancestry):
+        with self._change():
+            sx, sy = scale
+            if not all(math.isfinite(v) for v in (*anchor, sx, sy)) or min(sx, sy) <= 0:
+                raise EditRejectedError("Resize needs a positive, finite scale")
+            document = self._working
+            if not object_ids:
+                raise EditRejectedError("Choose objects to resize")
+            if document.root.id in object_ids:
+                raise EditRejectedError("Cannot resize the document root")
+            ax, ay = anchor
+            page = (sx, 0.0, 0.0, sy, ax - sx * ax, ay - sy * ay)
+            changes: list[tuple[str, dict[str, str | None]]] = []
+            for object_id in sorted(object_ids):
+                ancestry = document.ancestry(object_id)
+                if any(a.id in object_ids for a in ancestry[:-1]):
+                    continue
+                if any(a.tag in {"defs", "clipPath"} for a in ancestry):
                     raise EditRejectedError(
-                        f"{object_id}: {name} is locked; unlock it to resize"
+                        "Definitions and clipping boundaries cannot be resized"
                     )
-            frame = ancestry_matrix(ancestry[:-1])
-            local = multiply(inverse_matrix(frame), multiply(page, frame))
-            element = ancestry[-1]
-            changes.append(
-                (
-                    object_id,
-                    {
-                        "transform": _transform_text(
-                            multiply(local, transform(element.get("transform")))
+                for kind, name in (
+                    (EditKind.TRANSFORM, "position"),
+                    (EditKind.GEOMETRY, "geometry"),
+                ):
+                    if any(kind in a.locks for a in ancestry):
+                        raise EditRejectedError(
+                            f"{object_id}: {name} is locked; unlock it to resize"
                         )
-                    },
+                frame = ancestry_matrix(ancestry[:-1])
+                local = multiply(inverse_matrix(frame), multiply(page, frame))
+                element = ancestry[-1]
+                changes.append(
+                    (
+                        object_id,
+                        {
+                            "transform": _transform_text(
+                                multiply(local, transform(element.get("transform")))
+                            )
+                        },
+                    )
                 )
-            )
-            changes.extend(self._stroke_widths(ancestry, math.sqrt(sx * sy)))
-        for object_id, attributes in changes:
-            self.set_attributes(object_id, attributes)
+                changes.extend(self._stroke_widths(ancestry, math.sqrt(sx * sy)))
+            for object_id, attributes in changes:
+                self.set_attributes(object_id, attributes)
 
     def _stroke_widths(
         self, ancestry: tuple[Element, ...], factor: float
@@ -2990,9 +3024,9 @@ class Transaction:
     def commit(self) -> Snapshot:
         from vectrify.document.features import require_preserved
 
-        require_preserved(self._base.document, self._working)
-        if self._closed or self._failed:
+        if self._closed or self._failed or self._change_depth:
             raise EditRejectedError("Transaction is closed or has a failed edit")
+        require_preserved(self._base.document, self._working)
         self._closed = True
         if self._rebase and self._base.revision != self._editor.snapshot.revision:
             current = self._editor.snapshot
