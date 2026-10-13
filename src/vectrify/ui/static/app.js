@@ -15,7 +15,7 @@ import {errorView, loadErrorImage} from './reference_error.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
-let reference = null;
+let reference = null, savedVersion = null;
 let showClipping = false;
 const clipConsumers = new Map();
 // Point tools show the points of every selected path: their geometry at this
@@ -105,7 +105,6 @@ function action(command, data = {}, label = 'Applying edit…') {
         if (!window.confirm(result.message)) return false;
         result = await request('/api/action', {...payload, confirm_pinned: true});
       }
-      if (!['select', 'copy'].includes(command)) dirty = true;
       if (command === 'paste') { scope = null; focusPoint = null; pointMemory = null; }
       await applyState(result);
       return true;
@@ -156,7 +155,10 @@ function renderDrawing() {
 async function applyState(next) {
   const changed = !state || next.epoch !== state.epoch || next.revision !== state.revision;
   const replaced = !state || next.epoch !== state.epoch;
+  const referenceChanged = replaced || (next.reference_revision !== undefined && next.reference_revision !== state.reference_revision);
+  if (replaced) savedVersion = {epoch: next.epoch, project_version: next.project_version};
   state = {...state, ...next};
+  dirty = state.epoch !== savedVersion.epoch || state.project_version !== savedVersion.project_version;
   if (changed) objectsById = new Map(state.objects.map(item => [item.id, item]));
   $('filename').textContent = files.currentName(); $('dirty').textContent = dirty ? '•' : '';
   if (next.svg) renderDrawing();
@@ -187,6 +189,7 @@ async function applyState(next) {
   }
   if (activeHandle && !selectedHandle()) activeHandle = null;
   renderInspector(); drawOverlay();
+  if (referenceChanged) await loadReference();
 }
 const level = () => TOOL_LEVEL[tool];
 const parents = () => new Map(state.objects.map(item => [item.id, item.parent]));
@@ -778,19 +781,15 @@ async function pulse(result) {
   if (flash.seen === null) flash.seen = agentStatus.changes;
   // An edit the page did not make: take the session's state as it is now,
   // once the person is not mid-gesture (until then, look again soon).
-  const behind = agentStatus.changes !== agentSeen || result.epoch !== state.epoch || result.revision !== state.revision;
+  const behind = agentStatus.changes !== agentSeen || result.epoch !== state.epoch || result.project_version !== state.project_version;
   if (!behind) return;
   if (drag || pending > 0) { schedulePoll(AGENT_RETRY_MS); return; }
   agentSeen = agentStatus.changes;
   const touched = agentStatus.touched || [];
   pulsing = true;
   queue = queue.then(async () => {
-    const previous = JSON.stringify(state.reference);
     const next = await request('/api/session', {session});
-    // The agent's edits are unsaved changes like the person's.
-    if (next.epoch === state.epoch && next.revision !== state.revision) dirty = true;
     await applyState(next);
-    if (JSON.stringify(state.reference) !== previous) await loadReference();
     flashTouched(touched);
   }).catch(error => toast(error.message, true));
   try { await queue; } finally {
@@ -2797,7 +2796,12 @@ $('help').onclick=()=>$('help-dialog').showModal();$('help-close').onclick=()=>$
 const files = projectFiles({
   getState: () => state, getSession: () => session, getBridge: () => bridge,
   waitForEdits: () => queue, isDirty: () => dirty,
-  markSaved: () => { dirty = false; $('dirty').textContent = ''; },
+  markSaved: (version = state) => {
+    if (version.epoch !== state.epoch) return;
+    savedVersion = {epoch: version.epoch, project_version: version.project_version};
+    dirty = state.project_version !== savedVersion.project_version;
+    $('dirty').textContent = dirty ? '•' : '';
+  },
   request, action, setBusy, toast,
   refreshDrawing: async () => { await loadReference(); fit(); },
 });
@@ -2861,7 +2865,11 @@ function foldReference(folded) {
 try { if (localStorage.getItem('vectrify-reference-folded')) foldReference(true); } catch { /* Open by default. */ }
 $('reference-fold').onclick = () => foldReference(!$('reference-body').hidden);
 $('reference-toggle').onclick=()=>cycleReference();
-async function loadReference(){const result=await request('/api/reference');reference=result.reference;showReference();}
+async function loadReference(){
+  const result=await request('/api/reference');
+  if(result.epoch!==state.epoch||result.reference_revision<state.reference_revision)return;
+  reference=result.reference;showReference();
+}
 $('add-reference').onclick=()=>$('reference-file').click();
 $('reference-file').onchange=async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
@@ -2991,7 +2999,7 @@ async function start(){
     let result = await request('/api/session',{session:previous}); session = result.session;
     result = await files.recover(previous, result);
     sessionStorage.setItem('vectrify-session',session);
-    await applyState(result);await loadReference();fit();
+    await applyState(result);fit();
     pollAgent();
   }
   catch(error){toast(error.message,true);}finally{setBusy('',-1);}
@@ -3015,7 +3023,7 @@ const dialogs = operationDialogs({
   getState: () => state, getObject: object, waitForEdits: () => queue,
   selectionBounds: simplifyBounds, viewReport,
   operation: (command, body) => request('/api/operation', {command, ...body}),
-  applyResult: async result => { dirty = true; await applyState(result); }, toast,
+  applyResult: applyState, toast,
 });
 function tidyTargets() { return dialogs.tidyTargets(); }
 function openTidy() { return dialogs.openTidy(); }

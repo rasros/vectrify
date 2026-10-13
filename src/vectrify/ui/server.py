@@ -56,8 +56,7 @@ class Backend:
         """What the page is told of its session's drawing and agents."""
         return {
             "session": session_id,
-            "epoch": session.epoch,
-            "revision": session.editor.snapshot.revision,
+            **session.content_version(),
             "agent": self.agents.status(session_id),
         }
 
@@ -134,7 +133,10 @@ class Backend:
                     else:
                         result = self.agents.disable(session_id or "")
                 elif path == "/api/reference":
-                    result = {"reference": session.reference}
+                    result = {
+                        **session.content_version(),
+                        "reference": session.reference,
+                    }
                 elif path == "/api/reference-error":
                     session.check_revision(data)
                     if data.get("view") is not None:
@@ -147,10 +149,18 @@ class Backend:
                     }
                 elif path == "/api/export":
                     session.check_revision(data)
+                    if (
+                        "project_version" in data
+                        and data["project_version"] != session.project_version
+                    ):
+                        raise StaleRevisionError(
+                            "The project changed while saving. Save again."
+                        )
                     result = {
+                        **session.content_version(),
                         "content": session.project()
                         if data.get("project")
-                        else session.state()["svg"]
+                        else session.state()["svg"],
                     }
                     if data.get("project") and data.get("compressed"):
                         result["content"] = base64.b64encode(

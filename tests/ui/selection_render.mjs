@@ -42,6 +42,7 @@ const context = vm.createContext({
   renderInspector: () => counts.inspector++, drawOverlay: () => {},
   fit: () => counts.fit++,
   loadGeometries: async () => counts.loads++,
+  loadReference: async () => {},
   missingGeometries: () => [],
   paintSwatch: swatch => { counts.paint++; swatch.title = 'Paint'; },
   objectContext: () => ({role: ''}),
@@ -53,7 +54,7 @@ const apply = source.slice(source.indexOf('async function applyState('), source.
 const tree = source.slice(source.indexOf('let objectRows ='), source.indexOf('// Dragging rows in the tree'));
 const reveal = source.slice(source.indexOf('function revealObject('), source.indexOf('function hitStack('));
 vm.runInContext(`
-  let state, objectsById = new Map(), dirty = false, scope = null;
+  let state, savedVersion = null, objectsById = new Map(), dirty = false, scope = null;
   let focusPoint = null, pointMemory = null, geometries = new Map();
   let clickCycle = null, lastPick = null, pathHoles = new Map();
   let treeDrag = null, treeDragEnded = false, treeDropLine = {};

@@ -8,7 +8,7 @@ const {projectFiles} = await import(`data:text/javascript;base64,${Buffer.from(s
 function setup({readError = false, writeError = false, editDuringSave = null, queueError = false, restoreError = false} = {}) {
   const controls = new Map(), requests = [], errors = [], writes = [], recovery = [];
   const saved = {name:'saved.vectrify',source:'saved project'};
-  const context = {state:{name:'drawing.svg',epoch:'e',revision:3},dirty:true,busy:0,queueError};
+  const context = {state:{name:'drawing.svg',epoch:'e',revision:3,project_version:'3:0'},dirty:true,busy:0,queueError};
   globalThis.document = {
     getElementById(id) {
       if (!controls.has(id)) controls.set(id, {});
@@ -42,13 +42,13 @@ function setup({readError = false, writeError = false, editDuringSave = null, qu
       },
     }),
     waitForEdits:async() => {if (context.queueError) throw new Error('Pending edit failed');},
-    isDirty:() => context.dirty,markSaved:() => {context.dirty=false;},
+    isDirty:() => context.dirty,markSaved:(version = context.state) => {context.dirty=version.epoch!==context.state.epoch||version.revision!==context.state.revision||version.project_version!==context.state.project_version;},
     setBusy:(_label,delta) => {context.busy+=delta;},
     toast:(message,error) => {if (error) errors.push(message);},
     request:async(path,body) => {
       requests.push({path,...body});
       if (path === '/api/action' && restoreError) throw new Error('Invalid saved project');
-      return path === '/api/action' ? {epoch:'restored',revision:0} : {content:'exported project'};
+      return path === '/api/action' ? {epoch:'restored',revision:0} : {...context.state,content:'exported project'};
     },
   });
   return {files,context,requests,errors,writes,recovery,saved};
@@ -56,6 +56,7 @@ function setup({readError = false, writeError = false, editDuringSave = null, qu
 
 for (const [change,editDuringSave] of [
   ['an edit',state => ({...state,revision:state.revision+1})],
+  ['a reference replacement',state => ({...state,project_version:'3:1'})],
   ['a replacement drawing',state => ({...state,epoch:'other',name:'other.svg'})],
 ]) {
   test(`project download retains unsaved status after ${change} during its write`, async() => {
@@ -105,3 +106,12 @@ test('an invalid recovery project leaves the initial session usable', async() =>
   assert.equal(recovery.length,0,'a refused restore must not be recorded as successful');
   assert.match(errors[0],/Invalid saved project/);
 });
+
+for (const method of ['save', 'download']) {
+  test(`${method} retains a reference replacement made during its write`, async() => {
+    const {files,context,recovery} = setup({editDuringSave:state => ({...state,project_version:'3:1'})});
+    await files[method](method === 'download');
+    assert.equal(context.dirty,true);
+    assert.equal(recovery[0].source,'exported project');
+  });
+}

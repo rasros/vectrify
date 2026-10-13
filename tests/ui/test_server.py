@@ -355,7 +355,13 @@ def test_the_desktop_bridge_answers_like_the_server():
     session = opened["body"]["session"]
     assert api.request("/api/reference", {}, session) == {
         "status": 200,
-        "body": {"reference": None},
+        "body": {
+            "epoch": opened["body"]["epoch"],
+            "revision": 0,
+            "reference_revision": 0,
+            "project_version": "0:0",
+            "reference": None,
+        },
     }
     assert api.request("/api/reference", {}, "stale")["status"] == 401
     assert api.request("/api/nope", {}, session)["status"] == 404
