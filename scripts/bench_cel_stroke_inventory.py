@@ -8,9 +8,7 @@ Example: PYTHONPATH=src:. python scripts/bench_cel_stroke_inventory.py --case sw
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
-import io
 import json
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -18,28 +16,22 @@ from xml.etree import ElementTree as ET
 import numpy as np
 from PIL import Image
 
-from scripts.bench_cel_planned import DATA, MANIFEST, source_hash
+from scripts.bench_cel_planned import MANIFEST
+from scripts.cel_bench import finish, prepare
 from vectrify.document import export_svg, load_project
 from vectrify.document.join import path_style
 from vectrify.document.redraw import root_matrix
-from vectrify.project_file import decode_source
-from vectrify.refine.cel_plan.evidence import collect
-from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.stroke_inventory import StrokeInventory
 
 
 def run(case, candidate, output, *, seconds=120, crop=None):
-    revision = source_hash()
-    project = json.loads(decode_source((DATA / case["file"]).read_bytes()))
-    raster = base64.b64decode(project["reference"]["data_url"].split(",", 1)[1])
-    reference = Image.open(io.BytesIO(raster)).convert("RGBA")
-    work = Work.start(seconds)
-    evidence = collect(reference, None, Options(), work)
-    graph = build(evidence)
-    guard = Operators(evidence, graph, Options(), filled_bands=True).band_guard(work)
+    bench = prepare(case, seconds, policy=False)
+    reference, work = bench.reference, bench.work
+    guard = Operators(
+        bench.evidence, bench.graph, bench.options, filled_bands=True
+    ).band_guard(work)
     if guard is None:
         raise ValueError("Original source has no bounded independent ink bank")
     data = candidate.read_bytes()
@@ -47,9 +39,9 @@ def run(case, candidate, output, *, seconds=120, crop=None):
     report = StrokeInventory(guard).observe(document, work)
     report.update(
         {
-            "source_sha256": revision,
+            "source_sha256": bench.revision,
             "driver_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "source_raster_sha256": hashlib.sha256(raster).hexdigest(),
+            "source_raster_sha256": hashlib.sha256(bench.raster).hexdigest(),
             "candidate_sha256": hashlib.sha256(data).hexdigest(),
             "case": case["name"],
             "candidate": str(candidate),
@@ -108,10 +100,7 @@ def run(case, candidate, output, *, seconds=120, crop=None):
     background = Image.new("RGBA", reference.size, "#fafafa")
     background.alpha_composite(actual)
     background.alpha_composite(markup)
-    if source_hash() != revision:
-        raise ValueError("Source changed during the inventory replay")
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "report.json").write_text(json.dumps(report, indent=2))
+    finish(output / "report.json", report, bench.revision)
     background.save(output / "overview.png")
     if crop is not None:
         background.crop(crop).resize(

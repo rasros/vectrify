@@ -53,12 +53,21 @@ def source_hash() -> str:
     return digest.hexdigest()
 
 
+def _decode_reference(project: dict):
+    data = base64.b64decode(project["reference"]["data_url"].split(",", 1)[1])
+    with Image.open(io.BytesIO(data)) as image:
+        return image.convert("RGBA"), data
+
+
+def load_reference(path: Path):
+    """Decode the source raster and its encoded bytes; never parse the human."""
+    return _decode_reference(json.loads(decode_source(path.read_bytes())))
+
+
 def load_case(path: Path):
     project = json.loads(decode_source(path.read_bytes()))
     document, _ = load_project(json.dumps(project["document"]))
-    data = base64.b64decode(project["reference"]["data_url"].split(",", 1)[1])
-    with Image.open(io.BytesIO(data)) as image:
-        reference = image.convert("RGBA")
+    reference, _ = _decode_reference(project)
     return export_svg(document), reference
 
 

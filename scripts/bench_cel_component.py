@@ -27,22 +27,19 @@ from scripts.bench_cel_planned import (
     MANIFEST,
     load_case,
     save_render,
-    source_hash,
 )
+from scripts.cel_bench import finish, prepare
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan.contracts import State
 from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.core_materials import candidate
-from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.families import Families
-from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
+from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.opacity_fields import OpacityFields
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import (
     foreground_mask,
@@ -222,23 +219,16 @@ def run(
         )
     ):
         raise ValueError("Regional facets require connected dynamic core cells")
-    started, revision = time.monotonic(), source_hash()
+    started, reference = time.monotonic(), None
     if case.get("paired"):
         from scripts.cel_pairs import pair
 
         _, _, reference = pair(
             case, "clean", case["long_side"], case["composition_opacity"]
         )
-    else:
-        _, reference = load_case(DATA / case["file"])
-    truth = np.asarray(reference, dtype=np.float32) / 255
-    mask = foreground_mask(truth)
-    if digest(mask.tobytes()) != case["mask_sha256"]:
-        raise ValueError("Fixture mask differs from frozen benchmark")
-    options, work = Options(refine=False), Work.start(seconds)
-    evidence = collect(reference, None, options, work)
-    graph = build(evidence, work=work)
-    policy = Policy.from_evidence(evidence, graph)
+    bench = prepare(case, seconds, refine=False, graph_work=True, reference=reference)
+    truth, mask, options, work = bench.truth, bench.mask, bench.options, bench.work
+    evidence, graph, policy = bench.evidence, bench.graph, bench.policy
     fallback, fallback_metadata = export(
         evidence, evidence.labels, options, work, conservative=True
     )
@@ -433,15 +423,13 @@ def run(
             sheet.convert("RGB").save(
                 output / f"{row['name']}-{feature.replace(' ', '-')}.png"
             )
-    if source_hash() != revision:
-        raise ValueError("Algorithm source changed during benchmark")
     report = {
         "case": case["name"],
         "purpose": (
             "source component comparison; diagnostic only; "
             "not selected operation output"
         ),
-        "source_sha256": revision,
+        "source_sha256": bench.revision,
         "reference_rgba_sha256": digest(truth.tobytes()),
         "clean_svg_sha256" if case.get("paired") else "human_svg_sha256": digest(
             human_svg.encode()
@@ -456,7 +444,7 @@ def run(
         "family": case.get("family"),
         "split": case.get("set"),
         "heldout_evaluation": False,
-        "mask_sha256": digest(mask.tobytes()),
+        "mask_sha256": bench.mask_sha256,
         "settings": {"complexity": 50, "quality": "balanced", "refine": False},
         "normalizer": actual_normalizer,
         "proposal": proposal,
@@ -501,11 +489,9 @@ def run(
         else None,
         "rows": rows,
     }
-    report = finite_json(report)
-    (output / "summary.json").write_text(
-        json.dumps(report, indent=2, allow_nan=False) + "\n"
+    return finish(
+        output / "summary.json", finite_json(report), bench.revision, allow_nan=False
     )
-    return report
 
 
 def main():

@@ -30,13 +30,13 @@ over two at half its darkness). The scores:
 - mse: mean squared difference of the renderings, in 0-255 RGB;
 - paths, points, strokes, and ink_fills (ink drawn as filled shapes).
 
-    uv run python scripts/bench_lines.py --out runs/lines.jsonl
-    uv run python scripts/bench_lines.py --inputs clean --renders runs/r
-    uv run python scripts/bench_lines.py --set regions=80 --out runs/b.jsonl
-    uv run python scripts/bench_lines.py --compare runs/lines.jsonl runs/b.jsonl
-    uv run python scripts/bench_lines.py --rescore runs/r --out runs/r.jsonl
-    uv run python scripts/bench_lines.py --tidy snap,simplify --out runs/t.jsonl
-    uv run python scripts/bench_lines.py --compare runs/lines.jsonl runs/t.jsonl
+    uv run python -m scripts.bench_lines --out runs/lines.jsonl
+    uv run python -m scripts.bench_lines --inputs clean --renders runs/r
+    uv run python -m scripts.bench_lines --set regions=80 --out runs/b.jsonl
+    uv run python -m scripts.bench_lines --compare runs/lines.jsonl runs/b.jsonl
+    uv run python -m scripts.bench_lines --rescore runs/r --out runs/r.jsonl
+    uv run python -m scripts.bench_lines --tidy snap,simplify --out runs/t.jsonl
+    uv run python -m scripts.bench_lines --compare runs/lines.jsonl runs/t.jsonl
 
 `--tidy STEPS` also runs Tidy (improve/nodes, the steps a comma list of
 snap, simplify, detail and shape) on the trace's `--tidy-paths` largest
@@ -67,7 +67,7 @@ drawings are downloaded once into ~/.cache/vectrify-bench/heldout:
 - https://commons.wikimedia.org/wiki/Special:FilePath/Angry_Wikipe-tan.svg
   (CC BY-SA 3.0; Kasuga, Mikael Häggström, Esby and Antonsusi)
 
-    uv run python scripts/bench_lines.py --heldout --out runs/heldout.jsonl
+    uv run python -m scripts.bench_lines --heldout --out runs/heldout.jsonl
 
 Both sets also hold drawings made for this bench (svg-*), in
 scripts/bench_data/svg, made to be hard: gradient fills (linear and
@@ -206,8 +206,8 @@ def main() -> None:
         return
     if args.tidy and args.rescore:
         parser.error("--tidy needs the inputs, so it cannot --rescore")
-    settings = dict(_setting(item) for item in args.set)
-    nodes = dict(_setting(item) for item in args.nodes)
+    settings = dict(setting(item) for item in args.set)
+    nodes = dict(setting(item) for item in args.nodes)
     rows = []
     names = args.references or list(HELDOUT if args.heldout else REFERENCES)
     for name in names:
@@ -448,8 +448,7 @@ def tidy(
     """(*svg* with Tidy run on its *count* largest paths, -1 all, with the
     comma list *steps* and the settings *nodes*, against *image*; what Tidy
     did, as bench_trace's optimize reports it, less the per-path list)."""
-    from bench_trace import OPTIMIZE, _steps, optimize
-
+    from scripts.bench_trace import OPTIMIZE, _steps, optimize
     from vectrify.document import Editor, Selection, export_svg, import_svg
 
     editor = Editor(import_svg(svg), selection=Selection(whole_document=True))
@@ -560,7 +559,7 @@ def _edges(rgb: np.ndarray) -> np.ndarray:
     return thin(edges)
 
 
-def _setting(item: str) -> tuple[str, object]:
+def setting(item: str) -> tuple[str, object]:
     key, _, value = item.partition("=")
     lowered = value.lower()
     if lowered in {"true", "false"}:

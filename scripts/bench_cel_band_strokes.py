@@ -9,40 +9,27 @@ This is an offline diagnostic, not an operation scheduling or release result.
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
-import io
 import json
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from scripts.bench_cel_planned import DATA, MANIFEST, source_hash
+from scripts.bench_cel_planned import MANIFEST
+from scripts.cel_bench import finish, prepare
 from vectrify.document import export_svg, import_svg, load_project, save_project
-from vectrify.project_file import decode_source
 from vectrify.refine.cel_plan.contracts import State
-from vectrify.refine.cel_plan.evidence import collect
-from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
 
 
 def run(case, parent: Path, output: Path, *, seconds=180):
-    revision = source_hash()
-    project = json.loads(decode_source((DATA / case["file"]).read_bytes()))
-    # Decode the original raster only; never parse the human drawing.
-    image_bytes = base64.b64decode(project["reference"]["data_url"].split(",", 1)[1])
-    with Image.open(io.BytesIO(image_bytes)) as image:
-        reference = image.convert("RGBA")
-    work, options = Work.start(seconds), Options()
-    evidence = collect(reference, None, options, work)
-    graph = build(evidence)
-    policy = Policy.from_evidence(evidence, graph)
+    bench = prepare(case, seconds)
+    reference, options, work = bench.reference, bench.options, bench.work
+    evidence, graph, policy = bench.evidence, bench.graph, bench.policy
     svg = (parent / "parent.svg").read_text()
     partition = Partition.from_metadata(
         json.loads((parent / "partition.json").read_text())
@@ -111,12 +98,10 @@ def run(case, parent: Path, output: Path, *, seconds=180):
                 "project_roundtrip_equal": True,
             }
         )
-    if source_hash() != revision:
-        raise ValueError("Band benchmark algorithm sources changed during execution")
     report = {
-        "source_sha256": revision,
+        "source_sha256": bench.revision,
         "parent_sha256": hashlib.sha256(svg.encode()).hexdigest(),
-        "source_raster_sha256": hashlib.sha256(image_bytes).hexdigest(),
+        "source_raster_sha256": hashlib.sha256(bench.raster).hexdigest(),
         "status": "interrupted" if work.interrupted else "complete",
         "case": case["name"],
         "parent": baseline.metrics(),
@@ -125,8 +110,7 @@ def run(case, parent: Path, output: Path, *, seconds=180):
         "release_evidence": False,
         "scope": "offline whole-owner inversion; no human drawing input",
     }
-    (output / "report.json").write_text(json.dumps(report, indent=2))
-    return report
+    return finish(output / "report.json", report, bench.revision)
 
 
 def main():

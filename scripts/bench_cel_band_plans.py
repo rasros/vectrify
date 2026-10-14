@@ -9,9 +9,7 @@ This diagnostic does not establish operation scheduling or release quality.
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
-import io
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -20,35 +18,25 @@ import numpy as np
 import pathops
 from PIL import Image
 
-from scripts.bench_cel_planned import DATA, MANIFEST, source_hash
+from scripts.bench_cel_planned import MANIFEST
+from scripts.cel_bench import finish, prepare
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import curve_path, transformed_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
-from vectrify.project_file import decode_source
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.contracts import Proposal, State
-from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.frontier import Frontier
-from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators, bounds
 from vectrify.refine.cel_plan.score import render
 
 
 def run(case, captured, output, *, seconds=180):
-    revision = source_hash()
-    project = json.loads(decode_source((DATA / case["file"]).read_bytes()))
-    raster = base64.b64decode(project["reference"]["data_url"].split(",", 1)[1])
-    with Image.open(io.BytesIO(raster)) as image:
-        reference = image.convert("RGBA")
-    work, options = Work.start(seconds), Options()
-    evidence = collect(reference, None, options, work)
-    graph = build(evidence)
-    policy = Policy.from_evidence(evidence, graph)
+    bench = prepare(case, seconds)
+    reference, options, work = bench.reference, bench.options, bench.work
+    evidence, graph, policy = bench.evidence, bench.graph, bench.policy
     local = LocalPolicy(policy)
     ancestor, _ = load_project((captured / "ancestor.project.json").read_text())
     planned, _ = load_project((captured / "planned.project.json").read_text())
@@ -295,12 +283,10 @@ def run(case, captured, output, *, seconds=180):
         )
     if len({row["file"] for row in rows}) != len(rows):
         raise ValueError("Candidate artifact names must be unique")
-    if revision != source_hash():
-        raise ValueError("Algorithm sources changed during co-planning benchmark")
     report = {
-        "source_sha256": revision,
+        "source_sha256": bench.revision,
         "case": case["name"],
-        "source_raster_sha256": hashlib.sha256(raster).hexdigest(),
+        "source_raster_sha256": hashlib.sha256(bench.raster).hexdigest(),
         "captured_material_sha256": hashlib.sha256(parent_svg.encode()).hexdigest(),
         "status": "interrupted" if work.interrupted else "complete",
         "parent": baseline.metrics(),
@@ -319,8 +305,7 @@ def run(case, captured, output, *, seconds=180):
             for c in (0, 25, 50, 75, 100)
         },
     }
-    (output / "report.json").write_text(json.dumps(report, indent=2))
-    return report
+    return finish(output / "report.json", report, bench.revision)
 
 
 def main():

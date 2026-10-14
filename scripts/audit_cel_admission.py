@@ -21,16 +21,13 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy.ndimage import find_objects, label
 
-from scripts.bench_cel_planned import DATA, MANIFEST, load_case, source_hash
+from scripts.bench_cel_planned import DATA, MANIFEST, load_case
+from scripts.cel_bench import finish, prepare
 from vectrify.document import import_svg
 from vectrify.document.transforms import object_matrix
-from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
-from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.opacity import VISIBLE
-from vectrify.refine.cel_plan.policy import Policy
-from vectrify.refine.cel_plan.score import composite, foreground_mask, render
+from vectrify.refine.cel_plan.score import composite, render
 from vectrify.refine.crossings import contour_line, crossing_pairs
 
 
@@ -375,16 +372,10 @@ def main():
     if args.case not in cases:
         parser.error(f"Unknown case: {args.case}")
     case = cases[args.case]
-    start_hash = source_hash()
-    human, reference = load_case(DATA / case["file"])
-    truth = np.asarray(reference, dtype=np.float32) / 255
-    mask_hash = hashlib.sha256(foreground_mask(truth).tobytes()).hexdigest()
-    if mask_hash != case["mask_sha256"]:
-        raise ValueError("Fixture mask differs from frozen benchmark")
-    options, work = Options(refine=False), Work.start(args.seconds)
-    evidence = collect(reference, None, options, work)
-    graph = build(evidence, work=work)
-    policy = Policy.from_evidence(evidence, graph)
+    bench = prepare(case, args.seconds, refine=False, graph_work=True)
+    human, _ = load_case(DATA / case["file"])
+    truth, options, work = bench.truth, bench.options, bench.work
+    evidence, policy = bench.evidence, bench.policy
     fallback, _ = export(evidence, evidence.labels, options, work, conservative=True)
     baseline = policy.evaluate(fallback)
     if not baseline.valid:
@@ -403,11 +394,9 @@ def main():
             f"{name}: {len(findings)} findings; {report['validation_rejections']}",
             flush=True,
         )
-    if source_hash() != start_hash:
-        raise ValueError("Algorithm source changed during audit")
     report = {
-        "source_sha256": start_hash,
-        "mask_sha256": mask_hash,
+        "source_sha256": bench.revision,
+        "mask_sha256": bench.mask_sha256,
         "reference_rgba_sha256": hashlib.sha256(truth.tobytes()).hexdigest(),
         "purpose": "diagnostic only; human geometry never supplied to generation",
         "options": {"complexity": 50, "quality": "balanced", "refine": False},
@@ -416,7 +405,7 @@ def main():
         "baseline_svg_sha256": hashlib.sha256(fallback.encode()).hexdigest(),
         "rows": rows,
     }
-    (args.out / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+    finish(args.out / "summary.json", report, bench.revision)
 
 
 if __name__ == "__main__":
