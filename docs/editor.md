@@ -25,11 +25,12 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 ## Layout
 
 - **Top bar**: the name, the drawing's title and the file actions
-  (**Commands**, **Open…**, **Restore saved…**, **Save**, **Save As…**, **Export
-  SVG**). It keeps to one row at any width down to a phone's: the badge, the
-  Ctrl K hint and then the title make room first, and the actions that still
-  do not fit move into a **⋯** menu at its end, the least important first
-  (**Restore saved…**, then **Open…**, then **Save As…** and **Save**), so
+  (**Commands**, **New…**, **Open…**, **Restore saved…**, **Save**, **Save
+  As…**, **Export SVG**). It keeps to one row at any width down to a phone's:
+  the badge, the Ctrl K hint and then the title make room first, and the
+  actions that still do not fit move into a **⋯** menu at its end, the least
+  important first (**New…** and **Restore saved…**, then **Open…**, then
+  **Save As…** and **Save**), so
   **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`A`),
@@ -103,7 +104,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   repair, nodes, reference tools, open, save, export, view), with its
   shortcut. ↑ / ↓ choose, Enter runs, Escape closes. A command that cannot
   run now shows why instead.
-- The footer shows the artboard size, the reference overlay toggle (`W`),
+- The footer shows the artboard size, which opens the **Artboard** dialog
+  (see New drawings and the artboard), the reference overlay toggle (`W`),
   with its opacity and an amber canvas border while it is visible, and zoom.
   `W` cycles the view: the drawing, the reference over it, the reference
   alone at full strength, and the reference error. `Shift+W` cycles backward.
@@ -870,15 +872,50 @@ session; after a server restart, the tab restores that saved project. Edits made
 after the last save are not included in recovery. **Restore saved** also lets
 you choose a saved browser recovery copy from a new tab.
 
+### New drawings and the artboard
+
+**New…** in the top bar (or `Ctrl/⌘ Alt N`, or **New drawing…** in the
+command palette) starts an empty drawing. Its dialog asks for the artboard's
+width and height in document units (SVG pixels), starting from the current
+drawing's. The new drawing replaces this one exactly as **Open…** does: with
+unsaved edits it asks first, and it starts as `Untitled.svg` with no file to
+save to, no reference image and a fresh undo history. The tab's recovery copy
+stays the last one saved until you save the new drawing.
+
+The artboard is the drawing's page: the root's `viewBox`, which the canvas
+frames, SVG export shows and every method measures the reference against.
+Clicking its size in the footer (or **Artboard size…** in the palette) opens
+the **Artboard** dialog with its **X** and **Y** (the top-left corner) and
+**Width** and **Height**. Changing them never touches the artwork: nothing
+is moved, scaled or cropped, and what falls outside the artboard stays in
+the drawing and in exported SVG, only off the page. Width and height grow or
+shrink the page from its top-left corner; X and Y move that corner. **Fit to
+artwork** (also **Fit artboard to artwork** in the palette) makes the
+artboard the painted bounds of everything drawn, strokes included. A root
+`width` and `height`, if the file has them, keep their ratio to the
+`viewBox`, so the drawing keeps its scale. Each change is one undoable edit,
+saved with the drawing, and the canvas keeps the artwork where it was on
+screen.
+
+The reference image keeps its place in the drawing: it stays over the part
+of the artwork it covered and shows only where it overlaps the new artboard.
+Methods, sampling and the reference error view see it the same way, cropped,
+or padded with transparency (white in comparisons) where the artboard grew
+past it; undoing the artboard change puts it back over the whole page.
+Projects save where the reference lies. Only loading a reference fits it to
+the artboard (see Operations); changing the artboard never refits it.
+
 ## Operations
 
 The **Reference** panel, below the objects on the left, is where the
 reference lives, whichever tool is active: **Load…** (or **Replace…**) takes
 a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
-it. The reference always covers the artboard, so a new image is fitted to it
+it. A new reference covers the artboard, so the image is fitted to it
 without distortion: an empty drawing takes the image's size as its artboard
 (one undoable edit), and a drawing with content keeps its artboard while the
-image is centred on a transparent canvas of the artboard's shape. With a reference loaded the panel picks the view (**Drawing**,
+image is centred on a transparent canvas of the artboard's shape. It then
+keeps that place when the artboard changes (see New drawings and the
+artboard). With a reference loaded the panel picks the view (**Drawing**,
 **Overlay** or **Reference** alone, as `W` cycles them) and the overlay's
 opacity; its heading gives the state. Below are the tools that compare the
 drawing with it: **Generate…**, **Tidy…**, **Fit colours…** and **Fit

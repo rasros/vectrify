@@ -238,3 +238,32 @@ context.dirty=true;
 context.bridge=Promise.resolve({save_target:async()=> 'opened.svg',save:async()=>{context.state.revision++;return 'opened.svg';}});
 await files.save();
 assert.equal(context.dirty,true);
+
+// A new drawing replaces this one as opening does: unsaved edits are asked
+// about first, and only a successful replacement forgets the saved file.
+context.bridge = null;
+context.dirty = true;
+context.window.confirm = () => false;
+const beforeNew = actions.length;
+assert.equal(await files.newDrawing(640, 480), false);
+assert.equal(actions.length, beforeNew);
+assert.equal(context.dirty, true);
+let asked = '';
+context.window.confirm = message => {asked = message; return true;};
+context.action = async () => false;
+assert.equal(await files.newDrawing(640, 480), false);
+assert.equal(files.currentName(), 'opened.svg', 'a refused new drawing keeps the save destination');
+assert.equal(context.dirty, true);
+context.action = originalAction;
+assert.equal(await files.newDrawing(640, 480), true);
+assert.match(asked, /Start a new drawing\?/);
+assert.equal(actions.at(-1).command, 'open');
+assert.equal(actions.at(-1).name, 'Untitled.svg');
+assert.match(actions.at(-1).source, /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" width="640" height="480" viewBox="0 0 640 480"\/>$/);
+assert.equal(context.dirty, false);
+context.state = {...context.state, name: 'Untitled.svg'};
+assert.equal(files.currentName(), 'Untitled.svg');
+// A clean drawing is replaced without asking.
+asked = '';
+assert.equal(await files.newDrawing(100, 50), true);
+assert.equal(asked, '');

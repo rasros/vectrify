@@ -51,3 +51,15 @@ let prevented = false;
 for (const handler of window.listeners.get('keydown')) handler({key:'?',code:'Slash',preventDefault() {prevented = true;}});
 assert.equal(prevented, true);
 assert.equal($('help-dialog').open, true, 'keyboard wiring reaches the same dialog');
+$('help-dialog').close();
+
+// Ctrl/⌘ Alt N reaches New drawing through the command registry; the
+// footer's artboard size opens the Artboard dialog.
+prevented = false;
+for (const handler of window.listeners.get('keydown')) handler({key:'n',code:'KeyN',ctrlKey:true,altKey:true,preventDefault() {prevented = true;}});
+assert.equal(prevented, true);
+assert.equal($('new-dialog').open, true, 'Ctrl Alt N opens New drawing');
+assert.equal($('new-width').value, '100');
+$('new-dialog').close();
+$('dimensions').onclick();
+assert.equal($('artboard-dialog').open, true, 'the footer size opens the Artboard dialog');

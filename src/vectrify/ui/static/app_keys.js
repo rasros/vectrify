@@ -86,6 +86,10 @@ export function createKeysController(editor, {
     if(event.key==='F2'&&!typing&&!dialog&&oneObject()){event.preventDefault();later(()=>{if(oneObject())renameObject();});return;}
     if(event.key==='Escape'&&editor.treeDrag){event.preventDefault();endTreeDrag(false);return;}
     if(mod&&!event.altKey&&key==='k'){event.preventDefault();if(!dialog)openPalette();return;}
+    // Ctrl/⌘ Alt N: browsers keep Ctrl/⌘ N and Shift N for windows. The key's
+    // code, as Option N types a character on a Mac; not in a field, where
+    // Ctrl Alt is AltGr and may type one.
+    if(mod&&event.altKey&&!event.shiftKey&&event.code==='KeyN'&&!typing&&!dialog){event.preventDefault();if(!event.repeat)runCommand('new-drawing');return;}
     if(typing||dialog)return;
     if(event.code==='Space'){event.preventDefault();editor.space=true;return;}
     if(event.key==='Escape'){

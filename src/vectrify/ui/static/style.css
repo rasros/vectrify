@@ -59,6 +59,12 @@
 #clip-geometry-detail { margin-bottom: 0; }
 #clip-summary { color: #d5e6db; }
 #clip-error { color: #f0b7a7; font-size: 12px; }
+.size-dialog { width: min(440px, calc(100vw - 48px)); }
+.size-dialog .two-fields + .two-fields { margin-top: 10px; }
+.size-dialog .size-fit { margin-right: auto; }
+#new-error, #artboard-error { color: #f0b7a7; font-size: 12px; }
+.canvas-footer #dimensions { padding: 3px 8px; font-size: 10px; color: inherit; background: transparent; border-color: transparent; }
+.canvas-footer #dimensions:hover, .canvas-footer #dimensions:focus-visible { color: #d2e2d7; border-color: var(--line); }
 
 #stage.panning, #stage.panning * { cursor: grabbing !important; }
 

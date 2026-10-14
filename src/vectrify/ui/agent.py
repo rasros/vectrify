@@ -163,6 +163,8 @@ LEFT_OUT = {
     "sends detach, which converts basic shapes and instances alike.",
     "add_shape": "The UI's Rectangle, Ellipse and Line tools; agents draw any "
     "outline, a basic one included, with add_path.",
+    "artboard": "The person's page set-up: agents work within the artboard "
+    "describe reports and never resize the person's page.",
     "align": "The UI's Align, measured in the window; agents read each "
     "object's bounds with describe and move it with transform(dx, dy).",
     "distribute": "The UI's Distribute, measured in the window; agents read "
@@ -418,7 +420,7 @@ class Agent:
         self._renders: OrderedDict[tuple, Image.Image] = OrderedDict()
         self._index: tuple[tuple, HitIndex] | None = None
         self._svg: tuple[tuple, str] | None = None
-        self._reference: tuple[str, Image.Image] | None = None
+        self._reference: tuple[tuple, Image.Image] | None = None
         # For the window: how many calls changed something, and the last one.
         self.changes = 0
         self.last_action: str | None = None
@@ -690,11 +692,16 @@ class Agent:
         reference = self.session.reference
         if not reference:
             return None
-        url = reference["data_url"]
-        if self._reference is None or self._reference[0] != url:
+        # The image is placed over the artboard, so it changes with either.
+        key = (
+            reference["data_url"],
+            tuple(reference.get("box") or ()),
+            self.session.editor.snapshot.document.artboard(),
+        )
+        if self._reference is None or self._reference[0] != key:
             image = self.session.reference_image()
             assert image is not None
-            self._reference = (url, on_white(image))
+            self._reference = (key, on_white(image))
         return self._reference[1]
 
     def _region(self, region: Any) -> Box:

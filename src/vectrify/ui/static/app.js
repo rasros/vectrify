@@ -41,6 +41,7 @@ import {createRegionController} from './app_region.js';
 import {createEyedropperController} from './app_eyedropper.js';
 import {createAlignController} from './app_align.js';
 import {createBooleansController} from './app_booleans.js';
+import {createDocumentController} from './app_document.js';
 
 // Compose controllers with explicit live state and named collaborators.
 export function createApplication({document = globalThis.document, window = globalThis.window, location = globalThis.location} = {}) {
@@ -82,11 +83,13 @@ export function createApplication({document = globalThis.document, window = glob
     loadReference: (...args) => reference_dataController.loadReference(...args),
     missingGeometries: (...args) => geometryController.missingGeometries(...args),
     overlay,
+    placeReference: (...args) => referenceController.placeReference(...args),
     renderDrawing: (...args) => drawingController.renderDrawing(...args),
     renderInspector: (...args) => paintController.renderInspector(...args),
     renderObjects: (...args) => treeController.renderObjects(...args),
     selectedHandle: (...args) => selectionController.selectedHandle(...args),
     updateObjectSelection: (...args) => treeController.updateObjectSelection(...args),
+    updateView: (...args) => viewController.updateView(...args),
   });
   const drawingController = createDrawingController(editor, {
     document,
@@ -171,6 +174,7 @@ export function createApplication({document = globalThis.document, window = glob
     eyedropperSourceRefusal: (...args) => eyedropperController.sourceRefusal(...args),
     eyedropperTargetRefusal: (...args) => eyedropperController.targetRefusal(...args),
     files,
+    fitArtboard: (...args) => documentController.fitArtboard(...args),
     fillPaths: (...args) => commandsController.fillPaths(...args),
     fillPointHoles: (...args) => selectionController.fillPointHoles(...args),
     finishPath: (...args) => toolsController.finishPath(...args),
@@ -191,9 +195,11 @@ export function createApplication({document = globalThis.document, window = glob
     nodeAt: (...args) => geometryController.nodeAt(...args),
     object: (...args) => sessionController.object(...args),
     oneObject: (...args) => sessionController.oneObject(...args),
+    openArtboard: (...args) => documentController.openArtboard(...args),
     openCleanup,
     openColours,
     openGenerate,
+    openNewDrawing: (...args) => documentController.openNewDrawing(...args),
     openPalette: (...args) => commandsController.openPalette(...args),
     openSetClip: (...args) => clippingController.openSetClip(...args),
     openSnapEdges,
@@ -749,6 +755,12 @@ export function createApplication({document = globalThis.document, window = glob
     stepUp: (...args) => canvasController.stepUp(...args),
     window,
   });
+  const documentController = createDocumentController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    files,
+    toast: (...args) => transportController.toast(...args),
+  });
   function download(project) { return files.download(project); }
   async function start(){
     transportController.setBusy('Opening editor…',1);
@@ -832,6 +844,7 @@ export function createApplication({document = globalThis.document, window = glob
       referenceController.wire();
       reference_dataController.wire();
       keysController.wire();
+      documentController.wire();
       return application;
   }
   const application = {
@@ -876,6 +889,7 @@ export function createApplication({document = globalThis.document, window = glob
     reference: referenceController,
     reference_data: reference_dataController,
     keys: keysController,
+    document: documentController,
     files,
     dialogs,
     start,
