@@ -1,6 +1,6 @@
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, rotate, gradient, knife, region, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, rotate, gradient, knife, region, eyedropper, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
@@ -97,6 +97,14 @@ export function canvasGestures({view, path, shapes, selection, nodes, resize, mo
         if (!gesture.moved) return selection.pick(gesture);
         region.rectangle(gesture);
       },
+    },
+    // Eyedropper: the sample is taken where the press is released, the mark
+    // following a drag; Escape before then cancels it, changing nothing.
+    eyedropper: {
+      press(gesture, event) { const p = point(event); gesture.at = {x: p.x, y: p.y}; drawOverlay(); },
+      move(gesture, event) { const p = point(event); gesture.at = {x: p.x, y: p.y}; drawOverlay(); },
+      async release(gesture) { drawOverlay(); await eyedropper.sample(gesture.at); },
+      cancel: () => drawOverlay(),
     },
     regionCorner: {
       press(gesture, event) { const p = point(event); gesture.at = {x: p.x, y: p.y}; },

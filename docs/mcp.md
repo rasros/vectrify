@@ -296,7 +296,9 @@ be a polygon `[[x, y], ...]`.
   holes, strokes with their width, caps and joins, through transforms and
   clips; not bounding boxes. Its `colour` gives the drawing's and the
   reference's colour there (the mean over a disc of `radius`, at least half
-  a unit) and their `difference` (RGB distance, 0 to 1).
+  a unit, opaque: the drawing over white and the reference composited onto
+  white, as the editor's Eyedropper samples them) and their `difference`
+  (RGB distance, 0 to 1).
 - `render(region?, overlay?, max_side?, grid?)`: the drawing; `region` in
   document units, or `"view"` for exactly what the window shows (its region
   at its pixel size, with the reference over it, alone, or the shared error

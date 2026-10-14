@@ -481,6 +481,63 @@ class Session:
             self._reference_error = (key, image)
             return image
 
+    def sample(self, payload: dict) -> dict:
+        """The Eyedropper's colour at *payload*'s point: the artwork's or
+        the reference's, sampled as MCP's pick samples it (see
+        agent_look.sample_colour) over *radius* document units.
+
+        Nothing changes; the page applies the colour with a paint edit.
+        """
+        from vectrify.image_utils import on_white
+        from vectrify.ui import agent_look
+        from vectrify.ui.agent import crop_reference, render_document
+
+        self.check_revision(payload)
+        source = payload.get("source")
+        if source not in {"artwork", "reference"}:
+            raise DocumentError("Sample the artwork or the reference")
+        try:
+            x, y = (number(v) for v in payload["at"])
+            radius = number(payload.get("radius", 0))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DocumentError("Sample at a point [x, y] in the drawing") from exc
+        if radius < 0:
+            raise DocumentError("A sample's radius must not be negative")
+        with self.lock:
+            document = self.editor.snapshot.document
+            artboard = document.artboard()
+            if source == "artwork":
+                svg = self._exported_svg()
+
+                def render(box: tuple, size: tuple[int, int]) -> Image.Image:
+                    return render_document(svg, box, size)
+
+            else:
+                reference = self.reference_image()
+                if reference is None:
+                    raise DocumentError(
+                        "No reference is loaded: load an image under Reference "
+                        "to sample it"
+                    )
+                ax, ay, aw, ah = artboard
+                if not (ax <= x <= ax + aw and ay <= y <= ay + ah):
+                    raise DocumentError(
+                        "The reference covers only the artboard: sample inside it"
+                    )
+                picture = on_white(reference)
+
+                def render(box: tuple, size: tuple[int, int]) -> Image.Image:
+                    return crop_reference(picture, artboard, box, size)
+
+            colour = agent_look.sample_colour(render, (x, y), radius)
+            return {
+                **self.content_version(),
+                "source": source,
+                "at": [x, y],
+                "radius": max(radius, agent_look.MIN_SAMPLE_RADIUS),
+                "colour": agent_look.hex_colour(colour),
+            }
+
     def _object_state(self, document: Document) -> list[dict]:
         # Documents are immutable. Selection changes keep this metadata
         # valid, including labels, hierarchy, paint and inherited locks.
@@ -604,11 +661,16 @@ class Session:
             else None,
         }
         if svg:
-            if self._svg_revision != snapshot.revision:
-                self._svg = export_svg(snapshot.document)
-                self._svg_revision = snapshot.revision
-            result["svg"] = self._svg
+            result["svg"] = self._exported_svg()
         return result
+
+    def _exported_svg(self) -> str:
+        """The drawing as SVG, exported once per revision."""
+        snapshot = self.editor.snapshot
+        if self._svg_revision != snapshot.revision:
+            self._svg = export_svg(snapshot.document)
+            self._svg_revision = snapshot.revision
+        return self._svg
 
     def nodes(self, object_id: str) -> dict:
         document = self.editor.snapshot.document

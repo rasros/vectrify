@@ -36,7 +36,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   **Move** (`V`), **Knife** (`C`), **Region** (`X`) and **Gradient** (`G`), the point tools **Nodes** (`S`) and
   **Redraw outline** (`R`), the drawing tools **Draw path** (`D`),
   **Rectangle** (`M`), **Ellipse** (`E`) and **Line** (`L`), which create and
-  ignore the selection, and **Pan** (hold Space). The Reference panel holds the reference
+  ignore the selection, the **Eyedropper** (`I`), and **Pan** (hold Space). The Reference panel holds the reference
   image and the tools that match the drawing to it (see Operations); its heading folds it
   away, and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
@@ -50,7 +50,10 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel; Rectangle
   and Ellipse have W and H, Line has Length and Angle, and Rectangle has
   Corners; all four drawing tools end with the drawing paint (Fill, Stroke and
-  Width). Knife, Region, Gradient, Redraw outline, the drawing tools and Pan show a
+  Width). The Eyedropper has **Artwork** / **Reference** (what it samples),
+  **Fill** / **Stroke** (what the sample sets) and a status saying where the
+  next sample goes. Knife, Region, Gradient, Redraw outline, the drawing
+  tools, the Eyedropper and Pan show a
   one-line hint; Region's choices are in its own panel over the canvas. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
   important of them (Add node, the coordinates and the hole commands first, and so on) move
@@ -707,6 +710,10 @@ and saved projects restore it.
   The handles show only in this tool, so they never compete with Move's
   frame, rotation handle and dragging, even where an end sits on a corner.
   A press anywhere else selects and box-selects as in Select.
+- The **Eyedropper** (`I`) samples a colour from the artwork or the
+  reference (see Sampling colours below) and makes it the fill or the
+  stroke of the selected objects, or with nothing selected the drawing
+  paint new shapes and paths take.
 - The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
   one gesture, like a magnetic lasso: a missing spike, a notch or a grass
   blade. Press on a path's outline (or on one of its points), draw roughly
@@ -736,12 +743,13 @@ and saved projects restore it.
 Keyboard shortcuts are available from the `?` button. They come in three
 layers that never collide. Tool and view keys: `A`
 Select, `V` Move, `S` Nodes, `D` Draw path, `M` Rectangle, `E` Ellipse, `L` Line,
-`C` Knife, `X` Region, `G` Gradient and `R` Redraw outline switch
+`I` Eyedropper, `C` Knife, `X` Region, `G` Gradient and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
 controls (in Nodes: 1-3 handles, 4 Break, 5 Join points, 6 Add node, 7 Straighten; in Select or Move: 1-4
-the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel),
+the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel; in
+the Eyedropper: 1 Artwork, 2 Reference, 3 Fill, 4 Stroke),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins what the
 selection allows (Join points, Merge shapes or Join line ends). Drag with
@@ -1122,6 +1130,46 @@ Setting and removing a clip are each one undoable step. Saved projects keep
 the clip and its link to the boundary; exported SVGs contain an ordinary
 `clipPath`, and reopening one in Vectrify keeps a linked clip linked. Agents
 set and remove clips with the same operation, through the MCP `clip` tool.
+
+### Sampling colours
+
+The **Eyedropper** (`I`) takes a colour from what is on the canvas:
+
+1. Select the objects to paint, or nothing to set the drawing paint (the
+   Fill or Stroke in the drawing tools' strip, used by new shapes and paths).
+2. Choose **Artwork** or **Reference** in the tool strip: what is sampled,
+   whatever the view shows. **Fill** or **Stroke** chooses what the sample
+   sets. **Sample fill colour** and **Sample stroke colour**, the buttons
+   beside the inspector's colours, pick up the tool with that target.
+3. Click. The colour under the pointer becomes the fill or stroke of every
+   selected object as one undoable paint edit, the same edit the
+   inspector's colour fields make; a toast names the colour.
+
+Before the click, the strip says where the sample goes ("Reference → fill
+of 2 objects", or "Artwork → drawing fill") and a mark at the pointer shows the disc that
+is sampled and the target: a solid swatch for a fill, an outlined one for a
+stroke. Nothing is sampled until the press is released, where it is
+released; Escape before then cancels and changes nothing, as does a sample
+that is refused or fails.
+
+The sample is taken by the session, in document coordinates: the pointer's
+place in the drawing, at any pan and zoom. It is the colour as seen, not
+any object's paint, and it is the same sampling MCP's `pick` reports:
+
+- the average over a disc about 4 screen pixels across (2 pixels in
+  radius), never less than one document unit across, so zooming in samples
+  more precisely; over an edge or a gradient it gives their mix;
+- opaque: the artwork is rendered over white paper and the reference
+  composited onto white, so translucent paint (opacity, fill-opacity,
+  transparent pixels) gives its blend with what lies under it, and empty
+  paper reads as white;
+- applied as a flat, opaque colour; the objects' own opacity is kept.
+
+The reference covers only the artboard: sampling it outside is refused, and
+without a reference **Reference** is dimmed and says to load one. Locked
+paint (a paint lock on the object or a group around it, or a lock on the
+fill or stroke chosen) and clipping contours are refused with the object's
+name, shown in the strip and at the pointer before any click.
 
 ### Extracting and deleting regions
 

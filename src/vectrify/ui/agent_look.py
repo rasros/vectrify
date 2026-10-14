@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -98,6 +99,31 @@ def disc_mean(image: Image.Image) -> tuple[float, float, float]:
     chosen = pixels[inside] if inside.any() else pixels.reshape(-1, 3)
     r, g, b = chosen.mean(axis=0)
     return float(r), float(g), float(b)
+
+
+# Sampling a colour, as MCP's pick and the editor's Eyedropper both do: the
+# mean over a disc, never less than half a unit in radius, of a render of
+# the drawing or the reference at this many pixels.
+SAMPLE_PIXELS = (17, 17)
+MIN_SAMPLE_RADIUS = 0.5
+
+
+def sample_colour(
+    render: Callable[[Box, tuple[int, int]], Image.Image],
+    at: tuple[float, float],
+    radius: float,
+) -> tuple[float, float, float]:
+    """The mean colour, 0 to 1, within *radius* of *at* (half a unit at
+    least) in what *render* draws over a region at a size.
+
+    It is the colour as seen, not any object's paint: renders are opaque,
+    the drawing over white paper and the reference composited onto white,
+    so translucent paint gives its blend with what lies under it, empty
+    paper reads as white, and an edge or a gradient gives its average.
+    """
+    half = max(radius, MIN_SAMPLE_RADIUS)
+    box = (at[0] - half, at[1] - half, 2 * half, 2 * half)
+    return disc_mean(render(box, SAMPLE_PIXELS))
 
 
 def hex_colour(rgb: tuple[float, float, float]) -> str:

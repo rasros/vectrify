@@ -37,6 +37,7 @@ import {createKeysController} from './app_keys.js';
 import {createTransformController} from './app_transform.js';
 import {createClippingController} from './app_clipping.js';
 import {createRegionController} from './app_region.js';
+import {createEyedropperController} from './app_eyedropper.js';
 import {createAlignController} from './app_align.js';
 
 // Compose controllers with explicit live state and named collaborators.
@@ -162,6 +163,9 @@ export function createApplication({document = globalThis.document, window = glob
     document,
     download,
     enterObject: (...args) => canvasController.enterObject(...args),
+    eyedropperChoose: (...args) => eyedropperController.choose(...args),
+    eyedropperSourceRefusal: (...args) => eyedropperController.sourceRefusal(...args),
+    eyedropperTargetRefusal: (...args) => eyedropperController.targetRefusal(...args),
     files,
     fillPaths: (...args) => commandsController.fillPaths(...args),
     fillPointHoles: (...args) => selectionController.fillPointHoles(...args),
@@ -385,6 +389,7 @@ export function createApplication({document = globalThis.document, window = glob
     drawPathDraft: (...args) => toolsController.drawPathDraft(...args),
     drawPoints: (...args) => markersController.drawPoints(...args),
     drawRedraw: (...args) => toolsController.drawRedraw(...args),
+    drawEyedropper: (...args) => eyedropperController.drawEyedropper(...args),
     drawRegion: (...args) => regionController.drawRegion(...args),
     drawRotation: (...args) => rotatingController.drawRotation(...args),
     drawGradient: (...args) => gradientsController.drawHandles(...args),
@@ -526,6 +531,7 @@ export function createApplication({document = globalThis.document, window = glob
     restoreValues: (...args) => canvasController.restoreValues(...args),
     rotateDrag: (...args) => rotatingController.rotateDrag(...args),
     rotateSelection: (...args) => rotatingController.finishRotate(...args),
+    sampleColour: (...args) => eyedropperController.sample(...args),
     selectAtPoint: (...args) => selectionController.selectAtPoint(...args),
     selectPoints: (...args) => geometryController.selectPoints(...args),
     setTool: (...args) => viewController.setTool(...args),
@@ -613,6 +619,20 @@ export function createApplication({document = globalThis.document, window = glob
     setTool: (...args) => viewController.setTool(...args),
     stage,
     svgElement: (...args) => sessionController.svgElement(...args),
+    toast: (...args) => transportController.toast(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
+  });
+
+  const eyedropperController = createEyedropperController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    drawOverlay: (...args) => framesController.drawOverlay(...args),
+    object: (...args) => sessionController.object(...args),
+    plural: (...args) => selectionController.plural(...args),
+    request: (...args) => transportController.request(...args),
+    setDrawingColour: (...args) => shapesController.setColour(...args),
+    setTool: (...args) => viewController.setTool(...args),
+    stage,
     toast: (...args) => transportController.toast(...args),
     xmlElement: (...args) => sessionController.xmlElement(...args),
   });
@@ -763,6 +783,7 @@ export function createApplication({document = globalThis.document, window = glob
       canvas_eventsController.wire();
       clippingController.wire();
       regionController.wire();
+      eyedropperController.wire();
       alignController.wire();
       joinController.wire();
       referenceController.wire();
@@ -804,6 +825,7 @@ export function createApplication({document = globalThis.document, window = glob
     canvas_events: canvas_eventsController,
     clipping: clippingController,
     region: regionController,
+    eyedropper: eyedropperController,
     align: alignController,
     join: joinController,
     reference: referenceController,
