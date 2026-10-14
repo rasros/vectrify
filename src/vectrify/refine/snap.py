@@ -35,7 +35,8 @@ from vectrify.document.join import path_style
 from vectrify.document.model import new_id
 from vectrify.image_utils import resize_long_side
 from vectrify.operations.generate import Region
-from vectrify.refine.crossings import bezier, contour_line, polyline_crossings
+from vectrify.refine.bezier import derivative, evaluate, split, straight
+from vectrify.refine.crossings import contour_line, polyline_crossings
 from vectrify.refine.frame import object_frame
 from vectrify.refine.frozen import Frozen, Paths
 
@@ -144,10 +145,7 @@ def _edges(contours: list[_Contour]) -> np.ndarray:
         control = np.asarray(cubics, dtype=np.float64)
         hull = np.linalg.norm(np.diff(control, axis=1), axis=2).sum(axis=1).max()
         count = int(np.clip(np.ceil(hull / FILL_CHORD), 2, FILL_SAMPLES))
-        t = np.linspace(0, 1, count + 1)[:, None]
-        u = 1 - t
-        basis = np.hstack([u**3, 3 * u**2 * t, 3 * u * t**2, t**3])
-        points = np.einsum("sk,nkc->nsc", basis, control)
+        points = evaluate(control, np.linspace(0, 1, count + 1))
         parts.append(
             np.stack([points[:, :-1], points[:, 1:]], axis=2).reshape(-1, 2, 2)
         )
@@ -468,8 +466,8 @@ class _Snapper:
 
     def _middle(self, control, coverage, colour_in):
         """The edge's offset from the segment's middle, along its normal."""
-        point, tangent = bezier(control, np.array([0.5]))
-        unit = unit_vector(tangent[0])
+        point = evaluate(control, np.array([0.5]))
+        unit = unit_vector(derivative(control, np.array([0.5]))[0])
         if unit is None:
             return None, None
         normal = self._outward(point[0], np.array([unit[1], -unit[0]]), coverage)
@@ -566,7 +564,7 @@ class _Snapper:
         rows = []
         for c, contour in enumerate(contours):
             for end, control in _segments(contour):
-                points, _ = bezier(control, t)
+                points = evaluate(control, t)
                 rows.append((c, end, control, t, points))
         return rows
 
@@ -608,7 +606,7 @@ class _Snapper:
                 touching = mine
             at = spots[nearest[touching]]
             tip = float(spots[nearest[aim]])
-            point, _tangent = bezier(control, np.array([tip]))
+            point = evaluate(control, np.array([tip]))
             delta = blob[aim] - point[0]
             if tip >= 1 - AT_NODE or tip <= AT_NODE:
                 count = len(contours[c].nodes)
@@ -722,15 +720,6 @@ class _Snapper:
         return replace(geometry, subpaths=tuple(subpaths))
 
 
-def halves(control: np.ndarray, t: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
-    """A cubic split at *t*: each part's c1, c2 and end."""
-    a, b, c, d = control
-    ab, bc, cd = a + (b - a) * t, b + (c - b) * t, c + (d - c) * t
-    abc, bcd = ab + (bc - ab) * t, bc + (cd - bc) * t
-    middle = abc + (bcd - abc) * t
-    return np.vstack([ab, abc, middle]), np.vstack([bcd, cd, d])
-
-
 def _crop(image: np.ndarray, window) -> np.ndarray:
     x0, y0, x1, y1 = window
     return image[y0:y1, x0:x1]
@@ -760,15 +749,14 @@ def _split_segment(
     """
     nodes = _copy(contour).nodes
     if len(control) == 2 and any(np.any(delta) for _t, delta in at):
-        control = _curve(control)
+        control = straight(*control)
     pieces: list[np.ndarray] = []
     rest, done = control, 0.0
     for t, _delta in at:
         local = (t - done) / (1 - done)
         if len(control) == 4:
-            first, second = halves(rest, local)
-            pieces.append(first)
-            rest = np.vstack([first[-1], second])
+            first, rest = split(rest, local)
+            pieces.append(first[1:])
         else:
             point = rest[0] + (rest[1] - rest[0]) * local
             pieces.append(point[None, :])
@@ -802,19 +790,13 @@ def _split_segment(
     return _Contour(nodes, contour.closed)
 
 
-def _curve(line: np.ndarray) -> np.ndarray:
-    """A straight cubic along *line*, its handles at the thirds."""
-    a, b = line
-    return np.vstack([a, a + (b - a) / 3, a + 2 * (b - a) / 3, b])
-
-
 def _curved(contour: _Contour, i: int) -> None:
     """Make the line ending at node *i* a straight cubic, in place."""
     node = contour.nodes[i]
     if i == 0 or node.command != "L":
         return
     start = contour.nodes[i - 1].end
-    node.command, node.points = "C", _curve(np.vstack([start, node.end]))[1:]
+    node.command, node.points = "C", straight(start, node.end)[1:]
 
 
 def _targeted(contour, end, control, low, tip, high, depth, normal):

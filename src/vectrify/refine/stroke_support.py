@@ -15,8 +15,8 @@ from typing import Any
 
 import numpy as np
 
-from vectrify.refine.crossings import bezier
-from vectrify.refine.support import SAMPLES, _closest, _point, _split
+from vectrify.refine.bezier import basis, evaluate, split
+from vectrify.refine.support import SAMPLES, _closest, _point
 
 REACH = 3.0
 MAX_SOURCE_SEGMENTS = 256
@@ -55,10 +55,7 @@ class StrokeSupports:
                     for indices in source.mapping.gather_index
                 ]
                 samples = np.vstack(
-                    [
-                        bezier(c, np.linspace(0, 1, SAMPLES + 1)[:-1])[0]
-                        for c in controls
-                    ]
+                    [evaluate(c, np.linspace(0, 1, SAMPLES + 1)[:-1]) for c in controls]
                     + [controls[-1][-1:]]
                 )
                 for segment, indices in enumerate(target.mapping.gather_index):
@@ -77,7 +74,7 @@ class StrokeSupports:
                         target.local[rows] @ target.mapping.linear.cpu().numpy().T
                         + target.mapping.offset.cpu().numpy()
                     ) * scale
-                    probes = bezier(old, np.linspace(0, 1, 13))[0]
+                    probes = evaluate(old, np.linspace(0, 1, 13))
                     at = np.array([_closest(p, controls, samples) for p in probes])
                     low, high = sorted((at[0], at[-1]))
                     owner = min(int(low + 1e-7), len(controls) - 1)
@@ -103,9 +100,9 @@ class StrokeSupports:
                             np.clip(low - owner, 0, 1),
                             np.clip(high - owner, 0, 1),
                         )
-                        weights = _split(np.eye(4), end)[0] if end < 1 else np.eye(4)
+                        weights = split(np.eye(4), end)[0] if end < 1 else np.eye(4)
                         if start > 0:
-                            weights = _split(weights, start / end)[1]
+                            weights = split(weights, start / end)[1]
                         if at[-1] < at[0]:
                             weights = weights[::-1]
                         source_rows = source.mapping.gather_index[owner]
@@ -142,19 +139,10 @@ class StrokeSupports:
         source = np.zeros((len(at), len(controls) * 4))
         for row, value in enumerate(at):
             index = min(int(value), len(controls) - 1)
-            t = value - index
-            source[row, index * 4 : (index + 1) * 4] = (
-                (1 - t) ** 3,
-                3 * (1 - t) ** 2 * t,
-                3 * (1 - t) * t**2,
-                t**3,
-            )
-        t = np.linspace(0, 1, len(at))
-        basis = np.stack(
-            ((1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t**2, t**3), -1
-        )
-        residual = source - basis[:, :1] * source[:1] - basis[:, 3:] * source[-1:]
-        middle = np.linalg.lstsq(basis[:, 1:3], residual, rcond=None)[0]
+            source[row, index * 4 : (index + 1) * 4] = basis(value - index)
+        weights = basis(np.linspace(0, 1, len(at)))
+        residual = source - weights[:, :1] * source[:1] - weights[:, 3:] * source[-1:]
+        middle = np.linalg.lstsq(weights[:, 1:3], residual, rcond=None)[0]
         return np.vstack((source[0], middle, source[-1]))
 
     @property

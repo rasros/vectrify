@@ -33,7 +33,7 @@ from scipy.ndimage import grey_closing, map_coordinates
 from vectrify.document import Document, Geometry
 from vectrify.document.join import path_style
 from vectrify.operations.generate import Region
-from vectrify.refine.crossings import bezier
+from vectrify.refine.bezier import basis, derivative, evaluate
 from vectrify.refine.frame import Frame, object_frame
 from vectrify.refine.frozen import Frozen
 from vectrify.refine.snap import unit_vector
@@ -319,9 +319,8 @@ def _fitted(
 def _curve_shift(cubic: np.ndarray, reader: Reader, *, span: bool):
     """Least-squares handle motion from the ink at several points on a curve."""
     if not span:
-        point, tangent = bezier(cubic, np.array([0.5]))
-        assert tangent is not None
-        normal = _normal(unit_vector(tangent[0]))
+        point = evaluate(cubic, np.array([0.5]))
+        normal = _normal(unit_vector(derivative(cubic, np.array([0.5]))[0]))
         if normal is None:
             return np.zeros((2, 2)), []
         shift, widths = reader.across(point, np.array([normal]))
@@ -331,8 +330,7 @@ def _curve_shift(cubic: np.ndarray, reader: Reader, *, span: bool):
     count = min(MAX_SAMPLES, max(MIN_SAMPLES, math.ceil(hull / SAMPLE_SPACING)))
     # Leave the end caps out: the anchors already followed their own readings.
     t = np.linspace(0.125, 0.875, count)
-    points, tangents = bezier(cubic, t)
-    assert tangents is not None
+    points, tangents = evaluate(cubic, t), derivative(cubic, t)
     length = np.linalg.norm(tangents, axis=1)
     usable = length > 1e-9
     normals = np.column_stack((-tangents[:, 1], tangents[:, 0])) / np.maximum(
@@ -342,10 +340,10 @@ def _curve_shift(cubic: np.ndarray, reader: Reader, *, span: bool):
     usable &= widths > 0
     if np.count_nonzero(usable) < 2:
         return np.zeros((2, 2)), []
-    basis = np.column_stack((3 * (1 - t) ** 2 * t, 3 * (1 - t) * t**2))
+    weights = basis(t)[:, 1:3]
     weight = np.sqrt(widths[usable] / max(float(widths[usable].max()), 1e-9))
     delta = np.linalg.lstsq(
-        basis[usable] * weight[:, None],
+        weights[usable] * weight[:, None],
         shift[usable, None] * normals[usable] * weight[:, None],
         rcond=None,
     )[0]

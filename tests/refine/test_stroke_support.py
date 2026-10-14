@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from vectrify.document import export_svg, import_svg
-from vectrify.refine.crossings import bezier
+from vectrify.refine.bezier import evaluate
 from vectrify.refine.joint import _context, _Coordinates
 from vectrify.refine.selected import FitOptions
 from vectrify.refine.simplify import curved
@@ -21,7 +21,7 @@ def coordinates(
     *, reverse=False, later=True, transform="translate(0 0)", held=frozenset()
 ):
     pytest.importorskip("torch")
-    points = bezier(CONTROL, np.linspace(0.2, 0.8, 9))[0]
+    points = evaluate(CONTROL, np.linspace(0.2, 0.8, 9))
     if reverse:
         points = points[::-1]
     data = "M" + " L".join(f"{x} {y}" for x, y in points)
@@ -56,7 +56,7 @@ def test_a_partial_curve_and_its_gradient_follow_the_later_stroke(reverse):
     values = [p.original.clone().requires_grad_() for p in coords]
     result = model(values)
     first = result[0][coords[0].mapping.gather_index[0]]
-    expected = bezier(CONTROL, np.array([0.8 if reverse else 0.2]))[0][0]
+    expected = evaluate(CONTROL, np.array([0.8 if reverse else 0.2]))[0]
     np.testing.assert_allclose(first[0].detach().numpy(), expected, atol=1e-5)
     gradient = torch.autograd.grad(result[0].sum(), values, allow_unused=True)
     assert gradient[1] is not None
@@ -258,9 +258,7 @@ def test_a_fill_cubic_crossing_a_stroke_knot_receives_both_gradients():
     parameter = np.linspace(0.4, 1.6, 25)
     points = np.array(
         [
-            bezier(first if t <= 1 else second, np.array([t if t <= 1 else t - 1]))[0][
-                0
-            ]
+            evaluate(first if t <= 1 else second, np.array([t if t <= 1 else t - 1]))[0]
             for t in parameter
         ]
     )

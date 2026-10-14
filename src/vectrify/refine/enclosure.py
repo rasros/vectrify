@@ -9,20 +9,16 @@ from cairosvg.colors import color
 from vectrify.document.hit_test import _filled
 from vectrify.document.join import path_style
 from vectrify.document.transforms import root_matrix
-from vectrify.refine.crossings import bezier
+from vectrify.refine.bezier import evaluate, segment_controls
 from vectrify.refine.frame import Frame
 
 
 def _contours(geometry, frame):
     contours = []
     for subpath in geometry.subpaths:
-        previous = frame.pixels(subpath.nodes[0].values)[-1]
-        points = [previous]
-        for node in subpath.nodes[1:]:
-            controls = np.vstack((previous, frame.pixels(node.values)))
-            sampled = bezier(controls, np.linspace(0, 1, 33))[0]
-            points.extend(sampled[1:])
-            previous = controls[-1]
+        points = [frame.pixels(subpath.nodes[0].values)[-1]]
+        for control in segment_controls(subpath.nodes, frame.pixels):
+            points.extend(evaluate(control, np.linspace(0, 1, 33))[1:])
         contours.append((tuple(map(tuple, points)), True))
     return tuple(contours)
 

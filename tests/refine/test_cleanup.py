@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 from vectrify.document import export_svg, import_svg
+from vectrify.refine.bezier import derivative, evaluate
 from vectrify.refine.cleanup import cleaned
-from vectrify.refine.crossings import bezier, crossings
+from vectrify.refine.crossings import crossings
 from vectrify.refine.edge_profiles import EdgeProfiles
 from vectrify.refine.frame import Frame
 from vectrify.svg_render import render_image
@@ -143,7 +144,7 @@ def test_cleanup_removes_a_cubic_hook_without_deleting_its_controls():
 def test_reference_fitting_removes_ripples_from_an_inflected_curve():
     control = np.array([[8, 18], [20, 28], [38, 8], [56, 18]])
     t = np.linspace(0, 1, 25)
-    points, tangents = bezier(control, t)
+    points, tangents = evaluate(control, t), derivative(control, t)
     # The same broad curve with small, unsupported waves in its upper edge.
     points[:, 1] += 1.4 * np.sin(12 * np.pi * t) * np.sin(np.pi * t) ** 2
     tangents[:, 1] += 1.4 * (

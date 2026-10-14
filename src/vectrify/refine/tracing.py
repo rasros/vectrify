@@ -12,6 +12,9 @@ from collections import defaultdict
 from typing import cast
 
 import numpy as np
+from scipy import ndimage
+
+from vectrify.refine.bezier import derivative, evaluate, fit_cubic
 
 # Outlines are traced with one curve per DENSITY pixels of their length.
 DENSITY = 6
@@ -65,7 +68,7 @@ def _curvature_scores(loop: list[tuple[float, float]]) -> np.ndarray:
     )
 
 
-def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
+def _curviest(loop: list[tuple[float, float]], count: int) -> list[int]:
     """Global curvature maxima each excluding its close neighbours."""
     size = len(loop)
     count = min(count, size)
@@ -97,43 +100,20 @@ def _fit_cubic(
     arc-length samples around corners, so this matters even with a fixed number
     of curves.
     """
-    start, end = points[0], points[-1]
     t = np.linspace(0.0, 1.0, len(points), dtype=np.float64)
-
-    def solve(parameters: np.ndarray) -> np.ndarray:
-        matrix = np.column_stack(
-            (
-                3 * (1 - parameters) ** 2 * parameters,
-                3 * (1 - parameters) * parameters**2,
-            )
-        )
-        base = (1 - parameters)[:, None] ** 3 * start + parameters[:, None] ** 3 * end
-        controls, *_ = np.linalg.lstsq(matrix, points - base, rcond=None)
-        return controls
-
-    controls = solve(t)
+    controls = fit_cubic(points, t)
     if reparameterize and len(points) > 2:
         # The endpoints must remain exactly 0 and 1.  Keeping interior values
         # ordered avoids a folded parameterisation on jagged raster contours.
         epsilon = 1e-5
         for _iteration in range(8):
-            p0, p1 = controls
+            start, p0, p1, end = controls
             omt = 1 - t
-            curve = (
-                omt[:, None] ** 3 * start
-                + 3 * omt[:, None] ** 2 * t[:, None] * p0
-                + 3 * omt[:, None] * t[:, None] ** 2 * p1
-                + t[:, None] ** 3 * end
-            )
-            first = (
-                3 * omt[:, None] ** 2 * (p0 - start)
-                + 6 * omt[:, None] * t[:, None] * (p1 - p0)
-                + 3 * t[:, None] ** 2 * (end - p1)
-            )
+            first = derivative(controls, t)
             second = 6 * omt[:, None] * (p1 - 2 * p0 + start) + 6 * t[:, None] * (
                 end - 2 * p1 + p0
             )
-            offset = curve - points
+            offset = evaluate(controls, t) - points
             numerator = (offset * first).sum(axis=1)
             denominator = (first * first).sum(axis=1) + (offset * second).sum(axis=1)
             updated = t.copy()
@@ -154,8 +134,8 @@ def _fit_cubic(
             if np.max(np.abs(updated - t)) < 1e-4:
                 break
             t = updated
-            controls = solve(t)
-    return controls[0], controls[1]
+            controls = fit_cubic(points, t)
+    return controls[1], controls[2]
 
 
 def _fit_cubics(samples: list[np.ndarray]) -> np.ndarray:
@@ -173,24 +153,11 @@ def _fit_cubics(samples: list[np.ndarray]) -> np.ndarray:
         points[row, : len(sample)] = sample
         points[row, len(sample) :] = sample[-1]
         t[row, : len(sample)] = np.linspace(0.0, 1.0, len(sample), dtype=np.float64)
-    start = points[:, :1]
-    end = points[rows, sizes - 1][:, None]
-    controls = np.empty((count, 2, 2), dtype=np.float64)
+    controls = np.empty((count, 4, 2), dtype=np.float64)
 
     def solve(which: np.ndarray) -> None:
-        parameters = t[which]
-        omt = 1 - parameters
-        leaving = 3 * omt**2 * parameters
-        arriving = 3 * omt * parameters**2
-        base = (
-            omt[..., None] ** 3 * start[which] + parameters[..., None] ** 3 * end[which]
-        )
-        for k, row in enumerate(which.tolist()):
-            n = sizes[row]
-            matrix = np.column_stack((leaving[k, :n], arriving[k, :n]))
-            controls[row], *_ = np.linalg.lstsq(
-                matrix, points[row, :n] - base[k, :n], rcond=None
-            )
+        for row in which.tolist():
+            controls[row] = fit_cubic(points[row, : sizes[row]], t[row, : sizes[row]])
 
     solve(rows)
     # As _fit_cubic refines each sample's parameters, until they settle.
@@ -200,27 +167,16 @@ def _fit_cubics(samples: list[np.ndarray]) -> np.ndarray:
     for _iteration in range(8):
         if not active.size:
             break
-        p0 = controls[active, 0][:, None]
-        p1 = controls[active, 1][:, None]
-        first_point, last_point = start[active], end[active]
+        control = controls[active]
+        first_point, p0, p1, last_point = (control[:, k, None] for k in range(4))
         before = t[active]
         last = sizes[active] - 1
         omt = 1 - before
-        curve = (
-            omt[..., None] ** 3 * first_point
-            + 3 * omt[..., None] ** 2 * before[..., None] * p0
-            + 3 * omt[..., None] * before[..., None] ** 2 * p1
-            + before[..., None] ** 3 * last_point
-        )
-        first = (
-            3 * omt[..., None] ** 2 * (p0 - first_point)
-            + 6 * omt[..., None] * before[..., None] * (p1 - p0)
-            + 3 * before[..., None] ** 2 * (last_point - p1)
-        )
+        first = derivative(control, before)
         second = 6 * omt[..., None] * (p1 - 2 * p0 + first_point) + 6 * before[
             ..., None
         ] * (last_point - 2 * p1 + p0)
-        offset = curve - points[active]
+        offset = evaluate(control, before) - points[active]
         numerator = (offset * first).sum(axis=-1)
         denominator = (first * first).sum(axis=-1) + (offset * second).sum(axis=-1)
         inner = (index >= 1) & (index < last[:, None])
@@ -239,7 +195,7 @@ def _fit_cubics(samples: list[np.ndarray]) -> np.ndarray:
         active = active[unsettled]
         t[active] = updated[unsettled]
         solve(active)
-    return controls
+    return controls[:, 1:3]
 
 
 def _smoothed(loop: list[tuple[float, float]], sigma: float):
@@ -254,12 +210,7 @@ def _smoothed(loop: list[tuple[float, float]], sigma: float):
         return loop
     points = np.asarray(loop, dtype=np.float64)
     reach = min(int(np.ceil(3 * sigma)), (len(points) - 1) // 2)
-    offsets = np.arange(-reach, reach + 1)
-    weights = np.exp(-0.5 * (offsets / sigma) ** 2)
-    weights /= weights.sum()
-    smooth = np.zeros_like(points)
-    for offset, weight in zip(offsets, weights, strict=True):
-        smooth += weight * np.roll(points, -offset, axis=0)
+    smooth = ndimage.gaussian_filter1d(points, sigma, axis=0, mode="wrap", radius=reach)
     return [(float(x), float(y)) for x, y in smooth]
 
 
@@ -270,7 +221,7 @@ def _cubic_loop(
     if size < 3:
         return None
     loop = _smoothed(loop, smooth)
-    corners = _corners(loop, segments)
+    corners = _curviest(loop, segments)
     if len(corners) < 3:
         return None
     points = np.asarray(loop, dtype=np.float32)

@@ -106,7 +106,7 @@ def test_fixed_cubic_tracing_does_not_duplicate_each_curve_endpoint(monkeypatch)
         (0.0, 1.0),
     ]
     samples = []
-    monkeypatch.setattr(tracing, "_corners", lambda *_args: [0, 2, 4, 6])
+    monkeypatch.setattr(tracing, "_curviest", lambda *_args: [0, 2, 4, 6])
 
     def fit(pieces):
         samples.extend(points.copy() for points in pieces)

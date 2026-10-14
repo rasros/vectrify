@@ -15,19 +15,7 @@ import numpy as np
 import shapely
 
 from vectrify.document import Geometry
-
-
-def bezier(control: np.ndarray, t: np.ndarray):
-    """Points and tangents along a line (two controls) or cubic (four)."""
-    t = t[:, None]
-    if len(control) == 2:
-        a, b = control
-        return a + (b - a) * t, np.repeat((b - a)[None], len(t), axis=0)
-    a, b, c, d = control
-    u = 1 - t
-    points = u**3 * a + 3 * u**2 * t * b + 3 * u * t**2 * c + t**3 * d
-    tangents = 3 * u**2 * (b - a) + 6 * u * t * (c - b) + 3 * t**2 * (d - c)
-    return points, tangents
+from vectrify.refine.bezier import evaluate, segment_controls
 
 
 def crossing_pairs(points: np.ndarray, closed: bool) -> np.ndarray:
@@ -125,10 +113,7 @@ def contour_line(controls: list[np.ndarray], samples: int | None = None):
         )
         for count in np.unique(counts[curve]):
             selected = counts[curve] == count
-            t = np.linspace(0, 1, count + 1)[1:, None]
-            u = 1 - t
-            basis = np.hstack([u**3, 3 * u**2 * t, 3 * u * t**2, t**3])
-            points = np.einsum("sk,nkc->nsc", basis, control[selected])
+            points = evaluate(control[selected], np.linspace(0, 1, count + 1)[1:])
             at = starts[curve][selected, None] + np.arange(count)[None]
             line[at.ravel()] = points.reshape(-1, 2)
     return line, owners
@@ -145,13 +130,7 @@ def crossed_nodes(
     """
     total, nodes = 0, set()
     for subpath in geometry.subpaths:
-        controls = []
-        start = np.array(subpath.nodes[0].endpoint)
-        for node in subpath.nodes[1:]:
-            points = np.asarray(node.values, dtype=np.float64).reshape(-1, 2)
-            controls.append(np.vstack([start, points]))
-            start = points[-1]
-        line, owners = contour_line(controls, samples)
+        line, owners = contour_line(segment_controls(subpath.nodes), samples)
         pairs = crossing_pairs(line, subpath.closed)
         total += len(pairs)
         # Segment s runs from node s to node s + 1; the closing line, which

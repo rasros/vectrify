@@ -21,7 +21,8 @@ from vectrify.document import Document, Geometry
 from vectrify.document.join import path_style
 from vectrify.document.model import EditKind
 from vectrify.operations.generate import Region
-from vectrify.refine.crossings import bezier, crossings
+from vectrify.refine.bezier import evaluate, segment_controls, split
+from vectrify.refine.crossings import crossings
 from vectrify.refine.frame import Frame, object_frame
 from vectrify.refine.frozen import Frozen, Paths
 
@@ -29,23 +30,14 @@ SAMPLES = 128
 
 
 def _spans(geometry: Geometry, frame: Frame):
-    rows = []
-    for subpath in geometry.subpaths:
-        row = []
-        previous = frame.pixels(subpath.nodes[0].values)[-1]
-        for node in subpath.nodes[1:]:
-            points = frame.pixels(node.values)
-            row.append(np.vstack((previous, points)))
-            previous = points[-1]
-        rows.append(row)
-    return rows
+    return [segment_controls(s.nodes, frame.pixels) for s in geometry.subpaths]
 
 
 def _line(controls):
     if not controls:
         return shapely.LineString()
     return shapely.LineString(
-        np.vstack([bezier(c, np.linspace(0, 1, SAMPLES + 1))[0] for c in controls])
+        np.vstack([evaluate(c, np.linspace(0, 1, SAMPLES + 1)) for c in controls])
     )
 
 
@@ -56,7 +48,7 @@ def _closest(point, controls, samples) -> float:
     control = controls[segment]
 
     def distance(value):
-        return float(np.sum((bezier(control, np.array([value]))[0][0] - point) ** 2))
+        return float(np.sum((evaluate(control, np.array([value]))[0] - point) ** 2))
 
     result = minimize_scalar(
         distance,
@@ -68,16 +60,6 @@ def _closest(point, controls, samples) -> float:
     return segment + value
 
 
-def _split(control, t):
-    levels = [control]
-    while len(levels[-1]) > 1:
-        previous = levels[-1]
-        levels.append((1 - t) * previous[:-1] + t * previous[1:])
-    return np.array([level[0] for level in levels]), np.array(
-        [level[-1] for level in reversed(levels)]
-    )
-
-
 def _pieces(controls, start, end):
     low, high = sorted((start, end))
     result = []
@@ -85,16 +67,16 @@ def _pieces(controls, start, end):
         a, b = max(0, low - index), min(1, high - index)
         if b <= a + 1e-9:
             continue
-        portion = _split(control, b)[0] if b < 1 else control
+        portion = split(control, b)[0] if b < 1 else control
         if a > 0:
-            portion = _split(portion, a / b)[1]
+            portion = split(portion, a / b)[1]
         result.append(portion)
     return [c[::-1] for c in result[::-1]] if end < start else result
 
 
 def _point(controls, value):
     index = min(int(value), len(controls) - 1)
-    return bezier(controls[index], np.array([value - index]))[0][0]
+    return evaluate(controls[index], np.array([value - index]))[0]
 
 
 def _eligible(document: Document, oid: str, kind: str) -> bool:
@@ -164,7 +146,7 @@ def supported(
             if not row or subpath.closed:
                 continue
             samples = np.vstack(
-                [bezier(c, np.linspace(0, 1, SAMPLES + 1)[:-1])[0] for c in row]
+                [evaluate(c, np.linspace(0, 1, SAMPLES + 1)[:-1]) for c in row]
                 + [row[-1][-1:]]
             )
             strokes[oid].append((row, samples, shapely.LineString(samples)))
@@ -188,7 +170,7 @@ def supported(
                         bool(
                             np.max(
                                 shapely.distance(
-                                    shapely.points(bezier(c, np.linspace(0, 1, 25))[0]),
+                                    shapely.points(evaluate(c, np.linspace(0, 1, 25))),
                                     line,
                                 )
                             )
@@ -227,7 +209,7 @@ def supported(
                         if any(n.id in fixed.endpoints or n.pinned for n in touched):
                             continue
                         points = np.vstack(
-                            [bezier(c, np.linspace(0, 1, 5)[:-1])[0] for c in row[a:b]]
+                            [evaluate(c, np.linspace(0, 1, 5)[:-1]) for c in row[a:b]]
                             + [row[b - 1][-1:]]
                         )
                         at = np.array([_closest(p, controls, samples) for p in points])
