@@ -117,7 +117,9 @@ export function createKeysController(editor, {
     // Ctrl/⌘ A selects everything at the editing level, or every point of
     // the selected paths in a point tool; text fields keep their own.
     if(mod&&!event.altKey&&!event.shiftKey&&key==='a'){event.preventDefault();if(!event.repeat)later(()=>runCommand('select-all'));return;}
-    if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
+    // With nothing to undo or redo the key does nothing; the stack is read
+    // when the queued key runs, so an edit still in flight counts.
+    if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>(redo?editor.state.redo:editor.state.undo).length?action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'):undefined);return;}
     if(mod&&!event.altKey&&!event.shiftKey&&['c','v'].includes(key)){
       event.preventDefault();later(()=>runCommand(key==='c'?'copy':'paste'));return;
     }
