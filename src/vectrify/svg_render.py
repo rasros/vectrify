@@ -8,6 +8,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import lru_cache
 from typing import Any
 
 import cairosvg
@@ -19,6 +20,25 @@ from cairosvg.path import path
 from PIL import Image
 
 
+@lru_cache(maxsize=128)
+def _clip_boundary(paths: tuple[tuple[str, str, str | None], ...]) -> str:
+    """Reuse unchanged clip unions across renders, including point edits."""
+    from vectrify.document.hit_test import transform
+    from vectrify.document.join import curve_path, path_geometry
+    from vectrify.document.svg import parse_path
+
+    combined = None
+    for data, rule, matrix in paths:
+        path = curve_path(parse_path(data), rule).transform(*transform(matrix))
+        combined = (
+            pathops.simplify(path)
+            if combined is None
+            else pathops.op(combined, path, pathops.PathOp.UNION)
+        )
+    assert combined is not None
+    return path_geometry(combined).path_data()
+
+
 def _clip_rules(root: ET.Element) -> None:
     """Normalize managed boundaries for CairoSVG's single nonzero clip path.
 
@@ -26,10 +46,6 @@ def _clip_rules(root: ET.Element) -> None:
     accumulates all their contours using nonzero winding. Resolve that union
     for rendering only; editable geometry, transforms and IDs remain untouched.
     """
-    from vectrify.document.hit_test import transform
-    from vectrify.document.join import curve_path, path_geometry
-    from vectrify.document.svg import parse_path
-
     for clip in root.iter():
         if clip.tag.rsplit("}", 1)[-1] != "clipPath" or not clip.get(
             "data-vectrify-clip-owner"
@@ -37,21 +53,20 @@ def _clip_rules(root: ET.Element) -> None:
             continue
         if len(clip) == 0 or any(s.tag.rsplit("}", 1)[-1] != "path" for s in clip):
             continue
-        combined = None
-        for shape in clip:
-            geometry = parse_path(shape.get("d", ""))
-            rule = shape.get("clip-rule", "nonzero")
-            path = curve_path(geometry, rule).transform(
-                *transform(shape.get("transform"))
-            )
-            combined = (
-                pathops.simplify(path)
-                if combined is None
-                else pathops.op(combined, path, pathops.PathOp.UNION)
-            )
-        assert combined is not None
         rendered = ET.Element(clip[0].tag)
-        rendered.set("d", path_geometry(combined).path_data())
+        rendered.set(
+            "d",
+            _clip_boundary(
+                tuple(
+                    (
+                        shape.get("d", ""),
+                        shape.get("clip-rule", "nonzero"),
+                        shape.get("transform"),
+                    )
+                    for shape in clip
+                )
+            ),
+        )
         rendered.set("clip-rule", "nonzero")
         clip[:] = [rendered]
 

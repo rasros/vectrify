@@ -10,9 +10,57 @@ import pytest
 from PIL import Image
 
 from vectrify.document import import_svg
+from vectrify.document import svg as document_svg
 from vectrify.document.topology import EdgeRef
 from vectrify.operations.previews import render_previews
-from vectrify.svg_render import cached_rendering, render_image, render_png
+from vectrify.svg_render import (
+    _clip_boundary,
+    cached_rendering,
+    render_image,
+    render_png,
+)
+
+
+def test_clip_unions_reuse_unchanged_boundaries_and_invalidate_geometry(monkeypatch):
+    _clip_boundary.cache_clear()
+    parsed = []
+    original_parse = document_svg.parse_path
+
+    def parse(data):
+        parsed.append(data)
+        return original_parse(data)
+
+    monkeypatch.setattr(document_svg, "parse_path", parse)
+    svg = """<svg width="20" height="20"><defs>
+    <clipPath id="clip" data-vectrify-clip-owner="shape"><path clip-rule="nonzero"
+      d="M0 0 L20 0 L20 20 L0 20 Z M4 4 L16 4 L16 16 L4 16 Z"/>
+    </clipPath></defs><rect width="20" height="20" fill="blue"
+      clip-path="url(#clip)"/></svg>"""
+    try:
+        assert render_image(svg).getpixel((10, 10)) == (0, 0, 255)
+        # Paint changes and viewport changes reuse the same normalized union.
+        red = render_image(svg.replace('fill="blue"', 'fill="red"'))
+        assert red.getpixel((10, 10)) == (255, 0, 0)
+        render_png(svg, (0, 0, 20, 20), (40, 40))
+        assert len(parsed) == 1
+        hole = render_image(svg.replace('clip-rule="nonzero"', 'clip-rule="evenodd"'))
+        assert hole.getpixel((10, 10)) == (255, 255, 255)
+        shifted = render_image(
+            svg.replace(
+                "<path clip-rule=", '<path transform="translate(20 0)" clip-rule='
+            )
+        )
+        assert shifted.getpixel((10, 10)) == (255, 255, 255)
+        changed = render_image(
+            svg.replace("L20 0 L20 20 L0 20", "L10 0 L10 10 L0 10").replace(
+                " M4 4 L16 4 L16 16 L4 16 Z", ""
+            )
+        )
+        assert changed.getpixel((5, 5)) == (0, 0, 255)
+        assert changed.getpixel((15, 15)) == (255, 255, 255)
+        assert len(parsed) == 4
+    finally:
+        _clip_boundary.cache_clear()
 
 
 def test_direct_rgba_render_matches_cairo_with_group_opacity_and_clipping():

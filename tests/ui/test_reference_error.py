@@ -4,7 +4,9 @@ import base64
 import io
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import numpy as np
 import pytest
@@ -13,6 +15,7 @@ from PIL import Image
 from tests.mcp.helpers import reference_png
 from vectrify.ui.agent import Agent
 from vectrify.ui.server import Backend
+from vectrify.ui.shared import png
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
@@ -59,7 +62,10 @@ def test_reported_error_view_renders_the_comparison():
     assert session.reference_error() is full
     reply = agent.tool_render(None, region="view", max_side=max(full.size))
     assert "reference error" in reply.data["shows"]
-    assert reply.images[0][1] == original
+    assert np.array_equal(
+        np.asarray(Image.open(io.BytesIO(reply.images[0][1]))),
+        np.asarray(Image.open(io.BytesIO(original))),
+    )
     # Exact matches are black, and differences are visible even at 0% overlay.
     pixels = np.asarray(Image.open(io.BytesIO(reply.images[0][1])))
     assert (pixels == 0).all(axis=2).any()
@@ -101,3 +107,81 @@ def test_reported_error_view_renders_the_comparison():
     )
     assert status == 400
     assert "reference" in result["error"]
+
+
+def test_error_render_allows_edits_and_does_not_cache_an_obsolete_snapshot(monkeypatch):
+    from vectrify.svg_render import render_image
+
+    backend = Backend(
+        '<svg width="24" height="24"><rect id="shape" '
+        'width="24" height="24" fill="white"/></svg>',
+        reference={
+            "name": "white.png",
+            "opacity": 0.5,
+            "data_url": "data:image/png;base64,"
+            + base64.b64encode(png(Image.new("RGB", (24, 24), "white"))).decode(),
+        },
+    )
+    _, initial = backend.handle("/api/session", {}, None)
+    session = backend.sessions[initial["session"]]
+    started, release = Event(), Event()
+
+    def slow_render(*args, **kwargs):
+        started.set()
+        assert release.wait(5), "test did not release the render"
+        return render_image(*args, **kwargs)
+
+    monkeypatch.setattr("vectrify.svg_render.render_image", slow_render)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        rendering = executor.submit(
+            backend.handle, "/api/reference-error", initial, initial["session"]
+        )
+        try:
+            assert started.wait(5)
+            selected = executor.submit(
+                backend.handle,
+                "/api/action",
+                {**initial, "command": "select", "objects": ["shape"]},
+                initial["session"],
+            )
+            status, state = selected.result(timeout=2)
+            assert status == 200
+            edited = executor.submit(
+                backend.handle,
+                "/api/action",
+                {**state, "command": "paint", "changes": {"fill": "black"}},
+                initial["session"],
+            )
+            assert edited.result(timeout=2)[0] == 200
+        finally:
+            release.set()
+        status, result = rendering.result(timeout=5)
+    assert status == 200
+    old = Image.open(io.BytesIO(base64.b64decode(result["image"].split(",")[1])))
+    assert np.asarray(old).max() == 0, "the render uses its original snapshot"
+    latest = session.reference_error()
+    assert np.asarray(latest).min() == 255, (
+        "the obsolete render did not poison the cache"
+    )
+    assert session.reference_error() is latest
+
+
+def test_reference_error_invalidates_when_reference_placement_changes():
+    backend = Backend(
+        '<svg width="24" height="24"/>',
+        reference={
+            "name": "black.png",
+            "opacity": 0.5,
+            "data_url": "data:image/png;base64,"
+            + base64.b64encode(png(Image.new("RGB", (24, 24), "black"))).decode(),
+        },
+    )
+    _, state = backend.handle("/api/session", {}, None)
+    session = backend.sessions[state["session"]]
+    before = session.reference_error()
+    assert session.reference is not None
+    session.reference = {**session.reference, "box": [24, 0, 24, 24]}
+    after = session.reference_error()
+    assert before is not after
+    assert np.asarray(before).min() == 255
+    assert np.asarray(after).max() == 0

@@ -34,7 +34,8 @@ export function createReferenceController(editor, {
   });
 
   function refreshErrorView() {
-    referenceError.update(editor.state?.svg, editor.state?.bounds, editor.reference && editor.referenceView === 'error' ? editor.reference.data_url : null);
+    const reference = editor.reference && editor.referenceView === 'error' ? {data_url: editor.reference.data_url, box: editor.reference.box} : null;
+    referenceError.update(editor.state?.svg, editor.state?.bounds, reference);
   }
 
   // The reference lies over its own place in the drawing, its box: the
