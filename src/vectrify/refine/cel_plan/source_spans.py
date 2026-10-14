@@ -20,6 +20,7 @@ from vectrify.document import Geometry
 from vectrify.document.holes import reversed_subpath
 from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
+from vectrify.refine.bezier import evaluate
 from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.limits import BAND_NODES, BAND_WIDTH
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT, MAX_POINTS
@@ -56,15 +57,8 @@ def _sample(start, commands):
         if node.command == "L":
             points.append(np.asarray(node.endpoint))
         else:
-            a = points[-1]
-            b, c, d = np.asarray(node.values).reshape(3, 2)
-            t = np.linspace(0, 1, 33)[1:, None]
-            points.extend(
-                (1 - t) ** 3 * a
-                + 3 * (1 - t) ** 2 * t * b
-                + 3 * (1 - t) * t**2 * c
-                + t**3 * d
-            )
+            control = np.vstack([points[-1], np.asarray(node.values).reshape(3, 2)])
+            points.extend(evaluate(control, np.linspace(0, 1, 33)[1:]))
     points = np.asarray(points)
     arc = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
     keep = np.r_[True, np.diff(arc) > 1e-10]

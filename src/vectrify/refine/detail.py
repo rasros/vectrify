@@ -9,8 +9,8 @@ import numpy as np
 
 from vectrify.document import Geometry, PathNode
 from vectrify.document.model import new_id
+from vectrify.refine.bezier import segment_controls, split, straight
 from vectrify.refine.frame import Frame
-from vectrify.refine.snap import halves
 
 
 def densified(
@@ -41,6 +41,7 @@ def densified(
             serial += 1
 
     for si, subpath in enumerate(geometry.subpaths):
+        controls = segment_controls(subpath.nodes)
         for ni, node in enumerate(subpath.nodes[1:], 1):
             previous = subpath.nodes[ni - 1]
             if (
@@ -52,19 +53,9 @@ def densified(
                 or previous.feature is not None
             ):
                 continue
-            start, end = np.array(previous.endpoint), np.array(node.endpoint)
-            control = (
-                np.array(
-                    [
-                        start,
-                        start + (end - start) / 3,
-                        start + 2 * (end - start) / 3,
-                        end,
-                    ]
-                )
-                if node.command == "L"
-                else np.vstack((start, np.asarray(node.values).reshape(-1, 2)))
-            )
+            control = controls[ni - 1]
+            if node.command == "L":
+                control = straight(*control)
             key = (si, ni)
             pieces[key] = {}
             enqueue(key, (0.0, 1.0), control)
@@ -72,11 +63,11 @@ def densified(
     while queue and budget:
         _, _, key, interval = heapq.heappop(queue)
         controls = pieces[key].pop(interval)
-        first, second = halves(controls, 0.5)
+        first, second = split(controls, 0.5)
         left, right = interval
         middle = (left + right) / 2
-        enqueue(key, (left, middle), np.vstack((controls[0], first)))
-        enqueue(key, (middle, right), np.vstack((first[-1], second)))
+        enqueue(key, (left, middle), first)
+        enqueue(key, (middle, right), second)
         budget -= 1
 
     subpaths = []

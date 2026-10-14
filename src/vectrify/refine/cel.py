@@ -69,6 +69,7 @@ from scipy.ndimage import (
 from vectrify.document.lines import End, contour_ends, end_pairs, joined
 from vectrify.document.model import Geometry, PathNode, Subpath
 from vectrify.document.paint import hex_colour
+from vectrify.refine.bezier import evaluate
 from vectrify.refine.colour_regions import (
     LUMINANCE,
     boundary_chains,
@@ -81,8 +82,8 @@ from vectrify.refine.colour_regions import (
     simplify,
 )
 from vectrify.refine.frozen import Frozen
-from vectrify.refine.redraw import _corners
 from vectrify.refine.redraw import _smoothed as _smoothed_between
+from vectrify.refine.redraw import sharp_turns
 from vectrify.refine.simplify import simplified_geometry
 from vectrify.refine.tracing import _fit_cubic, _simplified_data, mask_path
 
@@ -877,12 +878,12 @@ def run_corners(points: np.ndarray, closed: bool) -> list[int]:
     are found across its start too."""
     span = CORNER_SPAN
     if not closed:
-        return _corners(points, span, CORNER)
+        return sharp_turns(points, span, CORNER)
     loop = points[:-1]
     if len(loop) < 2 * span + 1:
         return []
     around = np.concatenate((loop[-span:], loop, loop[:span]))
-    found = {(i - span) % len(loop) for i in _corners(around, span, CORNER)}
+    found = {(i - span) % len(loop) for i in sharp_turns(around, span, CORNER)}
     return sorted(found)
 
 
@@ -996,13 +997,7 @@ def _bezier_points(
 ) -> np.ndarray:
     """*count* points evenly in parameter along the cubic from the first of
     *sample* to its last, with controls *a* and *b*."""
-    t = np.linspace(0, 1, count)[:, None]
-    return (
-        (1 - t) ** 3 * sample[0]
-        + 3 * (1 - t) ** 2 * t * a
-        + 3 * (1 - t) * t**2 * b
-        + t**3 * sample[-1]
-    )
+    return evaluate(np.array([sample[0], a, b, sample[-1]]), np.linspace(0, 1, count))
 
 
 def _reversed(

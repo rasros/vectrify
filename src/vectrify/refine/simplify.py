@@ -15,13 +15,12 @@ from __future__ import annotations
 
 import time
 from dataclasses import replace
-from itertools import pairwise
 
 import numpy as np
 
 from vectrify.document import Document, Geometry, PathNode
 from vectrify.operations.generate import Region
-from vectrify.refine.crossings import bezier
+from vectrify.refine.bezier import evaluate, fit_cubic, segment_controls, straight
 from vectrify.refine.frame import Frame, object_frame
 from vectrify.refine.frozen import Frozen, Paths
 
@@ -95,8 +94,7 @@ def curved(geometry: Geometry) -> Geometry:
             continue
         starts = np.asarray([nodes[i - 1].endpoint for i in indices])
         ends = np.asarray([nodes[i].endpoint for i in indices])
-        step = ends - starts
-        controls = np.stack((starts + step / 3, starts + 2 * step / 3, ends), 1)
+        controls = straight(starts, ends)[:, 1:]
         for i, control in zip(indices, controls, strict=True):
             node = nodes[i]
             nodes[i] = replace(
@@ -236,11 +234,8 @@ def _simplified(
 def _spans(nodes: list[PathNode], frame: Frame) -> list[np.ndarray]:
     """Points along the segment ending at each node; none before the first."""
     t = np.linspace(0, 1, SAMPLES)
-    spans = [np.empty((0, 2))]
-    for before, node in pairwise(nodes):
-        start = frame.pixels(before.values)[-1]
-        spans.append(bezier(_controls(start, node, frame), t)[0])
-    return spans
+    controls = segment_controls(nodes, frame.pixels)
+    return [np.empty((0, 2)), *(evaluate(control, t) for control in controls)]
 
 
 def _cost(nodes, spans, i: int, fixed: Frozen, frame: Frame, bound: float = np.inf):
@@ -273,7 +268,7 @@ def _closing(
         return None
     start = frame.pixels(nodes[-2].values)[-1]
     t = np.linspace(0, 1, SAMPLES)
-    old = np.vstack([bezier(_controls(start, last, frame), t)[0], first])
+    old = np.vstack([evaluate(_controls(start, last, frame), t), first])
     return _apart(old, np.vstack([start, first]), bound)
 
 
@@ -304,7 +299,11 @@ def _join(
         control = np.vstack([start, end])
         command = "L"
     else:
-        control = _cubic(start, first, second, end, old)
+        leave = _direction(first[1:], start)
+        arrive = _direction(second[-2::-1], end)
+        if leave is None or arrive is None:
+            return None
+        control = fit_cubic(old, ends=(start, end), leave=leave, arrive=arrive)
         if control is None:
             return None
         # Measure the actual constrained join: retracting these only after
@@ -318,7 +317,7 @@ def _join(
         ):
             control[2] = end
         command = "C"
-    moved = _apart(old, bezier(control, np.linspace(0, 1, 2 * SAMPLES))[0], bound)
+    moved = _apart(old, evaluate(control, np.linspace(0, 1, 2 * SAMPLES)), bound)
     values = frame.local(control[1:])
     return moved, replace(after, command=command, values=values)
 
@@ -343,39 +342,6 @@ def _furthest(points: np.ndarray, line: np.ndarray) -> float:
     gx = x - (sx + along * dx)
     gy = y - (sy + along * dy)
     return float(np.sqrt((gx * gx + gy * gy).min(axis=1).max()))
-
-
-def _cubic(start, first, second, end, old) -> np.ndarray | None:
-    """One cubic from *start* to *end* leaving and arriving as the old two did,
-    with the handle lengths that follow *old* most closely."""
-    leave = _direction(first[1:], start)
-    arrive = _direction(second[-2::-1], end)
-    if leave is None or arrive is None:
-        return None
-    # Parameters along the old outline by length.
-    steps = np.linalg.norm(np.diff(old, axis=0), axis=1)
-    total = steps.sum()
-    if total < 1e-9:
-        return None
-    t = np.concatenate([[0], np.cumsum(steps)]) / total
-    u = 1 - t
-    fixed = (u**3 + 3 * u**2 * t)[:, None] * start + (3 * u * t**2 + t**3)[
-        :, None
-    ] * end
-    basis = np.stack(
-        [
-            (3 * u**2 * t)[:, None] * leave,
-            (3 * u * t**2)[:, None] * arrive,
-        ],
-        axis=-1,
-    ).reshape(-1, 2)
-    lengths, *_ = np.linalg.lstsq(basis, (old - fixed).reshape(-1), rcond=None)
-    chord = float(np.linalg.norm(end - start))
-    if not np.all(np.isfinite(lengths)) or np.any(lengths <= 0):
-        lengths = np.array([chord / 3, chord / 3])
-    return np.vstack(
-        [start, start + lengths[0] * leave, end + lengths[1] * arrive, end]
-    )
 
 
 def _direction(points: np.ndarray, anchor: np.ndarray) -> np.ndarray | None:

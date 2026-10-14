@@ -28,6 +28,7 @@ from vectrify.document import Document, Geometry, PathNode, Subpath
 from vectrify.document.model import new_id
 from vectrify.document.transforms import root_matrix
 from vectrify.image_utils import on_white
+from vectrify.refine.bezier import fit_cubic
 from vectrify.refine.frame import Frame
 from vectrify.refine.frozen import Frozen
 from vectrify.refine.simplify import simplified_geometry, straightened
@@ -193,7 +194,7 @@ def _on_peaks(path: np.ndarray, gradient: np.ndarray) -> np.ndarray:
     best = np.argmax(values, axis=1)
     moving = values[np.arange(len(path)), best] >= FULL_EDGE / 3
     moving[[0, -1]] = False
-    for corner in _corners(path):
+    for corner in sharp_turns(path):
         moving[max(0, corner - TURN_SPAN) : corner + TURN_SPAN + 1] = False
     return path + np.where(moving, steps[best], 0)[:, None] * normal
 
@@ -225,7 +226,7 @@ def _smoothed(line: np.ndarray, sigma: float, kept: list[int]) -> np.ndarray:
     return smooth
 
 
-def _corners(
+def sharp_turns(
     line: np.ndarray, span: int = TURN_SPAN, corner: float = CORNER
 ) -> list[int]:
     """Where *line* turns sharply, more than *corner* degrees over *span*
@@ -256,7 +257,7 @@ def _fitted(line: np.ndarray, tolerance: float, sigma: float) -> Geometry:
     each side keeps its own direction.
     """
     line = _resampled(line, 1.0)
-    corners = _corners(line)
+    corners = sharp_turns(line)
     line = _smoothed(line, sigma, corners)
     last = len(line) - 1
     sharp = {0, last, *corners}
@@ -280,38 +281,19 @@ def _fitted(line: np.ndarray, tolerance: float, sigma: float) -> Geometry:
             if j in sharp
             else direction(j + TANGENT, j - TANGENT)
         )
-        handles = None
-        if len(chunk) >= 3 and leave is not None and arrive is not None:
-            handles = _cubic(chunk, leave, arrive)
-        if handles is None:
+        control = None
+        # A chunk back at its start has no chord for its handles.
+        if (
+            len(chunk) >= 3
+            and leave is not None
+            and arrive is not None
+            and np.linalg.norm(chunk[-1] - chunk[0]) >= 1e-9
+        ):
+            control = fit_cubic(chunk, leave=leave, arrive=arrive, clamp=True)
+        if control is None:
             nodes.append(PathNode(new_id("node"), "L", tuple(chunk[-1])))
         else:
-            nodes.append(PathNode(new_id("node"), "C", (*handles.ravel(), *chunk[-1])))
+            nodes.append(PathNode(new_id("node"), "C", tuple(control[1:].ravel())))
     geometry = Geometry(new_id("geometry"), (Subpath(new_id("subpath"), tuple(nodes)),))
     geometry = simplified_geometry(geometry, Frozen(frozenset()), tolerance)
     return straightened(geometry, tolerance / 2)
-
-
-def _cubic(
-    points: np.ndarray, leave: np.ndarray, arrive: np.ndarray
-) -> np.ndarray | None:
-    """The two handles of the cubic through *points*' ends, leaving along
-    *leave* and arriving from *arrive*, whose lengths follow them closest."""
-    start, end = points[0], points[-1]
-    chord = float(np.linalg.norm(end - start))
-    if chord < 1e-9:
-        return None
-    steps = np.linalg.norm(np.diff(points, axis=0), axis=1)
-    t = np.concatenate([[0], np.cumsum(steps)]) / steps.sum()
-    u = 1 - t
-    fixed = (u**3 + 3 * u**2 * t)[:, None] * start + (3 * u * t**2 + t**3)[
-        :, None
-    ] * end
-    basis = np.stack(
-        [(3 * u**2 * t)[:, None] * leave, (3 * u * t**2)[:, None] * arrive], axis=-1
-    ).reshape(-1, 2)
-    lengths, *_ = np.linalg.lstsq(basis, (points - fixed).reshape(-1), rcond=None)
-    if not np.all(np.isfinite(lengths)) or np.any(lengths <= 0):
-        lengths = np.array([chord / 3, chord / 3])
-    lengths = np.minimum(lengths, chord)
-    return np.vstack([start + lengths[0] * leave, end + lengths[1] * arrive])

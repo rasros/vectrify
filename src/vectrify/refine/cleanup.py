@@ -4,23 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
-from itertools import pairwise
 
 import numpy as np
 
 from vectrify.document import Geometry, PathNode
-from vectrify.refine.crossings import bezier
+from vectrify.refine.bezier import derivative, evaluate, fit_cubic, segment_controls
 from vectrify.refine.frame import Frame
 
 
 def _sample(nodes: tuple[PathNode, ...] | list[PathNode], frame: Frame):
     """Sample each segment at quarters, with arc distances in reference pixels."""
     points, tangents = [], []
-    for previous, node in pairwise(nodes):
-        control = np.vstack((previous.endpoint, np.asarray(node.values).reshape(-1, 2)))
-        p, v = bezier(control, np.linspace(0, 1, 5))
-        points.extend(p[:-1])
-        tangents.extend(v[:-1])
+    t = np.linspace(0, 1, 5)
+    for control in segment_controls(nodes):
+        points.extend(evaluate(control, t)[:-1])
+        tangents.extend(derivative(control, t)[:-1])
     last = nodes[-1]
     endpoint = np.asarray(last.endpoint)
     points.append(endpoint)
@@ -37,12 +35,9 @@ def _sample(nodes: tuple[PathNode, ...] | list[PathNode], frame: Frame):
 
 def _fitted(points: np.ndarray, target: np.ndarray, arc: np.ndarray):
     """Fit a cubic to the observed edge, fixing the span's two endpoints."""
-    t = (arc / max(arc[-1], 1e-9))[:, None]
-    u = 1 - t
-    basis = np.hstack((3 * u * u * t, 3 * u * t * t))
-    fixed = u**3 * points[0] + t**3 * points[-1]
-    controls, *_ = np.linalg.lstsq(basis, target - fixed, rcond=None)
-    return controls, fixed + basis @ controls
+    t = arc / max(arc[-1], 1e-9)
+    control = fit_cubic(target, t, ends=(points[0], points[-1]))
+    return control[1:3], evaluate(control, t)
 
 
 def cleaned(
@@ -175,23 +170,15 @@ def cleaned(
             target = guide(samples, tangents)
             fitted, _ = _fitted(samples, target, arc)
             fractions = arc[::4] / max(arc[-1], 1e-9)
-            models.insert(0, tuple(fitted))
+            models.insert(0, (fitted[0], fitted[1]))
         for c1, c2 in models:
-
-            def at(t, a=a, b=b, c1=c1, c2=c2):
-                u = 1 - t
-                point = u**3 * a + 3 * u * u * t * c1 + 3 * u * t * t * c2 + t**3 * b
-                tangent = (
-                    3 * u * u * (c1 - a) + 6 * u * t * (c2 - c1) + 3 * t * t * (b - c2)
-                )
-                return point, tangent
-
+            control = np.array([a, c1, c2, b])
             changed = False
             for j in range(start + 1, end + 1):
                 node = subpath.nodes[j]
                 low, high = fractions[j - start - 1 : j - start + 1]
-                p0, t0 = at(low)
-                p1, t1 = at(high)
+                p0, p1 = evaluate(control, np.array([low, high]))
+                t0, t1 = derivative(control, np.array([low, high]))
                 points = (
                     np.array(
                         [p0 + t0 * (high - low) / 3, p1 - t1 * (high - low) / 3, p1]

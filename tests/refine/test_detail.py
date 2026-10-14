@@ -5,7 +5,8 @@ from dataclasses import replace
 import numpy as np
 
 from vectrify.document import import_svg
-from vectrify.refine.crossings import bezier, crossings
+from vectrify.refine.bezier import evaluate
+from vectrify.refine.crossings import crossings
 from vectrify.refine.detail import densified
 from vectrify.refine.frame import Frame
 
@@ -28,7 +29,7 @@ def test_subdivision_keeps_all_endpoints_and_follows_the_exact_cubic():
     controls = np.array([[0, 0], [10, 30], [30, -10], [40, 10]])
     # Recursive halves end at dyadic parameters; all inserted knots are exactly
     # on the original curve rather than an independently fitted approximation.
-    samples = bezier(controls, np.linspace(0, 1, 4097))[0]
+    samples = evaluate(controls, np.linspace(0, 1, 4097))
     for node in nodes[1 : end + 1]:
         assert np.linalg.norm(samples - node.endpoint, axis=1).min() < 1e-10
 

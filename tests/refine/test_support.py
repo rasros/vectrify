@@ -9,7 +9,7 @@ from PIL import Image
 
 from vectrify.document import export_svg, import_svg
 from vectrify.operations.generate import Region
-from vectrify.refine.crossings import bezier
+from vectrify.refine.bezier import evaluate
 from vectrify.refine.frozen import Frozen, Paths, frozen
 from vectrify.refine.support import supported
 from vectrify.svg_render import render_image
@@ -20,7 +20,7 @@ REGION = Region(0, 0, 64, 64, Image.new("RGB", (64, 64)))
 
 def drawing(*, reverse=False, transform="translate(0 0)", opacity="1", later=True):
     t = np.linspace(0, 1, 17)
-    points = bezier(CONTROL, t)[0]
+    points = evaluate(CONTROL, t)
     points[:, 1] += np.sin(6 * np.pi * t) * 0.25
     if reverse:
         points = points[::-1]
@@ -112,7 +112,7 @@ def test_partial_stroke_is_copied_using_exact_subcurves():
     document = drawing()
     geometry = document.geometry_for("fill")
     sub = geometry.subpaths[0]
-    points = bezier(CONTROL, np.linspace(0.2, 0.8, 17))[0]
+    points = evaluate(CONTROL, np.linspace(0.2, 0.8, 17))
     nodes = (
         tuple(
             replace(n, values=tuple(p))
@@ -128,8 +128,8 @@ def test_partial_stroke_is_copied_using_exact_subcurves():
     assert len(after) == 4
     control = np.vstack((after[0].endpoint, np.array(after[1].values).reshape(-1, 2)))
     assert np.allclose(
-        bezier(control, np.linspace(0, 1, 25))[0],
-        bezier(CONTROL, np.linspace(0.2, 0.8, 25))[0],
+        evaluate(control, np.linspace(0, 1, 25)),
+        evaluate(CONTROL, np.linspace(0.2, 0.8, 25)),
         atol=1e-6,
     )
 
@@ -168,7 +168,7 @@ def test_nonmonotone_correspondence_is_not_replaced_by_a_shortcut():
     document = drawing()
     geometry = document.geometry_for("fill")
     sub = geometry.subpaths[0]
-    points = bezier(CONTROL, np.array([0, 0.2, 0.8, 0.4, 1]))[0]
+    points = evaluate(CONTROL, np.array([0, 0.2, 0.8, 0.4, 1]))
     nodes = (
         tuple(
             replace(n, values=tuple(p))
