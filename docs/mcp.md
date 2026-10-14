@@ -659,9 +659,10 @@ and may eliminate narrow parts. To keep later shading off an outline that stays
 on the body itself, use half its stroke width: for a 0.85-wide stroke, use
 `inset=0.425`. The outline does not need another drawing layer. Node edits still
 update a linked inset; changing the stroke width requires updating the inset.
-The inset uses SVG miter joins with a limit of 4, beveling sharper corners
-to match the outline. Saved projects retain the editable source geometry;
-exported SVGs contain ordinary inset clip paths and
+The inset follows the boundary's corner join style and miter limit, including
+later changes to those settings on a linked source or its ancestors. Copied
+clips keep the settings captured when created. Saved projects retain the
+editable source geometry; exported SVGs contain ordinary inset clip paths and
 metadata that restores their editable boundaries when reopened in Vectrify.
 The derived clip retains curves; any conic curves are approximated within
 0.01 local units. The source's curves remain intact. During a node drag its

@@ -1744,9 +1744,10 @@ class Agent:
         or reparenting a source. inset >= 0 removes a band from each boundary
         before their union, in source-local units; holes grow and narrow areas
         can disappear. Use half a body's stroke width to protect its outline
-        from later shading. Linked insets follow node edits. set replaces
-        existing clipping; remove clears it (omit boundary and inset). Use
-        edit_batch to preview and apply as one undo step.
+        from later shading. Insets use the source's corner joins and miter
+        limit; linked insets follow changes to those settings and node edits.
+        set replaces existing clipping; remove clears it (omit boundary and
+        inset). Use edit_batch to preview and apply as one undo step.
         """
         from vectrify.document.clipping import apply_clip
 

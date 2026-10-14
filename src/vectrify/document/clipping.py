@@ -33,7 +33,13 @@ SOURCE = "data-vectrify-clip-source"
 
 
 @lru_cache(maxsize=256)
-def inset_geometry(geometry: Geometry, distance: float, rule: str) -> Geometry:
+def inset_geometry(
+    geometry: Geometry,
+    distance: float,
+    rule: str,
+    join: str = "miter",
+    miter_limit: float = 4,
+) -> Geometry:
     """Remove an SVG-style boundary band before placement, expanding holes.
 
     Resolve fill rules first so overlapping contours leave no interior cuts.
@@ -80,9 +86,14 @@ def inset_geometry(geometry: Geometry, distance: float, rule: str) -> Geometry:
         band.stroke(
             distance * 2 * scale,
             pathops.LineCap.BUTT_CAP,
-            pathops.LineJoin.MITER_JOIN,
-            4,
+            {
+                "miter": pathops.LineJoin.MITER_JOIN,
+                "round": pathops.LineJoin.ROUND_JOIN,
+                "bevel": pathops.LineJoin.BEVEL_JOIN,
+            }[join],
+            miter_limit,
         )
+        band.convertConicsToQuads(0.001 * distance * scale)
         result = pathops.op(enlarged, band, pathops.PathOp.DIFFERENCE)
         return path_geometry(result.transform(1 / scale, 0, 0, 1 / scale, left, top))
     except (pathops.PathOpsError, GEOSException, OverflowError, ValueError) as exc:
@@ -90,11 +101,33 @@ def inset_geometry(geometry: Geometry, distance: float, rule: str) -> Geometry:
 
 
 def clip_geometry(document: Document, element: Element) -> Geometry:
+    from vectrify.document.join import path_style
+
     geometry = document.geometry_for(element.id)
     distance = float(element.get(INSET, "0") or 0)
     if not distance:
         return geometry
-    return inset_geometry(geometry, distance, element.get("clip-rule", "nonzero"))
+    # Linked clips follow inherited corner settings as well as node edits.
+    # Missing or detached sources fall back to the settings captured on the
+    # boundary, so a copied clip keeps its original appearance.
+    source = element.get(SOURCE)
+    try:
+        original = document.element(source) if source else None
+    except DocumentError:
+        original = None
+    style = path_style(
+        document,
+        original
+        if original is not None and original.geometry_id == geometry.id
+        else element,
+    )
+    return inset_geometry(
+        geometry,
+        distance,
+        element.get("clip-rule", "nonzero"),
+        style["stroke-linejoin"],
+        float(style["stroke-miterlimit"]),
+    )
 
 
 def apply_clip(
@@ -156,7 +189,14 @@ def apply_clip(
         if not geometry.subpaths or any(not s.closed for s in geometry.subpaths):
             raise DocumentError("Boundary paths must have closed contours")
         if inset:
-            inset_geometry(geometry, inset, path_style(document, element)["fill-rule"])
+            style = path_style(document, element)
+            inset_geometry(
+                geometry,
+                inset,
+                style["fill-rule"],
+                style["stroke-linejoin"],
+                float(style["stroke-miterlimit"]),
+            )
         sources.append((element, geometry, object_matrix(document, oid)))
     result: list[dict[str, Any]] = []
     # Scope is explicit; the transaction's structural command checks target
@@ -175,7 +215,8 @@ def apply_clip(
                 if not linked:
                     geometry = _copied(geometry)
                     geometries.append(geometry)
-                rule = path_style(document, element)["fill-rule"]
+                style = path_style(document, element)
+                rule = style["fill-rule"]
                 attrs = {
                     "fill": "#ffffff",
                     "stroke": "none",
@@ -189,6 +230,8 @@ def apply_clip(
                     attrs[SOURCE] = element.id
                 if inset:
                     attrs[INSET] = str(inset)
+                    attrs["stroke-linejoin"] = style["stroke-linejoin"]
+                    attrs["stroke-miterlimit"] = style["stroke-miterlimit"]
                 children.append(
                     Element(
                         new_id("boundary"),
