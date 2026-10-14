@@ -1240,6 +1240,77 @@ def test_numeric_move_keeps_the_position_lock():
     assert session.editor.snapshot.document == before
 
 
+def test_nudges_of_one_run_are_one_undo_step_and_one_translate():
+    session = Session(import_svg(NESTED))
+    before = page_box(session, "inner")
+    send(session, "select", objects=["inner", "plain"])
+    for _ in range(3):
+        send(session, "move", dx=1, dy=0, nudge="run-1")
+    send(session, "move", dx=0, dy=10, nudge="run-1")
+    assert session.state()["undo"] == ["Move selection"]
+    assert page_box(session, "inner") == pytest.approx(
+        (before[0] + 3, before[1] + 10, before[2] + 3, before[3] + 10)
+    )
+    # The moves add up into one translate in the rotated, scaled group's frame.
+    transform = session.editor.snapshot.document.element("inner").get("transform")
+    assert transform == "translate(5.0 -1.5)"
+    assert session.editor.snapshot.document.element("plain").get("transform") == (
+        "translate(3.0 10.0)"
+    )
+    # Another run is a step of its own; an edit in between ends a run.
+    send(session, "move", dx=1, dy=0, nudge="run-2")
+    send(session, "paint", changes={"fill": "green"})
+    send(session, "move", dx=1, dy=0, nudge="run-2")
+    assert session.state()["undo"] == [
+        "Move selection",
+        "Move selection",
+        "Change paint",
+        "Move selection",
+    ]
+    for _ in range(4):
+        send(session, "undo")
+    assert page_box(session, "inner") == pytest.approx(before)
+    assert session.editor.snapshot.document.element("inner").get("transform") is None
+    # Undo between nudges of one run ends it too.
+    send(session, "move", dx=1, dy=0, nudge="run-3")
+    send(session, "undo")
+    send(session, "move", dx=1, dy=0, nudge="run-3")
+    send(session, "move", dx=1, dy=0, nudge="run-3")
+    assert session.state()["undo"] == ["Move selection"]
+    assert page_box(session, "inner") == pytest.approx(
+        (before[0] + 2, before[1], before[2] + 2, before[3])
+    )
+
+
+def test_point_nudges_of_one_run_are_one_undo_step():
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["a"])
+    node = session.editor.snapshot.document.geometry_for("a").subpaths[0].nodes[1]
+    for x in (21, 22, 23):
+        send(session, "move_nodes", changes={"a": {node.id: [x, 0]}}, nudge="run")
+    assert session.state()["undo"] == ["Move points"]
+    geometry = session.editor.snapshot.document.geometry_for("a")
+    assert geometry.node(node.id).endpoint == (23, 0)
+    send(session, "undo")
+    geometry = session.editor.snapshot.document.geometry_for("a")
+    assert geometry.node(node.id).endpoint == (20, 0)
+
+
+def test_nudges_respect_position_locks_and_pins():
+    session = Session(import_svg(NESTED))
+    send(session, "select", objects=["turned"])
+    send(session, "locks", object="turned", locks=["transform"])
+    send(session, "select", objects=["inner"])
+    with pytest.raises(DocumentError, match="locked"):
+        send(session, "move", dx=1, dy=0, nudge="run")
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["a"])
+    node = session.editor.snapshot.document.geometry_for("a").subpaths[0].nodes[1]
+    send(session, "pin", points=[["a", node.id]], pinned=True)
+    with pytest.raises(DocumentError):
+        send(session, "move_nodes", changes={"a": {node.id: [21, 0]}}, nudge="run")
+
+
 def test_rotate_and_flip_turn_the_selection_about_the_pivot_as_one_edit_each():
     session = Session(import_svg(NESTED))
     before = {oid: page_box(session, oid) for oid in ("inner", "plain")}

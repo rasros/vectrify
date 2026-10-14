@@ -193,6 +193,30 @@ all of them as one undoable edit.
   even when it starts on a selected object or its frame. In Move, dragging a
   selected object, or empty canvas inside the selection's frame, moves the
   selection instead.
+- **Select all** (Ctrl/⌘ A, under Select in the palette and the right-click
+  menu) selects every object at the editing level in an object tool: the
+  children of the entered group, or the drawing's top-level objects. It
+  leaves out what is not drawn where it is: definitions, gradients and
+  clipping boundaries (select those in the tree). In a point tool it
+  selects every point of the selected paths, keeping the paths selected;
+  with no path selected it says so. A text field keeps its own Ctrl/⌘ A.
+- **Arrow keys** nudge the selection by 1 document unit (the root SVG's
+  user unit, as X, Y and Move by use), or 10 with Shift, whatever the zoom:
+  the selected points in a point tool, else the selected objects. Objects
+  move through the same **Move selection** as a drag, in document
+  coordinates, so objects inside rotated or scaled groups move as far on
+  the page as the rest, and repeated nudges add up into one `translate` on
+  each object. Points move through **Move points**, each by the offset taken
+  into its own path's frame through its groups' transforms, with their
+  handles, as dragging moves them; nudges do not snap. A locked position
+  (objects), locked geometry or a pinned point refuses and says why, and
+  moves nothing. Nudges pressed while an edit runs add up into one edit,
+  sent when it is done, so holding a key never leaves a backlog of stale
+  moves. Nudges of one selection less than a second apart are one undo
+  step, as long as nothing else changes the drawing in between: undo, an
+  agent's edit or any other edit starts a new step. The arrows keep their
+  meaning in text fields, dialogs, the command palette, menus and the
+  object tree, and do nothing during a drag or with nothing selected.
 - **Resize** in Move works like resizing a window. The selection's frame is
   the bounding box of the selected objects on the page, with small ticks at
   its corners; the tool strip gives its size. Within 6 screen pixels of an
@@ -811,7 +835,9 @@ the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel; in
 Pencil: 1 Close shape; in the Eyedropper: 1 Artwork, 2 Reference, 3 Fill, 4 Stroke),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins what the
-selection allows (Join points, Merge shapes or Join line ends). Drag with
+selection allows (Join points, Merge shapes or Join line ends), A selects
+all. The arrow keys nudge the selection 1 document unit, 10 with Shift (see
+Selecting). Drag with
 the middle mouse button (in any tool), or hold Space and drag, to pan. Use the
 scroll wheel to zoom, and press `F` to fit. Ctrl/Command-Z undoes; add Shift
 to redo. Ctrl/Command-S saves the current file. Ctrl/Command-Shift-S opens

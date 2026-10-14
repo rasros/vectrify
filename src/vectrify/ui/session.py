@@ -44,7 +44,7 @@ from vectrify.document.model import EditKind, new_id, paint_server
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import attachment
 from vectrify.document.regions import SHAPES, region_polygon
-from vectrify.document.svg import SOLID, parse_path
+from vectrify.document.svg import NUMBER, SOLID, parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.document.transforms import (
     REFLECTIONS,
@@ -256,11 +256,26 @@ def parent_offset(
     return round(a * dx + c * dy, 12) + 0.0, round(b * dx + d * dy, 12) + 0.0
 
 
+# A transform that starts with a translation, which a further move adds to.
+LEADING_TRANSLATE = re.compile(
+    rf"\s*translate\(\s*({NUMBER})(?:\s*,?\s*({NUMBER}))?\s*\)\s*(.*)", re.S
+)
+
+
 def translate(
     tx: Transaction, ancestry: tuple[Element, ...], dx: float, dy: float
 ) -> None:
-    """Move the last of *ancestry* by *dx*, *dy* in its parent's frame."""
+    """Move the last of *ancestry* by *dx*, *dy* in its parent's frame.
+
+    A transform that already starts with a translation takes the move into
+    it, so repeated moves, such as arrow-key nudges, leave one translate.
+    """
     previous = ancestry[-1].get("transform", "") or ""
+    match = LEADING_TRANSLATE.fullmatch(previous)
+    if match:
+        dx = round(dx + float(match[1]), 12) + 0.0
+        dy = round(dy + float(match[2] or 0), 12) + 0.0
+        previous = match[3]
     transform = f"translate({dx} {dy}) {previous}".strip()
     tx.set_attributes(ancestry[-1].id, {"transform": transform})
 
@@ -293,6 +308,8 @@ class Session:
         # What the person's window last said it shows (see set_view), and when.
         self.view: dict[str, Any] | None = None
         self.view_time = 0.0
+        # The last arrow-key nudge: its drawing, run and the revision it made.
+        self._nudge: tuple[str, str, int] | None = None
 
     @property
     def reference(self) -> dict | None:
@@ -944,6 +961,8 @@ class Session:
         ):
             with self.planning(payload["revision"], self._payload_selection(payload)):
                 self.action(payload)
+            # A nudge merged from an earlier revision starts a step of its own.
+            self._nudge = None
             return self.state()
         spec = ACTION_COMMANDS.get(command) if isinstance(command, str) else None
         if spec is None:
@@ -952,11 +971,36 @@ class Session:
             raise DocumentError("Select an object first")
         before = self.editor.snapshot.revision
         getattr(self, spec.handler)(payload)
+        if command in {"move", "move_nodes"}:
+            self._group_nudge(payload.get("nudge"), before)
         return self.state(
             svg=command == "open"
             or self.editor.snapshot.revision != before
             or payload.get("revision") != before
         )
+
+    def _group_nudge(self, run: Any, before: int) -> None:
+        """Make the nudges of one run one undo step.
+
+        Arrow-key nudges name their *run*: the window starts a new one when
+        the selection changes or a second passes without a nudge. A nudge
+        joins the step of the one before it when that was of the same run,
+        on this drawing, and nothing else has changed the drawing since.
+        """
+        after = self.editor.snapshot.revision
+        if not isinstance(run, str) or not run or after == before:
+            self._nudge = None
+            return
+        previous, self._nudge = self._nudge, (self.epoch, run, after)
+        entries = self.editor.undo_entries
+        if (
+            previous == (self.epoch, run, before)
+            and len(entries) >= 2
+            and entries[-2].revision == before
+            and entries[-2].author == entries[-1].author
+            and entries[-2].label == entries[-1].label
+        ):
+            self.editor.squash(len(entries) - 2)
 
     def _command_select(self, payload: dict) -> None:
         self.editor.select(

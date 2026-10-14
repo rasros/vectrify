@@ -121,6 +121,7 @@ const registry = createCommandRegistryController(editor, {
   booleanDescription: operation => context.booleans.description(operation), booleanRefusal: () => context.booleans.refusal(),
   runBoolean: operation => context.booleans.run(operation),
   setTool: async tool => { editor.tool = tool; },
+  selectAll: () => { actions.push(['select-all']); return true; }, selectAllRefusal: () => '',
 });
 context.commands = createCommandsController(editor, {
   $, COMMANDS: registry.COMMANDS, commandById: registry.commandById, commandName: registry.commandName,
@@ -182,6 +183,11 @@ const menuItem = id => $('context-menu').querySelector(`.menu-item[data-command=
 openContextMenu(10, 10);
 const headings = $('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent);
 assert.deepEqual(headings, ['Select', 'Object', 'Transform', 'Arrange', 'Path', 'Clipping', 'Repair']);
+// Select all is in the menu with its shortcut, and runs from there.
+assert.equal(menuItem('select-all').querySelector('span').textContent, 'Select all');
+assert.equal(menuItem('select-all').querySelector('kbd').textContent, 'Ctrl/⌘ A');
+menuItem('select-all').onclick();
+assert.deepEqual(actions.pop(), ['select-all']);
 // Flips are offered beside the Transform fields and in the menu, and say
 // why they cannot run as the rest do.
 const transformList = Object.assign(new Node('div'), {className: 'command-list'});
@@ -393,11 +399,14 @@ objects.pop();
 editor.state.selection.objects = ['line', 'shape'];
 renderCommands();
 
-// In a point tool the menu offers the Nodes commands only; two points join.
+// In a point tool the menu offers Select all points and the Nodes
+// commands; two points join.
 pointLevel = true; selectedPoints = ['line a', 'shape b'];
 renderCommands();
 openContextMenu(10, 10);
-assert.deepEqual($('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent), ['Nodes']);
+assert.deepEqual($('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent), ['Select', 'Nodes']);
+assert.equal(menuItem('select-all').querySelector('span').textContent, 'Select all points');
+assert.ok(!menuItem('enter'), 'a point tool\'s menu offers only Select all of Select');
 assert.ok(!menuItem('merge-shapes'), 'object operations stay with objects');
 agrees('join-points', points, '');
 assert.equal(stripJoin.getAttribute('aria-disabled'), 'false');
