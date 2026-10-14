@@ -20,35 +20,32 @@ from scripts.bench_cel_planned import (
     MANIFEST,
     load_case,
     save_render,
-    source_hash,
 )
+from scripts.cel_bench import finish, prepare
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan.contracts import State
 from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.core_materials import candidate
-from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.families import Families
-from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
+from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import MAX_BRANCH_BYTES, Operators
-from vectrify.refine.cel_plan.score import foreground_mask, measurements, render
+from vectrify.refine.cel_plan.score import measurements, render
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
 
 
 def run(case, output, *, seconds=180, normalizer=None):
-    began, revision = time.monotonic(), source_hash()
-    _, reference = load_case(DATA / case["file"])
-    mask = foreground_mask(np.asarray(reference, np.float32) / 255)
-    if hashlib.sha256(mask.tobytes()).hexdigest() != case["mask_sha256"]:
-        raise ValueError("Fixture mask differs from frozen benchmark")
-    options, work = Options(refine=False), Work.start(seconds)
-    evidence = collect(reference, None, options, work)
-    graph = build(evidence, work=work)
-    policy = Policy.from_evidence(evidence, graph)
+    began = time.monotonic()
+    bench = prepare(case, seconds, refine=False, graph_work=True)
+    reference, mask, options, work = (
+        bench.reference,
+        bench.mask,
+        bench.options,
+        bench.work,
+    )
+    evidence, graph, policy = bench.evidence, bench.graph, bench.policy
     fallback, _ = export(evidence, evidence.labels, options, work, conservative=True)
     baseline = policy.evaluate(fallback)
     if not baseline.valid:
@@ -179,11 +176,9 @@ def run(case, output, *, seconds=180, normalizer=None):
             (output / f"{row['name']}.svg").read_text(), evidence.source_size
         )
         row["human"] = measurements(actual, human, mask, features=case["features"])
-    if revision != source_hash():
-        raise ValueError("Algorithm sources changed during the diagnostic")
     report = {
         "case": case["name"],
-        "source_sha256": revision,
+        "source_sha256": bench.revision,
         "mask_sha256": case["mask_sha256"],
         "reference_rgba_sha256": hashlib.sha256(
             np.asarray(reference).tobytes()
@@ -203,8 +198,7 @@ def run(case, output, *, seconds=180, normalizer=None):
         "resolution_errors": resolution_errors,
         "rows": rows,
     }
-    (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
-    return report
+    return finish(output / "summary.json", report, bench.revision)
 
 
 def main():

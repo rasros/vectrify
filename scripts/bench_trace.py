@@ -5,13 +5,13 @@ For each reference and preset, this runs a Generate method (cel unless
 Tidy on the largest traced paths, and records how close the
 result is to the reference, how heavy it is and how long it took.
 
-    uv run python scripts/bench_trace.py --out runs/base.jsonl
-    uv run python scripts/bench_trace.py --set regions=200 --out runs/b.jsonl
-    uv run python scripts/bench_trace.py --compare runs/base.jsonl runs/b.jsonl
-    uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
-    uv run python scripts/bench_trace.py --nodes shape=true --nodes seconds=60
-    uv run python scripts/bench_trace.py --method cel --paths 0 --heldout
-    uv run python scripts/bench_trace.py --photos --paths 0 --renders runs/p
+    uv run python -m scripts.bench_trace --out runs/base.jsonl
+    uv run python -m scripts.bench_trace --set regions=200 --out runs/b.jsonl
+    uv run python -m scripts.bench_trace --compare runs/base.jsonl runs/b.jsonl
+    uv run python -m scripts.bench_trace --method cel --paths 0 --out runs/cel.jsonl
+    uv run python -m scripts.bench_trace --nodes shape=true --nodes seconds=60
+    uv run python -m scripts.bench_trace --method cel --paths 0 --heldout
+    uv run python -m scripts.bench_trace --photos --paths 0 --renders runs/p
 
 The default references are the tuning set: settings are chosen on them.
 `--heldout` runs the held-out set instead, images never used for tuning,
@@ -46,10 +46,10 @@ cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
 
 Tidy as a touch-up after the trace:
 
-    uv run python scripts/bench_trace.py --tidy --out runs/tidy.jsonl
-    uv run python scripts/bench_trace.py --tidy --tidy-steps snap,simplify \\
+    uv run python -m scripts.bench_trace --tidy --out runs/tidy.jsonl
+    uv run python -m scripts.bench_trace --tidy --tidy-steps snap,simplify \\
         --tidy-steps shape --tidy-crops runs/crops --out runs/shape.jsonl
-    uv run python scripts/bench_trace.py --summary runs/tidy.jsonl runs/shape.jsonl
+    uv run python -m scripts.bench_trace --summary runs/tidy.jsonl runs/shape.jsonl
 
 `--paths N` tidies the N largest traced paths (by painted area) one at a
 time, each kept before the next is tidied, as when touching up a trace by
@@ -89,12 +89,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import re
 import time
 from pathlib import Path
 
 from PIL import Image
 
+from scripts.bench_lines import setting
 from vectrify.image_utils import on_white
 
 # Generate settings on top of each method's defaults, by method and preset.
@@ -172,7 +172,7 @@ def references(heldout: bool = False, photographs: bool = False) -> list[Path]:
     """The tuning set's references, or with *heldout* the held-out set's:
     the generated images, then the line bench's own drawings; with
     *photographs*, the set's photos instead."""
-    from bench_lines import DRAWINGS, HELDOUT, REFERENCES
+    from scripts.bench_lines import DRAWINGS, HELDOUT, REFERENCES
 
     if photographs:
         return photos(heldout)
@@ -185,7 +185,7 @@ def load(path: Path) -> Image.Image:
     """Reference *path* as the editor shows it, transparency over white (not
     black); an SVG drawing rendered as the line bench renders it."""
     if path.suffix == ".svg":
-        from bench_lines import render, size
+        from scripts.bench_lines import render, size
 
         svg = path.read_text()
         return Image.fromarray(render(svg, *size(svg)))
@@ -288,8 +288,8 @@ def main() -> None:
             f"no {args.method} preset {', '.join(sorted(unknown))}; "
             f"choose from {', '.join(sorted(presets))}"
         )
-    overrides = dict(_setting(item) for item in args.set)
-    nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
+    overrides = dict(setting(item) for item in args.set)
+    nodes = OPTIMIZE | dict(setting(item) for item in args.nodes)
     rows = []
     for path in args.references or references(args.heldout, args.photos):
         image = load(path)
@@ -664,7 +664,7 @@ def _steps(item: str) -> dict:
     if "detail" in chosen and "snap" not in chosen:
         raise ValueError(f"--tidy-steps {item}: detail is Snap's, so add snap")
     return {step: step in chosen for step in TIDY_DEFAULTS} | dict(
-        _setting(other) for other in rest
+        setting(other) for other in rest
     )
 
 
@@ -851,19 +851,6 @@ def _parse(svg: str):
     import xml.etree.ElementTree as ET
 
     return ET.fromstring(svg).iter()
-
-
-def _setting(item: str) -> tuple[str, object]:
-    key, _, value = item.partition("=")
-    lowered = value.lower()
-    if lowered in {"true", "false"}:
-        return key, lowered == "true"
-    if re.fullmatch(r"-?\d+", value):
-        return key, int(value)
-    try:
-        return key, float(value)
-    except ValueError:
-        return key, value
 
 
 def _line(row: dict) -> str:

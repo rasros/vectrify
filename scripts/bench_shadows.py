@@ -11,12 +11,12 @@ The references are the trace bench's (its generated images, over white
 as the editor shows them, and the bench's own drawings) and the line
 bench's Commons drawings, rendered clean:
 
-    uv run python scripts/bench_shadows.py --out runs/shadows.jsonl
-    uv run python scripts/bench_shadows.py --set outline=true
-    uv run python scripts/bench_shadows.py --renders runs/shadows
-    uv run python scripts/bench_shadows.py --rescore runs/shadows
-    uv run python scripts/bench_shadows.py --compare runs/a.jsonl runs/b.jsonl
-    uv run python scripts/bench_shadows.py --heldout
+    uv run python -m scripts.bench_shadows --out runs/shadows.jsonl
+    uv run python -m scripts.bench_shadows --set outline=true
+    uv run python -m scripts.bench_shadows --renders runs/shadows
+    uv run python -m scripts.bench_shadows --rescore runs/shadows
+    uv run python -m scripts.bench_shadows --compare runs/a.jsonl runs/b.jsonl
+    uv run python -m scripts.bench_shadows --heldout
 
 `--heldout` runs both benches' held-out sets instead, never used for
 tuning (see bench_trace and bench_lines).
@@ -32,13 +32,14 @@ import json
 from pathlib import Path
 
 import numpy as np
-from bench_lines import CACHE, _setting, reference, render, size, trace
-from bench_lines import HELDOUT as LINE_HELDOUT
-from bench_lines import HELDOUT_DIR as LINE_HELDOUT_DIR
-from bench_lines import REFERENCES as LINE_REFERENCES
-from bench_trace import load, references
 from PIL import Image
 from scipy.ndimage import binary_opening, gaussian_filter, label
+
+from scripts.bench_lines import CACHE, reference, render, setting, size, trace
+from scripts.bench_lines import HELDOUT as LINE_HELDOUT
+from scripts.bench_lines import HELDOUT_DIR as LINE_HELDOUT_DIR
+from scripts.bench_lines import REFERENCES as LINE_REFERENCES
+from scripts.bench_trace import load, references
 
 # The measure's constants, as the brief for it gives them.
 SIGMA = 1.5
@@ -114,7 +115,7 @@ def main() -> None:
     if args.compare:
         compare(*args.compare)
         return
-    settings = dict(_setting(item) for item in args.set)
+    settings = dict(setting(item) for item in args.set)
     rows = []
     for name, image in cases(args.heldout):
         seconds = None
