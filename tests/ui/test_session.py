@@ -478,6 +478,86 @@ def test_detach_instance_enables_split_and_keeps_other_instances_unchanged():
     assert session.editor.snapshot.document == original
 
 
+CONVERTIBLE = """<svg width="100" height="100"><defs>
+<clipPath id="clip"><rect x="0" y="0" width="60" height="100"/></clipPath>
+<path id="def" d="M0 0H10V10H0Z"/></defs>
+<g id="layer" transform="translate(5 5)">
+<rect id="r" x="10" y="10" width="40" height="30" rx="4" fill="red"
+ stroke="navy" stroke-width="2" opacity=".8" transform="rotate(10 30 25)"
+ clip-path="url(#clip)"/>
+<circle id="c" cx="70" cy="70" r="15" fill="green"/>
+<line id="l" x1="10" y1="90" x2="90" y2="60" stroke="black"/>
+</g><use id="inst" href="#def" x="80"/></svg>"""
+
+
+def test_convert_to_path_keeps_shapes_look_identity_and_is_one_undo():
+    from tests.document.test_document import render
+
+    session = Session(import_svg(CONVERTIBLE))
+    before = session.editor.snapshot
+    image = render(session.state()["svg"])
+    send(session, "select", objects=["r", "c", "l"])
+    result = send(session, "convert_to_path")
+    document = session.editor.snapshot.document
+    assert result["selection"]["objects"] == ["c", "l", "r"]
+    assert result["undo"] == ["Convert to path"]
+    assert {document.element(i).tag for i in ("r", "c", "l")} == {"path"}
+    rect = document.element("r")
+    for name, value in before.document.element("r").attributes:
+        if name not in {"x", "y", "width", "height", "rx"}:
+            assert rect.get(name) == value
+    assert rect.get("x") is None
+    assert document.element("l").get("fill") == "none"
+    assert document.ancestry("r")[-2].id == "layer"
+    # The same picture, give or take the curves' antialiasing.
+    assert abs(render(session.state()["svg"]).astype(int) - image).max() < 64
+    # Its points are now the path's own to edit in Nodes.
+    first = node_ids(session, "c")[0]
+    values = document.geometry_for("c").node(first).values
+    send(session, "select", objects=["c"], nodes=[first])
+    send(session, "move_nodes", changes={"c": {first: [*values[:-2], 90, 70]}})
+    moved = session.editor.snapshot.document.geometry_for("c").node(first)
+    assert moved.endpoint == (90, 70)
+    send(session, "undo")
+    send(session, "undo")
+    assert session.editor.snapshot.document == before.document
+
+
+@pytest.mark.parametrize(
+    ("objects", "locked", "message"),
+    [
+        (["inst"], None, "Convert to path takes rectangles"),
+        (["c", "def"], None, "detach instances and shared geometry"),
+        (["c", "r"], "r", "r: structure is locked"),
+    ],
+)
+def test_convert_to_path_refuses_without_converting_any(objects, locked, message):
+    session = Session(import_svg(CONVERTIBLE))
+    if locked:
+        send(session, "select", objects=[locked])
+        send(session, "locks", object=locked, locks=["geometry", "structure"])
+    send(session, "select", objects=objects)
+    before = session.editor.snapshot
+    with pytest.raises(DocumentError, match=message):
+        send(session, "convert_to_path")
+    assert session.editor.snapshot == before
+    assert session.editor.snapshot.document.element("c").tag == "circle"
+
+
+def test_convert_to_path_refuses_a_shape_another_object_references():
+    session = Session(
+        import_svg(
+            '<svg><rect id="r" width="10" height="10"/>'
+            '<use id="u" href="#r" x="20"/></svg>'
+        )
+    )
+    send(session, "select", objects=["r"])
+    before = session.editor.snapshot
+    with pytest.raises(DocumentError, match="Detach references to this shape"):
+        send(session, "convert_to_path")
+    assert session.editor.snapshot == before
+
+
 def test_rename_preserves_references_and_roundtrips_with_history():
     from vectrify.document import export_svg
     from vectrify.document.project import load_project, save_project

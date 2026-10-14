@@ -2,6 +2,9 @@ import {splitKey} from './selection.js';
 import {breakable} from './lines.js';
 import {JOIN_REACH} from './app_config.js';
 
+// The basic shapes Convert to path turns into paths.
+const SHAPES = new Set(['rect', 'circle', 'ellipse', 'line']);
+
 // Command_registry owns its controls; editor contains the live state shared with other controllers.
 export function createCommandRegistryController(editor, {
   $,
@@ -146,9 +149,13 @@ export function createCommandRegistryController(editor, {
       disabled: () => noSelection() || (oneObject()?.tag === 'use' ? 'Detach this instance to an editable path first' : !visiblePaths() && 'Only visible paths can be split')},
     {id: 'cut-hole', name: 'Cut out as hole', group: 'Path', keywords: 'subtract difference punch', description: 'Cut the inner (or front) of two selected paths out of the other as a hole, keeping the other\'s paint',
       run: cutHole, disabled: () => (editor.state.selection.objects.length !== 2 || !visiblePaths()) && 'Select two visible paths, one inside or overlapping the other'},
+    {id: 'convert-to-path', name: 'Convert to path', group: 'Path', keywords: 'rectangle rect circle ellipse line basic shape editable nodes points',
+      description: 'Turn the selected rectangles, circles, ellipses and lines into paths with points to edit, keeping their look',
+      run: () => action('convert_to_path', {}, 'Converting to paths…'), disabled: convertRefusal},
     {id: 'detach', name: 'Detach', label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Path', keywords: 'instance use shared unlink',
       description: 'Give this object its own copy of geometry it shares with others', run: () => action('detach'),
-      disabled: () => !(oneObject()?.tag === 'use' || oneObject()?.shared) && 'Select one instance, or a path that shares its geometry'},
+      disabled: () => !(oneObject()?.tag === 'use' || oneObject()?.shared)
+        && (SHAPES.has(oneObject()?.tag) ? 'A basic shape shares nothing: use Convert to path' : 'Select one instance, or a path that shares its geometry')},
     // Clipping
     {id: 'show-clips', name: 'Show clipping boundaries', label: () => editor.showClipping ? 'Hide clipping boundaries' : 'Show clipping boundaries', group: 'Clipping', keywords: 'clip contour outline mask view',
       description: 'Show clipping boundaries as selectable outlines', run: toggleClipping},
@@ -227,6 +234,16 @@ export function createCommandRegistryController(editor, {
     if (candidates > 1 && lines < candidates) return '';
     if (candidates > 1) return 'These are lines without a fill: use Join line ends';
     return 'Select two or more paths, or groups that contain them, or one filled path';
+  }
+
+  // Convert to path is for basic shapes only; instances and shared geometry
+  // are Detach's, which keeps the two edits apart.
+  function convertRefusal() {
+    const selected = editor.state.selection.objects.map(object);
+    if (!selected.length) return noSelection();
+    if (selected.every(item => SHAPES.has(item?.tag))) return '';
+    if (selected.some(item => item?.tag === 'use' || item?.shared)) return 'Instances and shared geometry are detached: use Detach';
+    return 'Select rectangles, circles, ellipses or lines';
   }
 
   function joinTarget() {
