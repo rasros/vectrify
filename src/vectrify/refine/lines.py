@@ -34,7 +34,7 @@ from vectrify.document import Document, Geometry
 from vectrify.document.join import path_style
 from vectrify.operations.generate import Region
 from vectrify.refine.frozen import Frozen
-from vectrify.refine.snap import _bezier, _Frame, _frame
+from vectrify.refine.snap import _bezier, _Frame, _frame, _unit
 
 # The most a point or segment middle moves, in reference pixels.
 SHIFT = 1.5
@@ -223,11 +223,6 @@ def _background(samples, foreground):
     # most of the nearby samples, making their median the ink instead.
     distances = ((samples - foreground) ** 2).sum(-1)
     return samples[np.arange(len(samples)), distances.argmax(axis=1)]
-
-
-def _unit(vector: np.ndarray) -> np.ndarray | None:
-    size = float(np.linalg.norm(vector))
-    return vector / size if size > 1e-9 else None
 
 
 def _normal(tangent: np.ndarray | None) -> np.ndarray | None:

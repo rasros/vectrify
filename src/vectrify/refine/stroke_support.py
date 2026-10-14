@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 
 from vectrify.refine.crossings import bezier
-from vectrify.refine.support import SAMPLES, _closest, _split
+from vectrify.refine.support import SAMPLES, _closest, _point, _split
 
 REACH = 3.0
 MAX_SOURCE_SEGMENTS = 256
@@ -82,7 +82,7 @@ class StrokeSupports:
                     low, high = sorted((at[0], at[-1]))
                     owner = min(int(low + 1e-7), len(controls) - 1)
                     if any(
-                        np.linalg.norm(self._point(controls, t) - p) > REACH
+                        np.linalg.norm(_point(controls, t) - p) > REACH
                         for p, t in zip(probes, at, strict=True)
                     ):
                         continue
@@ -92,7 +92,7 @@ class StrokeSupports:
                         else np.minimum.accumulate(at)
                     )
                     if any(
-                        np.linalg.norm(self._point(controls, t) - p) > REACH
+                        np.linalg.norm(_point(controls, t) - p) > REACH
                         for p, t in zip(probes, monotone, strict=True)
                     ):
                         continue
@@ -136,11 +136,6 @@ class StrokeSupports:
                             target.original.new_tensor(weights.copy()),
                         )
                     )
-
-    @staticmethod
-    def _point(controls, value):
-        index = min(int(value), len(controls) - 1)
-        return bezier(controls[index], np.array([value - index]))[0][0]
 
     @staticmethod
     def _weights(controls, at):
