@@ -98,6 +98,12 @@ export function createToolsController(editor, {
   }
 
   function drawSnap() {
+    // A moved selection's guides run from it to the boxes it lines up with.
+    if (editor.drag?.kind === 'move' && editor.drag.moved) {
+      for (const {at, low, high} of editor.drag.guides?.x || []) editor.overlayFrame.content.append(xmlElement('line', {x1: at, y1: low, x2: at, y2: high, class: 'snap-edge'}));
+      for (const {at, low, high} of editor.drag.guides?.y || []) editor.overlayFrame.content.append(xmlElement('line', {x1: low, y1: at, x2: high, y2: at, class: 'snap-edge'}));
+      return;
+    }
     if (editor.drag?.kind === 'resize' && editor.drag.moved) {
       const [x, y, w, h] = editor.state.bounds;
       if (editor.drag.snapX !== null) editor.overlayFrame.content.append(xmlElement('line', {x1: editor.drag.snapX, y1: y, x2: editor.drag.snapX, y2: y + h, class: 'snap-edge'}));

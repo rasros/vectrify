@@ -1,5 +1,6 @@
-// Snapping for node drags. Pure functions over plain points, so they can be
-// checked outside the browser; app.js gathers the points and draws the hint.
+// Snapping for node drags and object moves. Pure functions over plain points
+// and boxes, so they can be checked outside the browser; app.js gathers the
+// targets and draws the hint.
 
 const ARITY = {M: 2, L: 2, T: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, A: 7, Z: 0};
 
@@ -76,4 +77,53 @@ export function snapPoint(x, y, index, bounds, radius, lockedAxis = null) {
   if (ex !== null) target.x = ex;
   if (ey !== null) target.y = ey;
   return {x: ex ?? x, y: ey ?? y, target};
+}
+
+// The lines a moved box snaps to, from *boxes* ({left, top, right, bottom}):
+// x lines at each box's left, centre and right, y lines at its top, middle
+// and bottom. Each spans its box across (*low* to *high*), so a guide can
+// reach from the moved box to the box it lines up with.
+export function boxLines(boxes) {
+  const x = [], y = [];
+  for (const {left, top, right, bottom} of boxes) {
+    for (const at of [left, (left + right) / 2, right]) x.push({at, low: top, high: bottom});
+    for (const at of [top, (top + bottom) / 2, bottom]) y.push({at, low: left, high: right});
+  }
+  return {x, y};
+}
+
+// Snap *box* moved by (dx, dy) to *lines* (see boxLines): on each axis on its
+// own, the edge or centre nearest a line within *radius* moves onto it. A
+// *lockedAxis* ('x' or 'y') keeps that coordinate: it neither moves nor
+// snaps. Returns the snapped {dx, dy} and the guides to draw, {x: [...], y:
+// [...]}: one {at, low, high} per line the moved box's edges or centre lie
+// on, spanning the moved box and every box lined up there.
+export function snapBox(box, dx, dy, lines, radius, lockedAxis = null) {
+  const features = (low, high, d) => [low + d, (low + high) / 2 + d, high + d];
+  const snap = (d, low, high, targets) => {
+    let best = null;
+    for (const value of features(low, high, d)) for (const line of targets) {
+      const shift = line.at - value;
+      if (Math.abs(shift) <= radius && (best === null || Math.abs(shift) < Math.abs(best))) best = shift;
+    }
+    return d + (best ?? 0);
+  };
+  if (lockedAxis === 'x') dx = 0; else dx = snap(dx, box.left, box.right, lines.x);
+  if (lockedAxis === 'y') dy = 0; else dy = snap(dy, box.top, box.bottom, lines.y);
+  // Lines within rounding of a moved edge or centre are lined up with it.
+  const close = Math.max(radius * 1e-6, 1e-9);
+  const guides = (d, low, high, crossLow, crossHigh, targets) => {
+    const found = new Map();
+    for (const value of features(low, high, d)) for (const line of targets) {
+      if (Math.abs(line.at - value) > close) continue;
+      const guide = found.get(value) || {at: line.at, low: crossLow, high: crossHigh};
+      guide.low = Math.min(guide.low, line.low); guide.high = Math.max(guide.high, line.high);
+      found.set(value, guide);
+    }
+    return [...found.values()];
+  };
+  return {dx, dy, guides: {
+    x: lockedAxis === 'x' ? [] : guides(dx, box.left, box.right, box.top + dy, box.bottom + dy, lines.x),
+    y: lockedAxis === 'y' ? [] : guides(dy, box.top, box.bottom, box.left + dx, box.right + dx, lines.y),
+  }};
 }

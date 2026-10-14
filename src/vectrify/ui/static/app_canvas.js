@@ -275,8 +275,13 @@ export function createCanvasController(editor, {
       const selectedHit = !id || selectionContains(editor.state.selection.objects, picked, parents(), editor.state.root) ||
         (sameClickSpot(event.clientX, event.clientY, targets) && editor.state.selection.objects.includes(targets[editor.clickCycle.index]));
       if (selectedHit && !common.shift) {
-        const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || '', screenMatrix: () => screenMatrix(svgElement(oid)?.parentElement)})).filter(m=>m.element);
-        startGesture('move', event, common, {id, members}); return;
+        // Each object moves in its parent's frame (a clipping contour in its
+        // consumer's); the selection frame, as pressed, is what snaps.
+        const members=topSelection().map(oid => {
+          const element = svgElement(oid);
+          return {id:oid, element, before:object(oid).attributes.transform || '', frame: element && localToOverlay(element.parentElement)};
+        }).filter(m=>m.element && m.frame);
+        startGesture('move', event, common, {id, members, box: editor.selectionBox && {...editor.selectionBox}}); return;
       }
     }
     startGesture('box', event, common, {id});

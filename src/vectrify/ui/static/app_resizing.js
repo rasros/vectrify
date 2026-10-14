@@ -1,6 +1,7 @@
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
 import {FRAME_REACH, SNAP_RADIUS} from './app_config.js';
 import {selectionContains} from './selection.js';
+import {boxLines, snapBox} from './snap.js';
 
 // Resizing owns its controls; editor contains the live state shared with other controllers.
 export function createResizingController(editor, {
@@ -9,6 +10,7 @@ export function createResizingController(editor, {
   hitStack,
   localToOverlay,
   object,
+  objectBounds,
   overlay,
   parents,
   point,
@@ -67,23 +69,63 @@ export function createResizingController(editor, {
     startGesture('resize', event, common, {handle, box, members, offset, refusal, result: null});
   }
 
+  // The objects the selection can snap to: not the selected ones, what they
+  // hold, nor the groups holding them, which move or grow with them.
+  function snapCandidates() {
+    const map = parents(), selected = new Set(editor.state.selection.objects), around = new Set();
+    for (const id of selected) for (let at = map.get(id); at; at = map.get(at)) around.add(at);
+    const inside = id => { for (let at = id; at; at = map.get(at)) if (selected.has(at)) return true; return false; };
+    return editor.state.objects.filter(item => !item.resource && !['defs', 'clipPath'].includes(item.tag) && !around.has(item.id) && !inside(item.id));
+  }
+
   // Other objects' bounds and the artboard's edges, which a dragged edge snaps
   // to, in the overlay's frame.
   function frameSnapTargets() {
     const [bx, by, bw, bh] = editor.state.bounds, x = [bx, bx + bw], y = [by, by + bh];
     const inverse = overlay.getScreenCTM()?.inverse();
     if (!inverse) return {x, y};
-    const map = parents(), selected = new Set(editor.state.selection.objects), around = new Set();
-    for (const id of selected) for (let at = map.get(id); at; at = map.get(at)) around.add(at);
-    const inside = id => { for (let at = id; at; at = map.get(at)) if (selected.has(at)) return true; return false; };
-    for (const item of editor.state.objects) {
-      if (item.resource || ['defs', 'clipPath'].includes(item.tag) || around.has(item.id) || inside(item.id)) continue;
+    for (const item of snapCandidates()) {
       const rect = svgElement(item.id)?.getBoundingClientRect();
       if (!rect || rect.width + rect.height === 0) continue;
       const a = new DOMPoint(rect.left, rect.top).matrixTransform(inverse), b = new DOMPoint(rect.right, rect.bottom).matrixTransform(inverse);
       x.push(a.x, b.x); y.push(a.y, b.y);
     }
     return {x, y};
+  }
+
+  // The lines a moved selection snaps to, in the overlay's frame: the edges
+  // and centres of the artboard and of other visible objects' geometric
+  // bounds, the same bounds the selection frame shows.
+  function moveSnapLines() {
+    const [bx, by, bw, bh] = editor.state.bounds, boxes = [{left: bx, top: by, right: bx + bw, bottom: by + bh}];
+    for (const item of snapCandidates()) {
+      const element = svgElement(item.id);
+      if (!element || element.closest?.('defs, clipPath, mask, pattern, symbol, marker')) continue;
+      if (element.checkVisibility && !element.checkVisibility({visibilityProperty: true})) continue;
+      const box = objectBounds(item.id);
+      if (box) boxes.push(box);
+    }
+    return boxLines(boxes);
+  }
+
+  // The displacement a move drag gives, in the overlay's frame: the pointer's
+  // offset from its press. Shift keeps it to the axis the pointer has gone
+  // furthest along. Unless Alt or Ctrl/⌘ is held, the frame's edges and centre
+  // then snap to other objects' and the artboard's within SNAP_RADIUS screen
+  // pixels, on the free axes only.
+  function moveDrag(event) {
+    const drag = editor.drag, p = point(event);
+    let dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+    const lockedAxis = event.shiftKey ? (Math.abs(dx) >= Math.abs(dy) ? 'y' : 'x') : null;
+    if (lockedAxis === 'x') dx = 0;
+    if (lockedAxis === 'y') dy = 0;
+    drag.guides = null;
+    if (drag.box && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      drag.lines ??= moveSnapLines();
+      const snap = snapBox(drag.box, dx, dy, drag.lines, SNAP_RADIUS / editor.zoom, lockedAxis);
+      ({dx, dy} = snap); drag.guides = snap.guides;
+    }
+    return {dx, dy};
   }
 
   // The scale a resize drag gives: the dragged edge snaps to other objects'
@@ -116,7 +158,7 @@ export function createResizingController(editor, {
   function wire() {
       return api;
   }
-  const api = {resizeRefusal, frameAt, frameCursor, hoverResize, pressFrame, frameSnapTargets, resizeDrag, previewResize, frameSize, wire};
+  const api = {resizeRefusal, frameAt, frameCursor, hoverResize, pressFrame, snapCandidates, frameSnapTargets, moveSnapLines, moveDrag, resizeDrag, previewResize, frameSize, wire};
   return api;
 }
 
