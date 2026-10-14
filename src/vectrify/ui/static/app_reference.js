@@ -42,7 +42,7 @@ export function createReferenceController(editor, {
       const image = await new Promise((resolve, reject) => {
         const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob);
       });
-      await request('/api/reference-error-cache', {...version, image});
+      await request('/api/reference-error-cache', {...version, image, view: viewReport()});
     } catch { /* The server can render its own comparison if sharing fails. */ }
   }
 

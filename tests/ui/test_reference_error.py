@@ -229,6 +229,12 @@ def test_browser_pixels_are_shared_with_mcp_and_reject_stale_uploads(
     data = {
         **state,
         "image": "data:image/png;base64," + base64.b64encode(png(image)).decode(),
+        "view": {
+            "region": [0, 0, 24, 24],
+            "pixels": [24, 24],
+            "zoom": 1,
+            "reference_view": "error",
+        },
     }
     status, result = backend.handle(
         "/api/reference-error-cache", data, state["session"]
@@ -236,14 +242,8 @@ def test_browser_pixels_are_shared_with_mcp_and_reject_stale_uploads(
     assert status == 200
     assert result == {"cached": True}
     assert np.array_equal(np.asarray(session.reference_error()), np.asarray(image))
-    session.set_view(
-        {
-            "region": [0, 0, 24, 24],
-            "pixels": [24, 24],
-            "zoom": 1,
-            "reference_view": "error",
-        }
-    )
+    assert session.view is not None
+    assert session.view["reference_view"] == "error"
     rendered = Agent(session).tool_render(None, region="view", max_side=24)
     assert np.array_equal(
         np.asarray(Image.open(io.BytesIO(rendered.images[0][1]))), np.asarray(image)
