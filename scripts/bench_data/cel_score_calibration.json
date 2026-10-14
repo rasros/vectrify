@@ -2,7 +2,6 @@
   "version": 1,
   "status": "declared",
   "purpose": "Freeze the plan's initial same-pool score grid before choosing weights on tuning artwork",
-  "plan": "docs/cel-redesign-plan.md#score-calibration-and-candidate-diagnosis",
   "generation_policy": "Reference targets and feature annotations are available only to benchmark selection diagnosis, never to generation",
   "corpus": {
     "manifest": "planned_pairs.json",

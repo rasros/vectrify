@@ -49,8 +49,7 @@ at once.
 Gradient fitting has one core, `refine.paths.fit_filled_svg`, which
 `improve/path-fit` wraps with exact compositing (clipping, group opacity and
 objects in front), pins and permissions. The same operation compares a
-bounded nearby-edge proposal, and scores opacity for transparent references. `fit_filled_svg_bounded` fits one
-spatial group at a time.
+bounded nearby-edge proposal, and scores opacity for transparent references.
 
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
 commands `start`, `status`, `stop`, `apply` and `discard`.
