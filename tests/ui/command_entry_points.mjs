@@ -8,6 +8,7 @@ import {createCommandsController} from '../../src/vectrify/ui/static/app_command
 import {createJoinController} from '../../src/vectrify/ui/static/app_join.js';
 import {createClippingController} from '../../src/vectrify/ui/static/app_clipping.js';
 import {createRegionController} from '../../src/vectrify/ui/static/app_region.js';
+import {createAlignController} from '../../src/vectrify/ui/static/app_align.js';
 
 // Just enough DOM: elements with attributes, children and simple selectors
 // (a tag, an id, classes and [attribute] or [attribute=value] tests).
@@ -70,13 +71,15 @@ const path = Object.assign(new Node('div'), {className: 'command-list'});
 path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole convert-to-path detach extract-region delete-region';
 const clipping = Object.assign(new Node('div'), {className: 'command-list'});
 clipping.dataset.commands = 'set-clip remove-clip show-clips';
+const arrange = Object.assign(new Node('div'), {className: 'command-list'});
+arrange.dataset.commands = 'align-left align-top distribute-gaps-horizontal';
 const points = Object.assign(new Node('div'), {className: 'command-list'});
 points.dataset.commands = 'break-points join-points delete-points';
 const strip = new Node('div');
 const stripJoin = Object.assign(new Node('button'), {title: 'Join the two selected points into one line, however far apart'});
 Object.assign(stripJoin.dataset, {command: 'join-points', key: '5', label: 'command'}); stripJoin.append(new Text('Join'));
 strip.append(stripJoin);
-document.append(path, clipping, points, strip, $('context-menu'), $('palette'), $('palette-input'), $('palette-list'));
+document.append(path, clipping, arrange, points, strip, $('context-menu'), $('palette'), $('palette-input'), $('palette-list'));
 
 // A line and a filled shape, a rectangle and an instance; the line is selected.
 const objects = [
@@ -86,10 +89,11 @@ const objects = [
   {id: 'stamp', tag: 'use', label: 'Use 1', paint: {fill: '#abc', stroke: 'none'}},
   {id: 'clipped', tag: 'g', label: 'Group 1', paint: {}, attributes: {'clip-path': 'url(#c)'}},
 ];
+for (const item of objects) Object.assign(item, {locks: [], inherited_locks: []});
 let selectedPoints = [], pointLevel = false;
 const actions = [], toasts = [];
 const editor = Object.assign(createEditorState(), {
-  state: {epoch: 'e', revision: 0, selection: {objects: ['line'], nodes: []}, objects, undo: [], redo: [], clipboard: null, reference: null},
+  state: {epoch: 'e', revision: 0, selection: {objects: ['line'], nodes: []}, objects, undo: [], redo: [], clipboard: null, reference: null, bounds: [0, 0, 100, 100]},
   zoom: 1, tool: 'select', agentStatus: {enabled: false},
 });
 const object = id => objects.find(item => item.id === id);
@@ -107,6 +111,10 @@ const registry = createCommandRegistryController(editor, {
   openSetClip: () => context.clipping.openSetClip(), removeClip: () => context.clipping.removeClip(),
   setClipRefusal: () => context.clipping.setRefusal(), removeClipRefusal: () => context.clipping.removeRefusal(),
   regionCommand: mode => context.region.command(mode), regionRefusal: mode => context.region.refusal(mode),
+  align: alignment => context.align.align(alignment), alignRefusal: alignment => context.align.alignRefusal(alignment),
+  alignDescription: alignment => context.align.alignDescription(alignment),
+  distribute: (axis, spacing) => context.align.distribute(axis, spacing), distributeRefusal: (axis, spacing) => context.align.distributeRefusal(axis, spacing),
+  distributeDescription: (axis, spacing) => context.align.distributeDescription(axis, spacing),
   setTool: async tool => { editor.tool = tool; },
 });
 context.commands = createCommandsController(editor, {
@@ -141,6 +149,12 @@ context.region = createRegionController(editor, {
   localToOverlay: () => null, selectionContour: () => null, svgElement: () => null, stage: new Node('div'),
   setTool: async tool => { editor.tool = tool; }, toast: (message, error) => toasts.push({message, error: !!error}),
   xmlElement: tag => new Node(tag),
+});
+context.align = createAlignController(editor, {
+  $, action: (...args) => { actions.push(args); return true; }, document, object, later: run => run(),
+  drawOverlay() {}, level: () => 'objects', objectBounds: () => ({left: 0, top: 0, right: 10, bottom: 10}),
+  renderCommands: () => context.commands.renderCommands(), toast: (message, error) => toasts.push({message, error: !!error}),
+  topSelection: () => editor.state.selection.objects, xmlElement: tag => new Node(tag),
 });
 const {commandById, commandName, commandRefusal, commandTitle} = registry;
 const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPaletteRow} = context.commands;
@@ -203,6 +217,17 @@ agrees('cut-hole', path, 'Select two visible paths, one inside or overlapping th
 agrees('convert-to-path', path, 'Select rectangles, circles, ellipses or lines');
 agrees('detach', path, 'Select one instance, or a path that shares its geometry');
 agrees('join-points', points, 'Select points in Nodes (S) first');
+// One object has nothing to align to but the artboard, nor to space out;
+// Align's tooltip names the reference it lines up to.
+agrees('align-left', arrange, 'Select two or more objects to align them to each other, or align to the artboard');
+agrees('distribute-gaps-horizontal', arrange, 'Select three or more objects to distribute');
+editor.alignReference = 'artboard';
+renderCommands();
+agrees('align-top', arrange, '');
+assert.match(button(arrange, 'align-top').title, /top edges with the artboard's/);
+assert.equal(button(arrange, 'distribute-gaps-horizontal').textContent, 'Distribute horizontally: equal gaps');
+editor.alignReference = 'selection';
+renderCommands();
 assert.equal(stripJoin.getAttribute('aria-disabled'), 'true');
 assert.equal(stripJoin.title, commandTitle(commandById.get('join-points')), 'the strip says why too');
 

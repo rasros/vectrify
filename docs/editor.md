@@ -71,7 +71,10 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
     a proportion lock, and **Move by** an offset (see Position and size
     below).
   - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
-    Group and Ungroup.
+    Group and Ungroup; **Align** left, centre, right, top, middle and bottom
+    to the reference chosen beside them (Selection, Artboard or Key object);
+    and **Distribute** horizontally or vertically with equal gaps or equal
+    centres (see Align and distribute below).
   - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
     Stroke to path, Fill to centerline, Split parts, Convert to path,
     Detach, Extract region and Delete region.
@@ -237,6 +240,45 @@ all of them as one undoable edit.
   no edit makes a dimension zero, negative or invalid. Values show to three
   decimals; committing a field unchanged does nothing. **Move by** offsets
   the selection in document units too.
+- **Align and distribute**, under Arrange, move each selected object without
+  resizing it, measured by the same geometric bounds as the selection frame
+  and the Transform fields: each top selected object's outline box through
+  its transforms, so a transformed group, or an object inside a rotated
+  group, aligns by its box on the page, and a selected group moves its
+  selected children with it, once. Each command is one undoable edit, **Align
+  objects** or **Distribute objects**, sent as the same per-object
+  translation a move makes, in each object's parent frame.
+  - **Align left**, **centre** and **right** line up the left edges,
+    horizontal centres or right edges; **Align top**, **middle** and
+    **bottom** the top edges, vertical centres or bottom edges. **To** beside
+    them chooses what they line up to, and every Align tooltip names it:
+    **Selection**, the frame around the selected objects (two or more);
+    **Artboard**, the document's artboard (one object is enough); or **Key
+    object**, one of the selected objects, which keeps its place while the
+    others line up to it.
+  - The key object is the object last added to the selection on its own: a
+    click, a Shift-click or a row in the object tree. **Key** beside **To**
+    lists the selected objects and picks another; it is drawn on the canvas
+    with its own amber frame. A box select adds several at once and so
+    chooses none, and Align asks for one; deselecting the key forgets it.
+    The editor never takes the key from the server's selection order, which
+    has none.
+  - **Distribute horizontally** or **vertically** spaces three or more
+    objects along that axis, in their order by centre. The first and last
+    stay where they are and those between them move: **equal gaps** puts the
+    same space between neighbours' edges (a negative space, an even overlap,
+    when they are wider than the room), and **equal centres** puts their
+    centres the same distance apart. Only positions change, never sizes, and
+    the other axis is left alone. Distribute does not use the reference,
+    except that with Key object chosen the key must be one of the two outer
+    objects, or Distribute refuses rather than move it.
+  - An object whose position is locked, or that is inside a locked group or
+    holds a locked object, refuses with its name when it would move, and
+    nothing changes; a locked object that stays put, such as the key, does
+    not refuse. Pins keep points in place within their path, as for a drag,
+    and do not stop the whole object moving. Definitions and clipping
+    boundaries have no bounds to align. Objects already in place send
+    nothing, and the message says so.
 - In a point tool, the points of every selected path show, and those of
   every path inside a selected group, however deep; box select and the point
   commands span all of them. Selected instances (`use`) have no points of
