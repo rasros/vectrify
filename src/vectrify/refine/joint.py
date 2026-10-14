@@ -814,6 +814,9 @@ def _polish_group(
             point_learning_rate=0.25,
             color_learning_rate=0,
             xing_weight=0,
+            # The soft renderer always samples 4x4; at 2x2 the native one
+            # misses seams thinner than half a pixel, so nothing closes them.
+            subpixels=4,
             monolithic=True,
             fit_context=(context.base, context.delta, context.transmission),
             project_controls=project,
