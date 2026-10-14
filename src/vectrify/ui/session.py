@@ -572,6 +572,8 @@ class Session:
             key = self._reference_error_key()
             if key is None or not current():
                 return {"cached": False}
+            if data.get("view") is not None:
+                self.set_view(data["view"])
             bounds = self.editor.snapshot.document.artboard()
         source = data.get("image")
         prefix = "data:image/png;base64,"
