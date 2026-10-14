@@ -67,7 +67,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
     Group and Ungroup.
   - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
-    Stroke to path, Fill to centerline, Split parts and Detach.
+    Stroke to path, Fill to centerline, Split parts, Convert to path and
+    Detach.
   - **Clipping**: Show (or Hide) clipping boundaries.
   - **Repair**: Tidy…, Clean up… and Snap edges….
   - **Locks**, and **Object**: Copy objects, Paste objects and Delete objects.
@@ -205,7 +206,9 @@ all of them as one undoable edit.
 - In a point tool, the points of every selected path show, and those of
   every path inside a selected group, however deep; box select and the point
   commands span all of them. Selected instances (`use`) have no points of
-  their own: the right panel asks to Detach them. Hovering an unselected path
+  their own: the right panel asks to Detach them. Rectangles, circles,
+  ellipses and lines have none until **Convert to path** (Path) makes them
+  paths; double-clicking one says so. Hovering an unselected path
   in Nodes shows its points faintly; clicking one selects that point and its
   path in place of the selection (Shift adds the path). Shift-click adds or
   removes a point; a click on one of several selected points, without
@@ -480,6 +483,14 @@ and saved projects restore it.
   detached first. **Detach to editable path** converts a path instance into a
   selected independent path ready to split, retaining its paint and transforms
   in wrapper groups. Other instances keep their shared definition.
+- **Convert to path** (Path) turns the selected rectangles, circles, ellipses
+  and lines into paths of their outlines, so their points can be edited in
+  Nodes. Each keeps its ID, place in the stack and group, paint, transform
+  and clipping, and looks the same; a line's path is not filled. The whole
+  selection converts as one undoable edit, or none of it does: anything else
+  in the selection is refused (Detach is for instances and shared geometry),
+  as is a shape another object references or a locked one, with the backend's
+  reason. Detach refuses basic shapes and points to Convert to path.
 - **Cut out as hole** (Path) takes two selected filled paths. It is not a
   plain Subtract of the front path from the back one: it picks which path
   cuts by containment first and stacking second. When one
@@ -837,7 +848,8 @@ needs CUDA and PyTorch (the `vision` extra).
 
 ## Limits
 
-Point tools edit `path` elements, selected or inside a selected group. Local
+Point tools edit `path` elements, selected or inside a selected group; basic
+shapes are converted to paths first. Local
 `use` instances can be selected, styled, moved and detached; editing a referenced source still
 requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without

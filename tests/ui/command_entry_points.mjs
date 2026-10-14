@@ -65,7 +65,7 @@ globalThis.innerWidth = 1000; globalThis.innerHeight = 800;
 
 // The inspector's Path list and a Nodes strip as index.html has them.
 const path = Object.assign(new Node('div'), {className: 'command-list'});
-path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole';
+path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole convert-to-path detach';
 const points = Object.assign(new Node('div'), {className: 'command-list'});
 points.dataset.commands = 'break-points join-points delete-points';
 const strip = new Node('div');
@@ -74,10 +74,12 @@ Object.assign(stripJoin.dataset, {command: 'join-points', key: '5', label: 'comm
 strip.append(stripJoin);
 document.append(path, points, strip, $('context-menu'), $('palette'), $('palette-input'), $('palette-list'));
 
-// A line and a filled shape; the line is selected.
+// A line and a filled shape, a rectangle and an instance; the line is selected.
 const objects = [
   {id: 'line', tag: 'path', label: 'Line', paint: {fill: 'none', stroke: '#123'}},
   {id: 'shape', tag: 'path', label: 'Shape', paint: {fill: '#456', stroke: 'none'}},
+  {id: 'box', tag: 'rect', label: 'Rect 1', paint: {fill: '#789', stroke: 'none'}},
+  {id: 'stamp', tag: 'use', label: 'Use 1', paint: {fill: '#abc', stroke: 'none'}},
 ];
 let selectedPoints = [], pointLevel = false;
 const actions = [], toasts = [];
@@ -119,7 +121,7 @@ const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPal
 buildCommandLists();
 renderCommands();
 const button = (list, id) => list.querySelector(`button[data-command=${id}]`);
-assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes', 'Join line ends', 'Stroke to path', 'Fill to centerline', 'Cut out as hole']);
+assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes', 'Join line ends', 'Stroke to path', 'Fill to centerline', 'Cut out as hole', 'Convert to path', 'Detach shared geometry']);
 assert.deepEqual(points.children.map(child => child.textContent), ['Break', 'Join points', 'Delete points']);
 assert.equal(stripJoin.textContent, 'Join points', 'a strip button takes the registry name');
 
@@ -170,6 +172,8 @@ agrees('stroke-to-path', path, '');
 agrees('merge-shapes', path, 'Select two or more paths, or groups that contain them, or one filled path');
 agrees('fill-to-centerline', path, 'Select thin filled shapes');
 agrees('cut-hole', path, 'Select two visible paths, one inside or overlapping the other');
+agrees('convert-to-path', path, 'Select rectangles, circles, ellipses or lines');
+agrees('detach', path, 'Select one instance, or a path that shares its geometry');
 agrees('join-points', points, 'Select points in Nodes (S) first');
 assert.equal(stripJoin.getAttribute('aria-disabled'), 'true');
 assert.equal(stripJoin.title, commandTitle(commandById.get('join-points')), 'the strip says why too');
@@ -203,6 +207,33 @@ runPaletteRow(0);
 assert.deepEqual(actions.map(([command]) => command), ['line_to_fill', 'line_to_fill', 'line_to_fill']);
 assert.equal($('palette').open, false);
 actions.length = 0;
+
+// A rectangle converts to a path from each entry point; Detach, which is for
+// instances and shared geometry, points to it.
+editor.state.selection.objects = ['box'];
+renderCommands();
+agrees('convert-to-path', path, '');
+agrees('detach', path, 'A basic shape shares nothing: use Convert to path');
+press(button(path, 'convert-to-path'));
+openContextMenu(10, 10);
+menuItem('convert-to-path').onclick();
+paletteRow('convert-to-path');
+runPaletteRow(0);
+assert.deepEqual(actions.map(([command]) => command), ['convert_to_path', 'convert_to_path', 'convert_to_path']);
+actions.length = 0;
+
+// An instance is detached, not converted, and a mixed selection converts
+// nothing.
+editor.state.selection.objects = ['stamp'];
+renderCommands();
+agrees('convert-to-path', path, 'Instances and shared geometry are detached: use Detach');
+agrees('detach', path, '');
+assert.equal(button(path, 'detach').textContent, 'Detach to editable path');
+editor.state.selection.objects = ['box', 'line'];
+renderCommands();
+agrees('convert-to-path', path, 'Select rectangles, circles, ellipses or lines');
+press(button(path, 'convert-to-path'));
+assert.deepEqual(actions, []);
 
 // Both paths selected: they merge, through the colour dialog, and the labels
 // say so.

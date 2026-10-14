@@ -1243,17 +1243,21 @@ class Transaction:
             element = self._working.element(object_id)
             if self._selection.node_ids:
                 raise EditRejectedError("Detaching requires a whole object selection")
-            self._authorize(self._working.dependents({object_id}), EditKind.STRUCTURE)
             from vectrify.document.regions import SHAPES, as_path, shape_geometry
 
+            # A shape that others reference would stop being one under them,
+            # which says more than that they are not selected.
+            if element.tag in SHAPES and any(
+                object_id in references(e) for e in self._working.elements()
+            ):
+                raise EditRejectedError(
+                    "Detach references to this shape before making it a path"
+                )
+            self._authorize(self._working.dependents({object_id}), EditKind.STRUCTURE)
             if element.tag in SHAPES:
                 # A basic shape: a path of its outline, its paint kept.
                 affected = self._working.dependents({object_id})
                 self._authorize(affected, EditKind.GEOMETRY)
-                if any(object_id in references(e) for e in self._working.elements()):
-                    raise EditRejectedError(
-                        "Detach references to this shape before making it a path"
-                    )
                 geometry = shape_geometry(element)
                 self._working = replace(
                     self._working, geometries=(*self._working.geometries, geometry)

@@ -40,7 +40,7 @@ from vectrify.document.lines import stroke_outline
 from vectrify.document.model import EditKind, new_id, paint_server
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import attachment
-from vectrify.document.regions import region_polygon
+from vectrify.document.regions import SHAPES, region_polygon
 from vectrify.document.svg import parse_path
 from vectrify.operations import (
     Budget,
@@ -130,6 +130,7 @@ ACTION_COMMANDS = {
     "to_front": Command("_command_restack", "Bring to front", True),
     "to_back": Command("_command_restack", "Send to back", True),
     "detach": Command("_command_detach", "Detach geometry", True),
+    "convert_to_path": Command("_command_convert_to_path", "Convert to path", True),
     "split_disconnected": Command(
         "_command_split_disconnected", "Split disconnected parts", True
     ),
@@ -1387,6 +1388,22 @@ class Session:
         selected = self._object_selection().object_ids
         with self._object_transaction(payload["command"]) as tx:
             for oid in selected:
+                tx.detach_geometry(oid)
+
+    def _command_convert_to_path(self, payload: dict) -> None:
+        # Basic shapes only: instances and shared geometry are Detach's, so
+        # the name says what the edit does.
+        selected = self._object_selection().object_ids
+        document = self.editor.snapshot.document
+        if others := sorted(
+            i for i in selected if document.element(i).tag not in SHAPES
+        ):
+            raise DocumentError(
+                f"{others[0]}: Convert to path takes rectangles, circles, "
+                "ellipses and lines; detach instances and shared geometry"
+            )
+        with self._object_transaction(payload["command"]) as tx:
+            for oid in sorted(selected):
                 tx.detach_geometry(oid)
 
     def _command_split_disconnected(self, payload: dict) -> None:
