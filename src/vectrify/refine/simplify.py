@@ -141,16 +141,6 @@ def straightened(
     return replace(geometry, subpaths=tuple(subpaths))
 
 
-def _off_line(start: np.ndarray, end: np.ndarray, point: np.ndarray) -> float:
-    """How far *point* is from the segment between *start* and *end*."""
-    step = end - start
-    length = float(step @ step)
-    if length < 1e-12:
-        return float(np.linalg.norm(point - start))
-    along = np.clip(float((point - start) @ step) / length, 0.0, 1.0)
-    return float(np.linalg.norm(start + along * step - point))
-
-
 def simplified_geometry(
     geometry: Geometry, fixed: Frozen, tolerance: float
 ) -> Geometry:

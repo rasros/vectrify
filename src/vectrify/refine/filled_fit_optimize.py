@@ -152,7 +152,8 @@ class FilledFitOptimizer:
             if self.scene.channels == 4
             else error.mean()
         )
-        loss = loss + self.options.xing_weight * paths._xing_loss(all_controls)
+        if self.options.xing_weight:
+            loss = loss + self.options.xing_weight * paths._xing_loss(all_controls)
         if self.hooks.control_loss is not None:
             loss = loss + self.hooks.control_loss(self.scene.controls)
         loss.backward()
@@ -309,7 +310,8 @@ class FilledFitOptimizer:
             if index not in simple_indices:
                 alpha = self.raster.rasterise_multi(index, path)
                 sparse_layer_loss(index, alpha, 0, 0).backward()
-        (self.options.xing_weight * paths._xing_loss(all_controls)).backward()
+        if self.options.xing_weight:
+            (self.options.xing_weight * paths._xing_loss(all_controls)).backward()
 
     def backward_dense(self, all_controls: Any) -> None:
         import torch
@@ -457,4 +459,5 @@ class FilledFitOptimizer:
                     index,
                     self.raster.rasterise_multi(index, path),
                 ).backward()
-        (self.options.xing_weight * paths._xing_loss(all_controls)).backward()
+        if self.options.xing_weight:
+            (self.options.xing_weight * paths._xing_loss(all_controls)).backward()
