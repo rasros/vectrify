@@ -79,7 +79,7 @@ POINT_COMMANDS = {
     "delete_contour": "Delete contour",
     "break_points": "Break at point",
     "delete_segment": "Delete segment",
-    "join_two_ends": "Join ends",
+    "join_two_ends": "Join points",
 }
 
 
@@ -112,9 +112,9 @@ ACTION_COMMANDS = {
     "move_objects": Command("_command_move_objects"),
     "knife": Command("_knife", "Cut with knife"),
     "redraw_outline": Command("_redraw_outline", "Redraw outline"),
-    "join_ends": Command("_command_lines", "Join ends", True),
-    "fill_to_line": Command("_command_lines", "Fill to line", True),
-    "line_to_fill": Command("_command_lines", "Line to fill", True),
+    "join_ends": Command("_command_lines", "Join line ends", True),
+    "fill_to_line": Command("_command_lines", "Fill to centerline", True),
+    "line_to_fill": Command("_command_lines", "Stroke to path", True),
     "convert_lines": Command("_command_lines", "Convert line/fill", True),
     "extract": Command("_command_extract", needs_selection=True),
     "fill_holes": Command("_command_fill_holes", "Fill holes", True),
@@ -133,7 +133,7 @@ ACTION_COMMANDS = {
     "split_disconnected": Command(
         "_command_split_disconnected", "Split disconnected parts", True
     ),
-    "join_paths": Command("_command_join_paths", "Join outlines", True),
+    "join_paths": Command("_command_join_paths", "Merge shapes", True),
     "combine_paths": Command("_command_combine_paths", "Combine paths", True),
 }
 
@@ -1478,7 +1478,9 @@ class Session:
             reach = number(payload.get("reach", 0))
             if reach < 0:
                 raise DocumentError("The reach must not be negative")
-            with self.editor.transaction("Join ends", selection=selection) as tx:
+            with self.editor.transaction(
+                ACTION_COMMANDS[command].label, selection=selection
+            ) as tx:
                 joined = tx.join_ends(
                     selected, reach, curve=payload.get("bridge", "curve") == "curve"
                 )
@@ -1507,11 +1509,7 @@ class Session:
                     "convert_lines": "Select filled paths or stroked lines",
                 }[command]
             )
-        label = {
-            "fill_to_line": "Fill to line",
-            "line_to_fill": "Line to fill",
-            "convert_lines": "Convert line/fill",
-        }[command]
+        label = ACTION_COMMANDS[command].label
         with self.editor.transaction(label, selection=selection) as tx:
             for path in chosen:
                 style = path_style(document, path)

@@ -12,11 +12,10 @@ export function createCommandsController(editor, {
   commandById,
   commandName,
   commandRefusal,
+  commandTitle,
   document = globalThis.document,
   drawOverlay,
-  enable,
   hitStack,
-  joinEnds,
   later,
   level,
   object,
@@ -40,10 +39,8 @@ export function createCommandsController(editor, {
 
   let joinContext = null;
 
-  // Every command the selection offers, the tool strip, the Actions list, the
-  // context menu and the command palette run. *disabled* gives the reason it
-  // cannot run now, or ''; *level* limits it to object or point tools; a *rare*
-  // command's buttons hide while it cannot run.
+  // The reasons shared by the commands of the registry: each says what to
+  // select for the command to run.
   const noSelection = () => !editor.state?.selection.objects.length && 'Select objects first';
 
   const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (S) first');
@@ -76,41 +73,57 @@ export function createCommandsController(editor, {
 
   function renameObject() { $('object-name').focus(); $('object-name').select(); }
 
-  // Buttons naming a command in data-command take its state and run it.
-  function renderCommands() {
-    const actions = $('action-list');
-    for (const button of document.querySelectorAll('[data-command]')) {
-      const command = commandById.get(button.dataset.command); if (!command) continue;
-      if (!button.dataset.title) button.dataset.title = button.title || `${commandName(command)}${command.keys ? ` (${command.keys})` : ''}`;
-      const reason = commandRefusal(command);
-      enable(button, reason);
-      // Selection actions only show what applies, just like the context menu.
-      if (actions.contains(button) || command.rare) button.hidden = !!reason;
-      if (button.dataset.label === 'command') button.firstChild.textContent = commandName(command);
+  // The inspector's command lists: a container naming commands in
+  // data-commands gets a button for each, labelled as the registry names it.
+  function buildCommandLists() {
+    for (const list of document.querySelectorAll('[data-commands]')) {
+      const buttons = list.dataset.commands.split(' ').filter(id => commandById.has(id)).map(id => {
+        const button = document.createElement('button');
+        button.dataset.command = id; button.dataset.label = 'command';
+        if (commandById.get(id).danger) button.className = 'danger';
+        button.append(document.createTextNode(commandById.get(id).name));
+        return button;
+      });
+      list.replaceChildren(...buttons);
     }
-    actions.closest('.inspector-section').hidden = !actions.querySelector('button:not([hidden])');
   }
 
-  // The context menu offers the selection's commands where the pointer is.
-  const MENU_GROUPS = {objects: ['Select', 'Arrange', 'Object', 'Actions'], points: ['Points', 'Actions']};
+  // Buttons naming a command in data-command take its state and run it. One
+  // that cannot run now stays in place, dimmed, with the reason as its
+  // tooltip; pressing it shows the reason.
+  function renderCommands() {
+    for (const button of document.querySelectorAll('[data-command]')) {
+      const command = commandById.get(button.dataset.command); if (!command) continue;
+      button.dataset.title ??= button.title || '';
+      const reason = commandRefusal(command);
+      button.setAttribute('aria-disabled', String(!!reason));
+      button.title = reason ? commandTitle(command) : button.dataset.title || commandTitle(command);
+      if (button.dataset.label === 'command') button.firstChild.textContent = commandName(command);
+    }
+  }
+
+  // The context menu offers the commands for what is selected: object
+  // commands for objects, Nodes for points. Those that cannot run now are
+  // dimmed with the reason, as everywhere else.
+  const MENU_GROUPS = {objects: ['Select', 'Object', 'Arrange', 'Path', 'Repair'], points: ['Nodes']};
 
   function openContextMenu(x, y) {
     const menu = $('context-menu'), groups = MENU_GROUPS[level() === 'points' ? 'points' : 'objects'];
     menu.replaceChildren();
     for (const group of groups) {
-      const commands = COMMANDS.filter(command => command.group === group && (!command.level || command.level === level()));
-      // Only what applies here: the palette lists the rest, with the reason.
-      const shown = commands.filter(command => command.id !== 'step-up' && !commandRefusal(command));
+      const shown = COMMANDS.filter(command => command.group === group && !command.hidden?.() && command.id !== 'step-up');
       if (!shown.length) continue;
       if (menu.children.length) menu.append(Object.assign(document.createElement('div'), {className: 'menu-divider', role: 'separator'}));
+      menu.append(Object.assign(document.createElement('div'), {className: 'menu-heading', textContent: group, role: 'presentation'}));
       for (const command of shown) {
         const item = document.createElement('button');
         item.className = 'menu-item'; item.setAttribute('role', 'menuitem'); item.dataset.command = command.id;
         const reason = commandRefusal(command);
-        item.disabled = !!reason; item.title = reason;
+        item.setAttribute('aria-disabled', String(!!reason)); item.title = commandTitle(command);
         const name = document.createElement('span'); name.textContent = commandName(command);
         const keys = document.createElement('kbd'); keys.textContent = command.keys || '';
         item.append(name, keys);
+        // One that cannot run says why, as the palette and the inspector do.
         item.onclick = () => { closeContextMenu(); later(() => runCommand(command.id)); };
         menu.append(item);
       }
@@ -119,8 +132,8 @@ export function createCommandsController(editor, {
     menu.hidden = false;
     const box = menu.getBoundingClientRect();
     menu.style.left = `${Math.min(x, innerWidth - box.width - 8)}px`;
-    menu.style.top = `${Math.min(y, innerHeight - box.height - 8)}px`;
-    menu.querySelector('.menu-item:not(:disabled)')?.focus();
+    menu.style.top = `${Math.max(8, Math.min(y, innerHeight - box.height - 8))}px`;
+    (menu.querySelector('.menu-item[aria-disabled=false]') || menu.querySelector('.menu-item'))?.focus();
   }
 
   function closeContextMenu() { $('context-menu').hidden = true; }
@@ -194,13 +207,11 @@ export function createCommandsController(editor, {
   function openJoin() {
     if (editor.pending) return;
     const candidates = joinCandidates();
-    // Lines join at their ends, not by area.
-    if (candidates.length > 1 && linePaths().length === candidates.length) return joinEnds();
     if (candidates.length < 2) {
       toast('Select paths or groups containing at least two paths in total.',true); return;
     }
     joinContext = {key:joinSelectionKey(), candidates};
-    $('join-summary').textContent = `Join ${candidates.length} paths into one outline. Overlapping filled areas merge into their union.`;
+    $('join-summary').textContent = `Merge ${candidates.length} paths into one shape. Overlapping filled areas merge into their union.`;
     $('join-error').hidden = true;
     const options = document.createDocumentFragment();
     function option(value, title, detail, item = null) {
@@ -261,6 +272,8 @@ export function createCommandsController(editor, {
       if (button && !button.closest('#context-menu')) later(() => runCommand(button.dataset.command));
     });
 
+    buildCommandLists();
+
     $('palette-input').addEventListener('input', renderPalette);
 
     $('palette-input').addEventListener('keydown', event => {
@@ -278,7 +291,7 @@ export function createCommandsController(editor, {
     window.addEventListener('blur', closeContextMenu);
 
     $('context-menu').addEventListener('keydown', event => {
-      const items = [...$('context-menu').querySelectorAll('.menu-item:not(:disabled)')], i = items.indexOf(document.activeElement);
+      const items = [...$('context-menu').querySelectorAll('.menu-item')], i = items.indexOf(document.activeElement);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeContextMenu(); stage.focus(); }
       if (['ArrowDown', 'ArrowUp'].includes(event.key) && items.length) { event.preventDefault(); items[(i + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
     });
@@ -330,16 +343,16 @@ export function createCommandsController(editor, {
 
     $('join-confirm').onclick = async () => {
       if(editor.pending || !joinContext) return;
-      if(joinSelectionKey() !== joinContext.key) { $('join-error').textContent = 'The selection changed. Close this dialog and open Join again.'; $('join-error').hidden = false; return; }
+      if(joinSelectionKey() !== joinContext.key) { $('join-error').textContent = 'The selection changed. Close this dialog and open Merge shapes again.'; $('join-error').hidden = false; return; }
       const choice = $('join-color-options').querySelector('input:checked')?.value;
       if(!choice) return;
       const source = joinContext.candidates.find(item=>item.id === choice);
       const options = choice === 'mix' ? {colors:'mix'} : {colors:'source',color_source:choice};
       $('join-confirm').disabled = true; $('join-cancel').disabled = true; $('join-error').hidden = true;
       try {
-        if(await action('join_paths',{options},'Joining outlines…')) {
+        if(await action('join_paths',{options},'Merging shapes…')) {
           $('join-dialog').close();
-          toast(source ? `Joined using ${source.label}'s colors at the frontmost selected position.` : 'Joined at the frontmost selected position with area-weighted paint.');
+          toast(source ? `Merged using ${source.label}'s colors at the frontmost selected position.` : 'Merged at the frontmost selected position with area-weighted paint.');
         } else { $('join-error').textContent = $('toast-message').textContent; $('join-error').hidden = false; }
       } finally { $('join-confirm').disabled = false; $('join-cancel').disabled = false; }
     };
@@ -350,6 +363,6 @@ export function createCommandsController(editor, {
     $('help-close').onclick=()=>$('help-dialog').close();
       return api;
   }
-  const api = {noSelection, noPoints, visiblePaths, noReference, filledPath, strokedPath, linePaths, fillPaths, twoEnds, runCommand, pointHandles, renameObject, renderCommands, MENU_GROUPS, openContextMenu, closeContextMenu, openPalette, renderPalette, highlightPalette, runPaletteRow, joinSelectionKey, joinCandidates, openJoin, splitParts, deleteSelection, segmentPicked, breakPoints, cutHole, wire};
+  const api = {noSelection, noPoints, visiblePaths, noReference, filledPath, strokedPath, linePaths, fillPaths, twoEnds, runCommand, pointHandles, renameObject, buildCommandLists, renderCommands, MENU_GROUPS, openContextMenu, closeContextMenu, openPalette, renderPalette, highlightPalette, runPaletteRow, joinSelectionKey, joinCandidates, openJoin, splitParts, deleteSelection, segmentPicked, breakPoints, cutHole, wire};
   return api;
 }

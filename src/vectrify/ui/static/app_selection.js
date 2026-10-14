@@ -166,7 +166,7 @@ export function createSelectionController(editor, {
     const hints = [selectedHandle() ? 'Handle selected: Delete removes this handle. Toggle Straighten to keep both handles in line while dragging.' : !loaded ? 'Loading path points…' : !chosen.length ? (editor.tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Hold Shift to move horizontally or vertically. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag without snapping.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
     // Points of shared geometry are points of every path drawing it.
     const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
-    if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (Actions) to edit one path alone.`);
+    if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (under Path) to edit one path alone.`);
     if (instances) hints.push(`${plural(instances, 'instance')} (use) ${instances === 1 ? 'has' : 'have'} no points of ${instances === 1 ? 'its' : 'their'} own here: Detach ${instances === 1 ? 'it' : 'them'} to edit ${instances === 1 ? 'its' : 'their'} points.`);
     $('node-hint').textContent = hints.filter(Boolean).join(' ');
     $('node-hint').hidden = !$('node-hint').textContent;
@@ -188,11 +188,9 @@ export function createSelectionController(editor, {
     for (const button of document.querySelectorAll('[data-command="straighten-handles"]')) button.setAttribute('aria-pressed', aligned && aligned === alignmentPoints.length ? 'true' : aligned ? 'mixed' : 'false');
     const pinned = chosen.filter(n => n.pinned).length;
     $('node-pin').checked = chosen.length > 0 && pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
-    // Points on holes, in one path or several, offer to fill the holes or make
-    // them shapes.
-    const holes = holeContours(points);
-    if (holes === undefined) loadNodeHoles(points);
-    $('strip-hole').hidden = !holes;
+    // Points on holes, in one path or several, can fill the holes or make them
+    // shapes; which they are on is read once per path.
+    if (holeContours(points) === undefined) loadNodeHoles(points);
     if (commands) renderCommands();
     scheduleStrip();
   }

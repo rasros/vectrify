@@ -83,7 +83,8 @@ export function createKeysController(editor, {
     if(mod&&!event.altKey&&!event.shiftKey&&['c','v'].includes(key)){
       event.preventDefault();later(()=>runCommand(key==='c'?'copy':'paste'));return;
     }
-    // Ctrl/⌘ G groups (with Shift, ungroups) and J joins.
+    // Ctrl/⌘ G groups (with Shift, ungroups) and J joins what the selection
+    // allows: two points, shapes to merge or line ends.
     if(mod&&!event.altKey&&['g','j'].includes(key)){
       event.preventDefault();
       const command=key==='j'?'join':event.shiftKey?'ungroup':'group';
@@ -117,7 +118,7 @@ export function createKeysController(editor, {
       later(()=>{
         if(!editor.state?.selection.objects.length)return;
         if(level()!=='points') { if(!contours) runCommand('delete'); return; }
-        if(selectedPoints().length) runCommand(contours ? 'delete-contour' : 'delete');
+        if(selectedPoints().length) runCommand(contours ? 'delete-contour' : 'delete-points');
       });
     }
   }

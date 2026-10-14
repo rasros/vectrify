@@ -43,35 +43,51 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   · 3 selected" or "Points · 5 points in 3 paths". Select has the stacking
   buttons and, inside an entered group, a breadcrumb such as "Drawing › Trees"
   (click a part to pick at that level). Nodes has the handle buttons (None /
-  One / Two), **Break**, **Join**, **Add node**, **Straighten**, **Delete**, X / Y for a
-  single point, and **Fill hole** / **Hole to shape** when the points are on
-  holes. Numbered controls show their digit, and the keys 1-9 press them (see
+  One / Two), **Break**, **Join points**, **Add node**, **Straighten**,
+  **Delete points**, X / Y for a single point, and **Fill hole** / **Hole to
+  shape**, which run when the points are on holes. Numbered controls show their digit, and the keys 1-9 press them (see
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel. Knife,
   Redraw outline, Draw path and Pan show a one-line hint. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
-  important of them (Add node and the coordinates first, and so on) move
+  important of them (Add node, the coordinates and the hole commands first, and so on) move
   into a **⋯** menu at the end of the controls, which holds them until there
   is room again; the status stays in view. A command run from the menu closes
   it.
-- **Right**: only the selection's properties, in the same order every time.
-  With points selected, the points come first: a single point's coordinates
-  (in its path's own frame), its handles and whether it is pinned, and a note
-  when the points are of shared geometry or the selection holds instances.
-  Then the
-  objects' name, role and connections, paint (fill, stroke, stroke width,
-  opacity), **Move by** an offset, locks, and the **Actions** on the
-  selection: Group, Ungroup, Join, Combine paths, Convert line/fill, Add node, Split parts,
-  Cut out as hole, Snap edges…, Clean up…, Detach and Delete. Only actions
-  that apply to the selection are shown. Detach shows only for an instance
-  or a path that shares its geometry, and Delete deletes the selected points
-  in a point tool, else the selected objects.
-- **Right-click** on the canvas or in the tree for a menu of the actions that
-  apply to what is there: a right-click on something unselected selects it
-  first. In a point tool the menu offers the point commands.
+- **Right**: only the selection's properties and commands, in the same order
+  every time. With points selected in a point tool, the points come first: a
+  single point's coordinates (in its path's own frame), its handles and
+  whether it is pinned, a note when the points are of shared geometry or the
+  selection holds instances, and the **Point operations**: Break, Join
+  points, Add node, Delete contour, Fill hole, Hole to shape and Delete
+  points. Then the objects' name, role and connections, and their commands
+  by what they change:
+  - **Paint**: fill (solid, linear gradient or none), stroke, stroke width,
+    opacity, and the stroke's corners, ends and arrows.
+  - **Transform**: **Move by** an offset.
+  - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
+    Group and Ungroup.
+  - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
+    Stroke to path, Fill to centerline, Split parts and Detach.
+  - **Clipping**: Show (or Hide) clipping boundaries.
+  - **Repair**: Tidy…, Clean up… and Snap edges….
+  - **Locks**, and **Object**: Copy objects, Paste objects and Delete objects.
+
+  The tools that compare the drawing with a reference are in the
+  **Reference** panel on the left. Every command stays in its place whatever
+  is selected: one that cannot run now is dimmed, its tooltip says why, and
+  pressing it shows the reason instead of doing anything. The reason is the
+  same wherever the command appears: the right panel, the tool strip, the
+  context menu and the command palette all run the same command.
+- **Right-click** on the canvas or in the tree for a menu of the selection's
+  commands, under the same headings: a right-click on something unselected
+  selects it first. On objects it lists Select, Object, Arrange, Path and
+  Repair; in a point tool, the Nodes commands. Commands that cannot run now
+  are dimmed with the reason as their tooltip.
 - **Command palette** (Ctrl/⌘ K, or **Commands** in the top bar): type to find
-  any command by name, group or a keyword (tools, actions, points, reference
-  tools, open, save, export, view), with its shortcut. ↑ / ↓ choose,
-  Enter runs, Escape closes. A command that cannot run now shows why instead.
+  any command by name, group or a keyword (tools, paint, arrange, path,
+  repair, nodes, reference tools, open, save, export, view), with its
+  shortcut. ↑ / ↓ choose, Enter runs, Escape closes. A command that cannot
+  run now shows why instead.
 - The footer shows the artboard size, the reference overlay toggle (`W`),
   with its opacity and an amber canvas border while it is visible, and zoom.
   `W` cycles the view: the drawing, the reference over it, the reference
@@ -120,10 +136,10 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   with the old URL must be updated.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
-reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,
-Restore saved project and Keyboard shortcuts, each titled as the command that
-opens it. They open from the Reference panel, the Actions, the context menu or
-the palette.
+reference, Tidy, Fit colours (and Fit gradient), Merge shapes (for two or more
+paths), Clean up, Snap edges, Restore saved project and Keyboard shortcuts,
+each titled as the command that opens it. They open from the Reference panel,
+the right panel, the context menu or the palette.
 
 Input never gets lost while an edit is running. Keys, clicks, commands, tree
 clicks and drops, and canvas drags made meanwhile wait for it, then apply in
@@ -295,12 +311,12 @@ and saved projects restore it.
   the selected points into corners, points curved on one side (again to switch
   sides), or smooth points with their handles in line. The keys 1, 2 and 3 do
   the same. **Pinned** in the right panel (or **Pin points** in the command
-  palette) keeps them in place; **Add node** (6, also in Actions) adds a node
+  palette) keeps them in place; **Add node** (6, also under Point operations) adds a node
   halfway along the edge leading into each selected node, preserving the
   curve. At the start of an open path it uses the outgoing edge instead.
   Each edge is split once even when both its ends are selected.
   For drawn lines the strip also has
-  **Break** (4) and **Join** (5). **Break** cuts a line at the selected
+  **Break** (4) and **Join points** (5). **Break** cuts a line at the selected
   points: an open line comes apart there, each piece ending on its own copy of
   the point (both copies stay selected, so a drag moves them together; click
   one to move it alone), and a closed contour opens at the point. A line's
@@ -308,7 +324,7 @@ and saved projects restore it.
   **Break** instead takes out the segment between them, splitting the line
   there (a closed contour opens); with more points selected, every segment
   between two of them goes, and a piece left as a lone point is dropped.
-  **Join** joins any two selected points, in one path or two, filled or not,
+  **Join points** joins any two selected points, in one path or two, filled or not,
   into one line however far apart they are; a point that is not a free end yet
   is broken there first: ends that meet become one point, others are bridged
   by a curve leaving each end along its line. Two ends of one line close it. A
@@ -370,25 +386,28 @@ and saved projects restore it.
   they were dropped by, on the tree the edit leaves, and the drop is refused
   with a reason if those rows are gone or have moved to another group. A drag
   still held when the edit finishes follows the new rows under the pointer.
-- **Join** (Actions, and the Nodes strip) does what fits the selection: two
-  selected points join each other, as above; lines join at their ends, below;
-  and filled paths merge by area, through a dialog (**Join…**). In a point
-  tool it needs the two points.
-- With a single filled path selected, **Join** unions overlapping contours
+- Joining has a command for each kind of join, named for what it does:
+  **Join points** (Nodes) joins two selected points, as above; **Join line
+  ends** (Path) joins lines at their ends, below; and **Merge shapes** (Path)
+  merges paths by area, through a dialog (**Merge shapes…**) for two or more.
+  Ctrl/⌘ J runs the one that fits: the two selected points in a point tool,
+  else Merge shapes, or Join line ends when only lines are selected. Each
+  says what to select when it cannot run.
+- With a single filled path selected, **Merge shapes** unions overlapping contours
   inside that path and resolves self-intersections, removing internal seams.
   Nested hole rings stay with their surrounding regions; a region overlapping
   a hole fills only the portion it covers. The path keeps its identity, paint,
   transform, clipping and stacking. This runs directly, without a color dialog,
   and is one undoable step. Pins must be removed before contours are rewritten.
   A simple outline or disjoint contours are left unchanged.
-- Joining filled paths combines selected paths and groups, recursively
+- Merging paths combines selected paths and groups, recursively
   including paths in nested groups and counting overlapping selections only
   once, even if other objects sit between them. The result always occupies the
   frontmost selected position; intervening objects stay in their existing
   order. Fill/stroke colours and numeric paint properties are averaged by
   clipped painted area (including strokes, excluding holes), so larger shapes
   contribute more. Colour alpha is included; fully unpainted selections fall
-  back to equal weights. Clicking Join opens an options dialog: keep the
+  back to equal weights. Merge shapes opens an options dialog: keep the
   default area-weighted color mix or choose any participating path's
   fill/stroke colors (including inherited colors and fill/stroke alpha). Width
   and overall opacity stay area-weighted. Cancel leaves the document
@@ -411,7 +430,7 @@ and saved projects restore it.
   Degenerate clip intersections use a winding-aware fallback; its curve
   tolerance is 0.01 SVG
   units (straight edges stay exact).
-- Joining lines joins the open ends of the selected stroked lines (paths with
+- **Join line ends** joins the open ends of the selected stroked lines (paths with
   no fill, or the paths in selected groups) where one line carries on from
   another: ends at most 12 screen pixels apart, so zooming out reaches wider
   gaps, and in line with each other, the line turning at most 60° across the
@@ -422,8 +441,9 @@ and saved projects restore it.
   each end along its line. The joined line lands in the frontmost of its paths
   and keeps that path's paint; a path left without lines is deleted, and the
   paths holding joined lines are selected. Side-by-side ends of parallel lines
-  do not join. Lines join at their ends rather than by area.
-- **Combine paths** (Actions, right-click menu or command palette) collects
+  do not join. Lines join at their ends rather than by area, and filled
+  paths in the selection are left alone.
+- **Combine paths** (Path, right-click menu or command palette) collects
   selected paths and the paths in selected groups into one compound path.
   Every contour, curve, node and pin is retained, including touching or
   overlapping contours and open lines. The result uses the frontmost path's
@@ -436,9 +456,9 @@ and saved projects restore it.
   the original contours instead of cutting clipping into their geometry.
   Locks and shared-geometry guards apply. Undo restores the original paths
   and selection in one step.
-- **Convert line/fill** (Actions) flips each selected path, as one edit; it
-  reads **Fill to line** or **Line to fill** when the selection holds only one
-  kind. Fill to line turns each selected thin filled shape, such as a part of
+- **Fill to centerline** and **Stroke to path** (Path) convert between a
+  filled shape and a stroked line, each path in the selection that it applies
+  to, as one edit. **Fill to centerline** turns each selected thin filled shape, such as a part of
   an outline that a trace drew as a fill, into a stroked line down its middle:
   the shape is rasterised about 12 pixels across its thickness, thinned to a
   centreline as the Cel art tracer does, and fitted with curves. Lines meeting
@@ -447,7 +467,7 @@ and saved projects restore it.
   fill's, with round caps and joins, so the stroke covers about what the fill
   did. The path keeps its ID, place in the stack and group; its points are
   new, so pinned points are refused. A shape about as wide as it is long is
-  not a line and is refused. Line to fill does the reverse for stroked paths
+  not a line and is refused. **Stroke to path** does the reverse for stroked paths
   without a fill: each becomes the filled shape its stroke paints, with its
   width, caps and joins, in the stroke's colour.
 - **Split disconnected parts** separates selected drawing paths into independent
@@ -460,7 +480,9 @@ and saved projects restore it.
   detached first. **Detach to editable path** converts a path instance into a
   selected independent path ready to split, retaining its paint and transforms
   in wrapper groups. Other instances keep their shared definition.
-- **Cut out as hole** (Actions) takes two selected filled paths. When one
+- **Cut out as hole** (Path) takes two selected filled paths. It is not a
+  plain Subtract of the front path from the back one: it picks which path
+  cuts by containment first and stacking second. When one
   lies inside the other it becomes a hole in it; when they only partly overlap
   the front one cuts the back one. The outer path keeps its paint and
   stacking place, and the cutting path is deleted, as one undoable edit. The
@@ -481,7 +503,7 @@ and saved projects restore it.
   with less of the cut lines become a new path just above, so cutting across
   a loop in a line takes the loop away whole to be deleted; two cuts across
   its neck do the same. Lines the knife misses stay where they are, and
-  **Join** joins pieces again. A filled path is cut only when the line
+  **Join line ends** (or **Join points**) joins pieces again. A filled path is cut only when the line
   runs through it from outside to outside; a line that ends inside a shape or
   misses it leaves it alone. The cut stops at the start and end of the drag,
   so cutting across one arm of a U leaves its other arm attached. Each cut
@@ -489,7 +511,7 @@ and saved projects restore it.
   original's paint, transform, locks and stacking place; the first piece
   keeps its ID. Curves stay curves. The pieces meet exactly
   on the same seam points but stay independent: dragging a seam point moves
-  only that piece, and **Join** merges them back into one. Pinned
+  only that piece, and **Merge shapes** merges them back into one. Pinned
   points keep their positions and identities on the pieces; a cut that would
   remove one is refused. Shared geometry, instances and locks are refused.
   The pieces are selected afterwards, and the cut is one undoable edit. A line that crosses
@@ -526,10 +548,11 @@ Select, `V` Move, `S` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline swi
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
-controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Add node; in Select or Move: 1-4
+controls (in Nodes: 1-3 handles, 4 Break, 5 Join points, 6 Add node, 7 Straighten; in Select or Move: 1-4
 the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
-opens the command palette, G groups (with Shift, ungroups), J joins. Drag with
+opens the command palette, G groups (with Shift, ungroups), J joins what the
+selection allows (Join points, Merge shapes or Join line ends). Drag with
 the middle mouse button (in any tool), or hold Space and drag, to pan. Use the
 scroll wheel to zoom, and press `F` to fit. Ctrl/Command-Z undoes; add Shift
 to redo. Ctrl/Command-S saves the current file. Ctrl/Command-Shift-S opens
@@ -540,7 +563,8 @@ undoable edit and selects them. Copy includes groups, their styling and
 referenced shapes, and keeps the snapshot even if the originals are edited or
 deleted. The object clipboard belongs to this editor session. These shortcuts
 keep their normal text behavior while editing a field. Copy and Paste are also
-available in the command palette and the object context menu.
+available in the command palette, the object context menu and the right
+panel's **Object** commands.
 
 Projects preserve object/node identities, locks, pins,
 selection and the reference image. New `.vectrify` files use lossless gzip
@@ -578,7 +602,8 @@ run is dimmed, with the reason as its tooltip. Each is also in the command
 palette.
 
 **Tidy…** is also available above the canvas, beside the active tool's name,
-including when the Reference panel is hidden. Its compact dialog keeps
+including when the Reference panel is hidden, and under **Repair** in the
+right panel, since it simplifies paths without a reference too. Its compact dialog keeps
 **Fit path**, **Add detail**, **Simplify** and **Only what is in view** visible;
 expand **Advanced settings** for the tolerances, fitting controls and run
 limits. The action buttons stay
@@ -817,8 +842,10 @@ Point tools edit `path` elements, selected or inside a selected group. Local
 requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without
 changing appearance return a clear error. The knife cuts only along straight
-lines, across whole filled shapes; there are no tools for cutting a stroke-only
-path or welding endpoints. Redraw outline replaces a stretch between two places
+lines: a filled shape only where the line crosses it from outside to outside,
+a stroked line wherever the line crosses it. Join points welds two chosen
+points and Join line ends the ends that continue each other within 12 screen
+pixels; neither joins lines side by side. Redraw outline replaces a stretch between two places
 on one contour; it cannot extend an open contour past its ends, and a spike
 only a few reference pixels wide may come out thinner than drawn.
 

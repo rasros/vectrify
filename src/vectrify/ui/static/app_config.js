@@ -18,7 +18,7 @@ export const hints = {select: 'Click to select · Drag to box select · Shift ad
 // drag carries the whole selection when it starts on a selected row.
 export const TREE_INDENT = 9;
 
-// How far apart, in screen pixels, two line ends may be for Join ends: zoom
+// How far apart, in screen pixels, two line ends may be for Join line ends: zoom
 // out to join wider gaps.
 export const JOIN_REACH = 12;
 

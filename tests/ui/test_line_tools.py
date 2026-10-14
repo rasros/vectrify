@@ -54,7 +54,7 @@ def test_joining_two_selected_ends_of_two_paths():
     a, b = ids(session, "a")[0][-1], ids(session, "b")[0][0]
     send(session, "select", objects=["a", "b"], nodes=[a, b])
     result = send(session, "join_two_ends", points=[["a", a], ["b", b]])
-    assert result["undo"] == ["Join ends"]
+    assert result["undo"] == ["Join points"]
     assert [o["id"] for o in result["objects"]] == ["b"]
     assert points(session, "b")[0][0] == (0, 0)
     assert points(session, "b")[0][-1] == (40, 0)
@@ -67,6 +67,7 @@ def test_join_ends_command_reaches_as_far_as_asked():
     with pytest.raises(DocumentError, match="close enough"):
         send(session, "join_ends", reach=3)
     result = send(session, "join_ends", reach=5)
+    assert result["undo"] == ["Join line ends"]
     assert result["selection"]["objects"] == ["b"]
     assert len(points(session, "b")) == 1
     assert session.editor.snapshot.document.element("b").get("stroke") == "#123456"
@@ -80,7 +81,7 @@ def test_fill_to_line_turns_a_thin_bar_into_a_stroke_down_its_middle():
     )
     send(session, "select", objects=["bar"])
     result = send(session, "fill_to_line")
-    assert result["undo"] == ["Fill to line"]
+    assert result["undo"] == ["Fill to centerline"]
     document = session.editor.snapshot.document
     assert [c.id for c in document.root.children] == ["back", "bar", "front"]
     element = document.element("bar")
@@ -129,7 +130,7 @@ def test_line_to_fill_outlines_the_stroke():
     session = session_with(f'<path id="p" d="M10 10L30 10" {LINE}/>')
     send(session, "select", objects=["p"])
     result = send(session, "line_to_fill")
-    assert result["undo"] == ["Line to fill"]
+    assert result["undo"] == ["Stroke to path"]
     document = session.editor.snapshot.document
     element = document.element("p")
     assert element.get("fill") == "#123456"
@@ -204,7 +205,7 @@ def test_join_two_ends_joins_any_two_points_as_one_edit():
     middle, corner = ids(session, "a")[0][1], ids(session, "b")[0][2]
     send(session, "select", objects=["a", "b"], nodes=[middle, corner])
     result = send(session, "join_two_ends", points=[["a", middle], ["b", corner]])
-    assert result["undo"] == ["Join ends"]
+    assert result["undo"] == ["Join points"]
     joined = [
         contour
         for oid in ("a", "b")
