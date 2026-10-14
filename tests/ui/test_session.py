@@ -1443,3 +1443,71 @@ def test_combine_command_preserves_contours_and_restores_selection_with_undo():
     assert send(session, "undo")["selection"]["objects"] == ["a", "b"]
     assert session.editor.snapshot.document == before.document
     assert send(session, "redo")["selection"]["objects"] == [oid]
+
+
+def test_visibility_hides_and_shows_as_one_step_without_changing_selection():
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["b"])
+    state = send(session, "visibility", objects=["layer"], hidden=True)
+    rows = {o["id"]: o for o in state["objects"]}
+    assert rows["layer"]["hidden"]
+    assert rows["layer"]["inherited_hidden"]
+    assert not rows["a"]["hidden"]
+    assert rows["a"]["inherited_hidden"]
+    assert state["selection"]["objects"] == ["b"]
+    assert state["undo"] == ["Hide objects"]
+    assert 'display="none"' in state["svg"]
+    # Without objects, the selection; showing an object in a hidden group
+    # leaves it hidden by the group.
+    send(session, "visibility", hidden=True)
+    state = send(session, "visibility", objects=["b"], hidden=False)
+    rows = {o["id"]: o for o in state["objects"]}
+    assert not rows["b"]["hidden"]
+    assert rows["b"]["inherited_hidden"]
+    state = send(session, "visibility", all=True, hidden=False)
+    assert not any(o["inherited_hidden"] for o in state["objects"])
+    assert state["undo"][-1] == "Show all objects"
+    send(session, "undo")
+    assert session.editor.snapshot.document.hidden("a")
+
+
+def test_visibility_survives_a_project_round_trip_and_respects_paint_locks():
+    session = Session(import_svg(SVG))
+    send(session, "visibility", objects=["a"], hidden=True)
+    restored = Session(import_svg(SVG))
+    send(restored, "open", source=session.project(), name="saved.vectrify")
+    assert restored.editor.snapshot.document.hidden("a")
+    send(session, "select", objects=["b"])
+    send(session, "locks", object="b", locks=["paint"])
+    with pytest.raises(DocumentError, match="paint is locked"):
+        send(session, "visibility", objects=["b"], hidden=True)
+    with pytest.raises(DocumentError, match="removed"):
+        send(session, "visibility", objects=["gone"], hidden=True)
+
+
+def test_tidy_and_fit_colours_leave_hidden_paths_out():
+    from vectrify.operations.methods import colours, nodes
+
+    session = Session(import_svg(SVG))
+    send(session, "visibility", objects=["a"], hidden=True)
+    send(session, "select", objects=["layer"])
+    snapshot = session.editor.snapshot
+
+    class Request:
+        pass
+
+    request = Request()
+    request.snapshot = snapshot  # type: ignore[attr-defined]
+    assert colours.targets(snapshot.document, request) == ["b"]  # type: ignore[arg-type]
+    send(session, "select", objects=["a"])
+    request.snapshot = session.editor.snapshot  # type: ignore[attr-defined]
+    with pytest.raises(DocumentError, match="hidden"):
+        nodes.selected_paths(request)  # type: ignore[arg-type]
+
+
+def test_the_knife_without_a_selection_passes_over_hidden_paths():
+    session = Session(import_svg(SVG))
+    send(session, "visibility", objects=["a"], hidden=True)
+    send(session, "select", objects=[])
+    with pytest.raises(DocumentError, match="crosses no line"):
+        send(session, "knife", start=[-5, 5], end=[25, 5])

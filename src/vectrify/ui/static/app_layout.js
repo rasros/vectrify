@@ -134,6 +134,9 @@ export function createLayoutController(editor, {
     scheduleStrip();
     const points = selectedPoints(), paths = level() === 'points' ? pointPaths() : editor.state.selection.objects;
     $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
+    // Hidden objects have no frame on the canvas: say they are selected.
+    const hidden = level() === 'points' ? 0 : editor.state.selection.objects.filter(id => object(id)?.inherited_hidden).length;
+    if (hidden) $('selection-level').textContent += ` · ${hidden === paths.length ? (hidden === 1 ? 'hidden' : 'all hidden') : `${hidden} hidden`}`;
     // Show the selection's size, and the new size while resizing in Move.
     if (editor.drag?.kind === 'resize' && editor.drag.result) $('selection-level').textContent = `Resize · ${frameSize(editor.drag.result.box)}`;
     else if (editor.drag?.kind === 'rotate' && editor.drag.moved && editor.drag.result) $('selection-level').textContent = rotationStatus(editor.drag.result);

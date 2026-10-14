@@ -1,5 +1,6 @@
 import {DOUBLE_CLICK, NUDGE_RUN, POINT_REACH} from './app_config.js';
 import {pickTarget, pointKey, splitKey} from './selection.js';
+import {hiddenRefusal} from './visibility.js';
 
 // What Select all leaves out: definitions, gradients and clipping paths,
 // which are not drawn where they are.
@@ -269,11 +270,12 @@ export function createSelectionController(editor, {
 
   // Select all: in a point tool, every point of the selected paths; else
   // every object at the editing level, inside the entered group if any, that
-  // is drawn: not definitions, gradients or clipping boundaries.
+  // is drawn: not definitions, gradients or clipping boundaries, nor hidden
+  // objects, which the Objects tree selects.
   function selectAllTargets() {
     if (level() === 'points') return pointPaths().flatMap(id => geometryNodes(id).map(node => pointKey(id, node.id)));
     const container = editor.scope || editor.state.root;
-    return editor.state.objects.filter(item => item.parent === container && !item.resource && !UNSELECTABLE.includes(item.tag)).map(item => item.id);
+    return editor.state.objects.filter(item => item.parent === container && !item.resource && !item.inherited_hidden && !UNSELECTABLE.includes(item.tag)).map(item => item.id);
   }
 
   function selectAllRefusal() {
@@ -319,6 +321,8 @@ export function createSelectionController(editor, {
     const top = topSelection();
     if (!top.length) return null;
     if (top.some(id => UNSELECTABLE.includes(object(id)?.tag))) return {refusal: 'Definitions keep their place: select drawing objects to move'};
+    const hidden = hiddenRefusal(top, object, 'move');
+    if (hidden) return {refusal: hidden};
     const refusal = moveLockRefusal(top);
     return refusal ? {refusal} : {};
   }

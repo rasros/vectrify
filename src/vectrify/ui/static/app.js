@@ -129,6 +129,7 @@ export function createApplication({document = globalThis.document, window = glob
   });
   const treeController = createTreeController(editor, {
     $,
+    action: (...args) => actionsController.action(...args),
     document,
     enterObject: (...args) => canvasController.enterObject(...args),
     later: (...args) => transportController.later(...args),
@@ -137,6 +138,7 @@ export function createApplication({document = globalThis.document, window = glob
     paintSwatch: (...args) => paintController.paintSwatch(...args),
     pressTreeRow: (...args) => tree_dragController.pressTreeRow(...args),
     selectObject: (...args) => selectionController.selectObject(...args),
+    toast: (...args) => transportController.toast(...args),
   });
   const tree_dragController = createTreeDragController(editor, {
     $,

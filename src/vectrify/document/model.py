@@ -268,6 +268,10 @@ class Document:
             element = parents[element.id]
         return tuple(reversed(chain))
 
+    def hidden(self, element_id: str) -> bool:
+        """Whether display="none" on the element or a group around it hides it."""
+        return any(e.get("display") == "none" for e in self.ancestry(element_id))
+
     def replace_element(self, updated: Element) -> Document:
         self.element(updated.id)
 

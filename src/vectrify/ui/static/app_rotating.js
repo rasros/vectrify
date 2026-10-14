@@ -1,6 +1,7 @@
 import {dragAngle, normalAngle, sharedAngle, turnPoint, turnedBox} from './transform.js';
 import {FRAME_REACH, ROTATE_REACH, SNAP_RADIUS} from './app_config.js';
 import {selectionResizeRefusal} from './app_resizing.js';
+import {hiddenRefusal} from './visibility.js';
 
 // Rotating owns the rotation handle, the pivot and the flips; editor contains
 // the live state shared with other controllers.
@@ -32,6 +33,8 @@ export function createRotatingController(editor, {
   // Why the selection cannot be rotated or flipped (*verb*), or ''.
   function turnRefusal(verb = 'rotate') {
     if (!editor.state?.selection.objects.length) return 'Select objects first';
+    const hidden = hiddenRefusal(topSelection(), object, verb);
+    if (hidden) return hidden;
     if (!selectionBounds()) return 'The selection has no bounds to turn: select shapes or groups, not definitions or clipping boundaries';
     return selectionResizeRefusal(editor, {topSelection, object}, verb);
   }

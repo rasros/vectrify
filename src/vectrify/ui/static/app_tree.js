@@ -1,9 +1,11 @@
 import {TREE_INDENT} from './app_config.js';
 import {dropRefusal, dropTarget} from './tree.js';
+import {eyeControl, hiddenRefusal} from './visibility.js';
 
 // Tree owns its controls; editor contains the live state shared with other controllers.
 export function createTreeController(editor, {
   $,
+  action,
   CSS = globalThis.CSS,
   document = globalThis.document,
   enterObject,
@@ -13,6 +15,7 @@ export function createTreeController(editor, {
   paintSwatch,
   pressTreeRow,
   selectObject,
+  toast,
 } = {}) {
   let treeSelection = new Set();
 
@@ -102,11 +105,19 @@ export function createTreeController(editor, {
       }
       row.append(toggle, swatch, label);
       if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
+      const eye = visibilityEye(item);
+      if (eye) row.append(eye);
+      // Hidden rows stay listed, dimmed, so they can be selected and shown.
+      row.classList.toggle('concealed', !!item.inherited_hidden);
+      if (item.inherited_hidden) row.title += item.hidden ? ' · hidden' : ' · hidden with its group';
       row.onclick = event => {
         const additive = event.shiftKey || event.ctrlKey || event.metaKey;
         if (!editor.treeDragEnded) later(() => object(item.id) && selectObject(item.id, additive, true, true));
       };
-      row.ondblclick = () => { if (!item.resource) later(() => object(item.id) && enterObject(item.id)); };
+      row.ondblclick = () => {
+        if (item.inherited_hidden) toast(hiddenRefusal([item.id], object, 'edit'), true);
+        else if (!item.resource) later(() => object(item.id) && enterObject(item.id));
+      };
       row.onpointerdown = event => pressTreeRow(event, item);
       row.onkeydown = event => {
         if (event.target !== row) return;
@@ -131,6 +142,32 @@ export function createTreeController(editor, {
       if (editor.treeDrag.point) Object.assign(editor.treeDrag, treeDropAt(editor.treeDrag.point, editor.treeDrag.ids));
       showTreeDrop();
     }
+  }
+
+  // The eye at the end of a row hides or shows its object, as one undoable
+  // edit saved with the drawing; the selection stays as it is. It is apart
+  // from the fold arrow at the start of the row and from the lock mark.
+  function visibilityEye(item) {
+    const control = eyeControl(item, object);
+    if (!control) return null;
+    const eye = document.createElement('button');
+    eye.type = 'button'; eye.className = 'tree-eye';
+    eye.classList.toggle('off', control.hidden);
+    eye.classList.toggle('inherited', control.concealed && !control.hidden);
+    eye.setAttribute('aria-label', control.label);
+    eye.setAttribute('aria-pressed', String(control.hidden));
+    if (control.refusal) eye.setAttribute('aria-disabled', 'true');
+    eye.title = control.title;
+    eye.onpointerdown = event => event.stopPropagation();
+    eye.ondblclick = event => event.stopPropagation();
+    eye.onkeydown = event => { if (event.key === ' ' || event.key === 'Enter') event.stopPropagation(); };
+    eye.onclick = event => {
+      event.stopPropagation();
+      if (editor.treeDragEnded) return;
+      if (control.refusal) { toast(control.refusal, true); return; }
+      later(() => object(item.id) && action('visibility', {objects: [item.id], hidden: !control.hidden}, control.hidden ? 'Showing…' : 'Hiding…'));
+    };
+    return eye;
   }
 
   const treeDropLine = document.createElement('div');

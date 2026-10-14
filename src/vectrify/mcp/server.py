@@ -677,14 +677,17 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         end_arrow: Literal["none", "arrow"] | None = None,
         name: str | None = None,
         locks: list[str] | None = None,
+        hidden: bool | None = None,
     ) -> CallToolResult:
         """Set the objects' paint (colours as CSS colours or "none"), name
-        (one object; empty clears it) and locks. Stroke caps: butt, round, square;
-        joins: miter, round, bevel; miter limit >= 1; start/end arrows: none or
-        arrow (on open contours, following the stroke colour and width).
-        Locks: edit kinds (geometry, paint,
+        (one object; empty clears it), locks and visibility. Stroke caps: butt,
+        round, square; joins: miter, round, bevel; miter limit >= 1; start/end
+        arrows: none or arrow (on open contours, following the stroke colour
+        and width). Locks: edit kinds (geometry, paint,
         structure, transform) or properties (fill, stroke, d, ...); an empty
-        list unlocks. One undo step."""
+        list unlocks. hidden true hides objects as display="none", saved in
+        the SVG: they and all a hidden group holds are not drawn, rendered or
+        picked; false shows them. A paint lock refuses it. One undo step."""
         return state.call(
             "properties",
             {
@@ -702,6 +705,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "end_arrow": end_arrow,
                 "name": name,
                 "locks": locks,
+                "hidden": hidden,
             },
         )
 

@@ -4,6 +4,7 @@ import {JOIN_REACH} from './app_config.js';
 import {SHAPES} from './clipping.js';
 import {ALIGNMENTS, distributeName} from './align.js';
 import {BOOLEANS} from './booleans.js';
+import {EXPORTED, hiddenRefusal, visibilityRefusal} from './visibility.js';
 
 // Command_registry owns its controls; editor contains the live state shared with other controllers.
 export function createCommandRegistryController(editor, {
@@ -138,6 +139,17 @@ export function createCommandRegistryController(editor, {
     {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: renameObject, disabled: () => !oneObject() && 'Select one object to rename'},
     {id: 'delete', name: 'Delete objects', group: 'Object', keys: 'Delete', keywords: 'remove erase', description: 'Delete the selected objects',
       danger: true, run: () => action('delete'), disabled: noSelection},
+    // Hiding is saved with the drawing (display="none"): the eye on each row
+    // of the Objects tree does the same for its object.
+    {id: 'hide-objects', name: 'Hide objects', group: 'Object', keywords: 'visibility visible invisible eye conceal display none',
+      description: `Hide the selected objects; the Objects tree still selects them. ${EXPORTED}`,
+      run: () => action('visibility', {hidden: true}, 'Hiding…'), disabled: () => visibilityRefusal(editor.state.selection.objects, object, true)},
+    {id: 'show-objects', name: 'Show objects', group: 'Object', keywords: 'visibility visible unhide reveal eye display',
+      description: 'Show the selected hidden objects again', run: () => action('visibility', {hidden: false}, 'Showing…'),
+      disabled: () => visibilityRefusal(editor.state.selection.objects, object, false)},
+    {id: 'show-all', name: 'Show all hidden objects', group: 'Object', keywords: 'visibility visible unhide reveal everything eye display',
+      description: 'Show every hidden object in the drawing', run: () => action('visibility', {all: true, hidden: false}, 'Showing…'),
+      disabled: () => !editor.state.objects.some(item => item.hidden) && 'Nothing is hidden'},
     {id: 'fit', name: 'Fit the drawing', group: 'View', keys: 'F', keywords: 'zoom', run: fit},
     {id: 'zoom-selection', name: 'Zoom to selection', group: 'View', keys: 'Z', run: focusSelection, disabled: noSelection},
     {id: 'zoom-in', name: 'Zoom in', group: 'View', keys: 'Scroll', run: () => zoomAt(1.25)},
@@ -145,9 +157,10 @@ export function createCommandRegistryController(editor, {
     {id: 'finish-path', name: 'Finish path', group: 'Pen', keys: 'Enter', run: () => finishPath(false), disabled: () => (editor.tool !== 'path' || editor.pathDraft.length < 2) && 'Draw two or more points with the pen first'},
     {id: 'close-path', name: 'Close shape', group: 'Pen', run: () => finishPath(true), disabled: () => (editor.tool !== 'path' || editor.pathDraft.length < 3) && 'Draw three or more points with the pen first'},
     {id: 'select-all', name: 'Select all', label: () => level() === 'points' ? 'Select all points' : 'Select all', group: 'Select', keys: 'Ctrl/⌘ A', keywords: 'everything every objects points nodes',
-      description: 'Select every object at this level, inside the entered group if any; in Nodes, every point of the selected paths', run: selectAll, disabled: selectAllRefusal},
+      description: 'Select every shown object at this level, inside the entered group if any; in Nodes, every point of the selected paths', run: selectAll, disabled: selectAllRefusal},
     {id: 'enter', name: 'Enter', label: () => oneObject()?.tag === 'g' ? 'Enter group' : 'Edit points', group: 'Select', keys: 'Double-click', keywords: 'group points nodes into',
-      run: () => enterObject(oneObject().id), disabled: () => !(oneObject()?.tag === 'g' || (oneObject()?.tag === 'path' && !oneObject().resource)) && 'Select one group or visible path'},
+      run: () => enterObject(oneObject().id), disabled: () => (!(oneObject()?.tag === 'g' || (oneObject()?.tag === 'path' && !oneObject().resource)) && 'Select one group or visible path')
+        || (oneObject() && hiddenRefusal([oneObject().id], object, 'edit'))},
     {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', keywords: 'leave exit group', run: stepUp, disabled: () => !editor.state.selection.objects.length && !editor.scope && 'Nothing to step up from'},
     // Paint
     {id: 'fill', name: 'Edit fill', group: 'Paint', keywords: 'colour color', run: () => $('fill-value').focus(), disabled: noSelection},

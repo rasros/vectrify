@@ -60,13 +60,16 @@ COVERED = 0.05
 
 
 def targets(document: Document, request: OperationRequest) -> list[str]:
-    """Selected drawables with a fill, in paint order (back to front)."""
+    """Selected shown drawables with a fill, in paint order (back to front)."""
     selected = document.selection_ids(request.snapshot.selection)
     found = []
     for element in document.elements():
         if element.id not in selected or element.tag not in DRAWABLE:
             continue
         if any(a.tag in {"defs", "clipPath"} for a in document.ancestry(element.id)):
+            continue
+        # Hidden objects are not drawn: there is no colour of theirs to fit.
+        if document.hidden(element.id):
             continue
         if path_style(document, element)["fill"] != "none":
             found.append(element.id)

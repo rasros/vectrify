@@ -114,7 +114,7 @@ EDITS: dict[str, tuple[str, ...]] = {
     "clip": (),
     "protect_features": (),
     "isolate_components": (),
-    "properties": ("paint", "rename", "locks"),
+    "properties": ("paint", "rename", "locks", "visibility"),
     "transform": ("resize", "rotate", "flip_horizontal", "flip_vertical", "move"),
     "arrange": ("reorder", "move_objects"),
     "group": ("group", "ungroup"),
@@ -815,7 +815,7 @@ class Agent:
             item["name"] = row["name"]
         if attributes.get("transform"):
             item["transform"] = attributes["transform"]
-        for key in ("locks", "inherited_locks"):
+        for key in ("locks", "inherited_locks", "hidden", "inherited_hidden"):
             if row[key]:
                 item[key] = row[key]
         if attributes.get("data-vectrify-feature-sources"):
@@ -1683,8 +1683,10 @@ class Agent:
         end_arrow: str | None = None,
         name: str | None = None,
         locks: Any = None,
+        hidden: bool | None = None,
     ) -> Reply:
-        """Set the paint, the name (of one object) and the locks of *ids*."""
+        """Set the paint, the name (of one object), the locks and whether
+        *ids* are hidden (display="none", saved with the drawing)."""
         targets = _targets(ids)
         changes = {
             key: str(value)
@@ -1703,10 +1705,12 @@ class Agent:
             )
             if value is not None
         }
-        if not changes and name is None and locks is None:
+        if not changes and name is None and locks is None and hidden is None:
             raise DocumentError(
-                "Give a fill, stroke, stroke width, opacity, name or locks"
+                "Give a fill, stroke, stroke width, opacity, name, locks or hidden"
             )
+        if hidden is not None and not isinstance(hidden, bool):
+            raise DocumentError("Give hidden as true or false")
         if name is not None and len(targets) != 1:
             raise DocumentError("Give one id to name")
         wanted: frozenset[str] | None = None
@@ -1736,9 +1740,13 @@ class Agent:
             steps.append({"command": "paint", "changes": changes})
         if name is not None:
             steps.append({"command": "rename", "object": targets[0], "name": name})
+        if hidden is not None:
+            steps.append(
+                {"command": "visibility", "objects": list(targets), "hidden": hidden}
+            )
         if wanted is not None:
             steps.extend(lock(oid, adding=True) for oid in targets)
-        kinds = sum(x is not None for x in (changes or None, name, wanted))
+        kinds = sum(x is not None for x in (changes or None, name, wanted, hidden))
         return self._edit(seen, steps, "Properties" if kinds > 1 else None)
 
     def _selected_bounds(self) -> Box:

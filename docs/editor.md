@@ -191,15 +191,15 @@ all of them as one undoable edit.
 - **Box select**: drag on the canvas, from empty space or from an unselected
   object, to select what lies wholly inside the box: objects at the entered
   group's level in an object tool, points of the selected paths in a point
-  tool. Shift toggles what the box finds. In Select, every drag box-selects,
+  tool. Hidden objects are never caught. Shift toggles what the box finds. In Select, every drag box-selects,
   even when it starts on a selected object or its frame. In Move, dragging a
   selected object, or empty canvas inside the selection's frame, moves the
   selection instead.
 - **Select all** (Ctrl/⌘ A, under Select in the palette and the right-click
   menu) selects every object at the editing level in an object tool: the
   children of the entered group, or the drawing's top-level objects. It
-  leaves out what is not drawn where it is: definitions, gradients and
-  clipping boundaries (select those in the tree). In a point tool it
+  leaves out what is not drawn where it is: definitions, gradients,
+  clipping boundaries and hidden objects (select those in the tree). In a point tool it
   selects every point of the selected paths, keeping the paths selected;
   with no path selected it says so. A text field keeps its own Ctrl/⌘ A.
 - **Arrow keys** nudge the selection by 1 document unit (the root SVG's
@@ -570,7 +570,33 @@ and saved projects restore it.
   its children. With the group row focused, Left collapses and Right expands.
   Folding keeps the selection and survives edits; opening a different drawing
   starts with groups expanded. Search shows matching objects inside folded
-  groups, and selecting a hidden object on the canvas opens its parents.
+  groups, and selecting on the canvas an object in a folded group opens its
+  parents. Folding only changes the tree; hiding, below, changes the drawing.
+- The eye at the end of each object's or group's row in the Objects tree hides
+  or shows it. **Hide objects**, **Show objects** and **Show all hidden
+  objects** (Object, also in the right-click menu and the palette) do the same
+  for the selection or the whole drawing. Hiding is part of the drawing, not a
+  view setting: a hidden object is saved as `display="none"`, so it stays
+  hidden in the exported SVG, in projects and to agents, and its eye's tooltip
+  says so. Each toggle is one undoable edit that keeps the selection; it
+  changes no paint or opacity and deletes nothing, so showing the object
+  brings it back as it was. A hidden group hides everything in it, whatever
+  their own eyes say; their rows are dimmed and their eyes faint, and showing
+  the group shows them again. Definitions and clipping boundaries have no
+  eye. A **Paint** lock on the object or a group around it protects its
+  visibility too, as it does its opacity: the eye is dimmed and says so.
+- Hidden objects, and everything in a hidden group, are left out on the
+  canvas: clicks, box select and Select all pass over them, moved and resized
+  frames do not snap to them, and point tools show none of their points.
+  Their rows stay in the tree, dimmed and in italics with the eye crossed
+  out, and selecting a row there still selects them; the status bar then
+  says how many of the selection are hidden. Selected hidden objects have no
+  frame or outline on the canvas. The panel still edits their paint, name,
+  locks and stacking, and copying, grouping and deleting work as usual, but
+  what needs their place on the canvas (moving, nudging, resizing, rotating,
+  flipping, X/Y/W/H, aligning and editing points) refuses until they are
+  shown, naming the hidden object. Tidy and Fit colours leave hidden paths
+  out: they are not drawn, so there is nothing to compare with the reference.
 - Drag rows in the object tree to restack them. The tree lists objects back to
   front: a row paints over the rows above it. Dragging a selected row carries
   the whole selection, which keeps its order. A line shows where the objects

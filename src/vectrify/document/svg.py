@@ -67,6 +67,11 @@ GRADIENTS = {
 }
 GEOMETRY.update(GRADIENTS)
 CONTAINERS = {"svg", "g", "defs", "clipPath"}
+# What the editor can hide: display="none" hides an object and everything in
+# it, in the editor and wherever the exported SVG is shown. Unlike
+# visibility, which a child can set back to visible, it cannot be undone
+# from inside, so a hidden group hides all it holds.
+HIDEABLE = frozenset({"g", "path", "rect", "circle", "ellipse", "line", "use"})
 # A solid colour, as fill, stroke or stop-color take it.
 SOLID = re.compile(r"#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([0-9.,%\s+-]+\)")
 # A local paint server reference: the whole value, without a fallback colour.
@@ -166,6 +171,8 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
         _validate_gradient(tag, attributes)
         return
     allowed = GEOMETRY[tag] | PAINT | {"transform", "clip-path"}
+    if tag in HIDEABLE:
+        allowed |= {"display"}
     if tag in {"path", "line"}:
         allowed |= ARROWS
     if tag == "path":
@@ -235,6 +242,7 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
             "stroke-linecap": {"butt", "round", "square"},
             "stroke-linejoin": {"miter", "round", "bevel"},
             "clipPathUnits": {"userSpaceOnUse", "objectBoundingBox"},
+            "display": {"none", "inline"},
         }
         if name in enums and value not in enums[name]:
             raise DocumentError(f"Unsupported {name}: {value}")
@@ -454,6 +462,7 @@ def import_svg(svg: str) -> Document:
                     "opacity",
                     "transform",
                     "clip-path",
+                    "display",
                 }
             ):
                 issues.append("Invalid generated arrow decoration")
@@ -614,7 +623,7 @@ def export_svg(document: Document) -> str:
                             + " L".join(f"{x:.12g} {y:.12g}" for x, y in triangle)
                             + " Z",
                         }
-                        for key in ("transform", "clip-path", "opacity"):
+                        for key in ("transform", "clip-path", "opacity", "display"):
                             value = child.get(key)
                             if value is not None:
                                 arrow[key] = value

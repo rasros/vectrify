@@ -75,6 +75,7 @@ export function createCanvasEventsController(editor, {
     pencil: {preview: previewPencil, finish: finishPencil},
     selection: {
       pick: selectAtPoint, box: finishBox, renderDrawing,
+      refuse: message => toast(message, true),
       move: offsets => action('move', {dx: 0, dy: 0, offsets}, 'Moving selection…'),
     },
     nodes: {

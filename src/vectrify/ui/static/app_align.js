@@ -1,4 +1,5 @@
 import {ALIGNMENTS, REFERENCES, SPACINGS, alignMoves, distributeMoves, distributeName, distributeOrder, unionBox} from './align.js';
+import {hiddenRefusal} from './visibility.js';
 
 const REFERENCE_NAMES = {selection: 'Selection', artboard: 'Artboard', key: 'Key object'};
 
@@ -47,6 +48,8 @@ export function createAlignController(editor, {
     for (const id of editor.state.selection.objects.length ? topSelection() : []) {
       const item = object(id);
       if (!item || item.resource || ['defs', 'clipPath', 'svg'].includes(item.tag)) { refusal = 'Definitions and clipping boundaries have no place to align: select shapes or groups'; break; }
+      refusal = hiddenRefusal([id], object, 'align');
+      if (refusal) break;
       const box = objectBounds(id);
       if (!box) { refusal = `${item.label} has no bounds to align`; break; }
       items.push({id, box});

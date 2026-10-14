@@ -438,3 +438,18 @@ button[data-command="straighten-handles"][aria-pressed=mixed] { border-color: #6
 #overlay .eyedropper-mark.refused .eyedropper-ring, #overlay .eyedropper-mark.refused .eyedropper-swatch { stroke: #ff8a5c; }
 #overlay .eyedropper-mark.refused .eyedropper-swatch.fill { fill: #ff8a5c; }
 #overlay .eyedropper-mark.refused .eyedropper-label { fill: #ffc9b3; }
+/* Visibility: an eye at the end of each object's row, apart from the fold
+   arrow at its start and the lock mark. Hidden rows stay listed, dimmed and
+   in italics, with the eye crossed out; rows hidden by their group dim too. */
+.object-row .tree-eye { width: 22px; height: 20px; flex-shrink: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; padding: 0; color: var(--muted); opacity: .55; }
+.object-row .tree-eye::before { content: ''; display: block; width: 14px; height: 14px; margin: auto; background: currentColor; -webkit-mask: var(--eye) center / contain no-repeat; mask: var(--eye) center / contain no-repeat;
+  --eye: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E"); }
+.object-row .tree-eye.off::before { --eye: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.9 5.2A9 9 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-2.6 3.5M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.5 9.5 0 0 0 5.4-1.6'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18'/%3E%3C/svg%3E"); }
+.object-row:hover .tree-eye, .object-row .tree-eye:focus-visible { opacity: 1; }
+.object-row .tree-eye:hover { background: #ffffff14; border-color: #4f6157; color: #e2e7e4; }
+.object-row .tree-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.object-row .tree-eye.off { opacity: 1; color: #e0b48a; }
+.object-row .tree-eye.inherited { opacity: .3; }
+.object-row .tree-eye[aria-disabled="true"] { cursor: not-allowed; opacity: .3; }
+.object-row.concealed .swatch, .object-row.concealed .object-label { opacity: .45; }
+.object-row.concealed .object-label { font-style: italic; }

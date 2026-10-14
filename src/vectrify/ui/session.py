@@ -136,6 +136,7 @@ ACTION_COMMANDS = {
     "redo": Command("_command_history"),
     "rename": Command("_command_rename"),
     "locks": Command("_command_locks"),
+    "visibility": Command("_command_visibility"),
     "pin": Command("_command_pin"),
     "reference": Command("_command_reference"),
     "artboard": Command("_command_artboard"),
@@ -677,6 +678,12 @@ class Session:
                     "inherited_locks": sorted(
                         set().union(*(a.locks for a in ancestors))
                     ),
+                    # Hidden itself (display="none"), and hidden by itself
+                    # or a group around it: not drawn or hit, but kept.
+                    "hidden": element.get("display") == "none",
+                    "inherited_hidden": any(
+                        a.get("display") == "none" for a in ancestors
+                    ),
                 }
             )
         self._objects_document = document
@@ -1087,6 +1094,57 @@ class Session:
         ):
             raise DocumentError("Select the object before changing its locks")
         self.editor.set_locks(object_id, frozenset(payload["locks"]))
+
+    def _command_visibility(self, payload: dict) -> None:
+        """Hide or show objects as one undoable edit.
+
+        The objects are those given, as the tree's eye names its row, or
+        else the selection; the selection stays as it is. With "all", every
+        hidden object is shown. Hiding is saved in the drawing (see
+        Transaction.set_hidden).
+        """
+        document = self.editor.snapshot.document
+        hidden = payload.get("hidden")
+        if not isinstance(hidden, bool):
+            raise DocumentError("Say whether to hide or show the objects")
+        if payload.get("all"):
+            if hidden:
+                raise DocumentError("Hide all is not offered: select what to hide")
+            ids = [
+                e.id
+                for e in document.elements()
+                if e.get("display") == "none"
+                and not any(
+                    a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id)
+                )
+            ]
+            label = "Show all objects"
+        else:
+            given = payload.get("objects")
+            if given is None:
+                given = sorted(self._object_selection().object_ids)
+            if not isinstance(given, list) or not all(
+                isinstance(oid, str) for oid in given
+            ):
+                raise DocumentError("Give the objects to hide or show")
+            if not given:
+                raise DocumentError("Select objects first")
+            ids = [e.id for e in document.elements() if e.id in set(given)]
+            if len(ids) != len(set(given)):
+                raise DocumentError("Some of the objects were removed meanwhile")
+            label = "Hide objects" if hidden else "Show objects"
+        ids = [
+            oid
+            for oid in ids
+            if (document.element(oid).get("display") == "none") != hidden
+        ]
+        if not ids:
+            return
+        with self.editor.transaction(
+            label, selection=Selection(object_ids=frozenset(ids))
+        ) as tx:
+            for oid in ids:
+                tx.set_hidden(oid, hidden)
 
     def _command_pin(self, payload: dict) -> None:
         self.editor.pin_nodes(self._points(payload), pinned=bool(payload["pinned"]))
@@ -1516,7 +1574,7 @@ class Session:
     def _command_extract(self, payload: dict) -> None:
         # The contours inside a region, taken into paths of their own, or
         # deleted: the selected paths', or with scope "region" those of
-        # every unlocked path and shape there.
+        # every unlocked, shown path and shape there.
         polygon = self._region_polygon(payload)
         selection = self._region_scope(payload, polygon)
         delete = bool(payload.get("delete"))
@@ -1565,7 +1623,9 @@ class Session:
                 if e.id in inside
                 and e.tag in SHAPES | {"path", "use"}
                 and not any(
-                    a.tag in {"defs", "clipPath"} or a.locks & KNIFE_EDITS
+                    a.tag in {"defs", "clipPath"}
+                    or a.locks & KNIFE_EDITS
+                    or a.get("display") == "none"
                     for a in document.ancestry(e.id)
                 )
             ]
@@ -2131,8 +2191,8 @@ class Session:
 
     def _knife(self, payload: dict) -> None:
         """Cut the paths the knife line crosses: the selected ones, or with
-        nothing selected every drawing path whose geometry and structure are
-        unlocked, inside the entered group *within* if one is given."""
+        nothing selected every shown drawing path whose geometry and structure
+        are unlocked, inside the entered group *within* if one is given."""
         start, end = (
             tuple(number(v) for v in payload[key]) for key in ("start", "end")
         )
@@ -2151,7 +2211,9 @@ class Session:
                     if e.tag == "path"
                     and e.id in inside
                     and not any(
-                        a.tag in {"defs", "clipPath"} or a.locks & KNIFE_EDITS
+                        a.tag in {"defs", "clipPath"}
+                        or a.locks & KNIFE_EDITS
+                        or a.get("display") == "none"
                         for a in document.ancestry(e.id)
                     )
                 )

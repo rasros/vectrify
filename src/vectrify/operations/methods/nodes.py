@@ -143,10 +143,18 @@ def selected_paths(request: OperationRequest, polygon=None) -> list[str]:
     if selection.whole_document or not selection.object_ids:
         raise DocumentError("Select the paths to optimize")
     found: list[str] = []
-    pending = [document.element(oid) for oid in sorted(selection.object_ids)]
+    # Hidden paths are not drawn, so there is nothing to fit or compare.
+    pending = [
+        document.element(oid)
+        for oid in sorted(selection.object_ids)
+        if not document.hidden(oid)
+    ]
     while pending:
         element = pending.pop(0)
-        if element.tag in {"defs", "clipPath", "mask"}:
+        if (
+            element.tag in {"defs", "clipPath", "mask"}
+            or element.get("display") == "none"
+        ):
             continue
         if element.tag in {"path", "use"} and element.id not in found:
             try:
@@ -156,7 +164,11 @@ def selected_paths(request: OperationRequest, polygon=None) -> list[str]:
             found.append(element.id)
         pending.extend(element.children)
     if not found:
-        raise DocumentError("Select the paths to optimize")
+        raise DocumentError(
+            "The selected paths are hidden: show them to optimize them"
+            if all(document.hidden(oid) for oid in selection.object_ids)
+            else "Select the paths to optimize"
+        )
     chosen = set(found)
     return [e.id for e in document.elements() if e.id in chosen]
 

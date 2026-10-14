@@ -280,7 +280,9 @@ be a polygon `[[x, y], ...]`.
 - `describe(page?, page_size?, within?, region?, objects?)`: target, artboard,
   reference (name and pixel size), the person's selection (for context; no
   tool acts on it), and objects (id, label, name, tag, parent,
-  depth, paint, painted bounds `[x, y, w, h]`, transform, locks), a page at a
+  depth, paint, painted bounds `[x, y, w, h]`, transform, locks, and
+  `hidden` / `inherited_hidden` for objects hidden themselves or by a hidden
+  group, which paint nothing and so have no bounds), a page at a
   time, or one group's contents. With `region`, only the objects that paint
   inside it, front to back, each path with the contours of it that do.
   It also reports what the person is looking at: the visible `region`,
@@ -346,9 +348,14 @@ older entry preserves unrelated later edits and refuses conflicts atomically.
 
 **Objects**: `properties(ids, fill?, stroke?, stroke_width?, opacity?,
 fill_opacity?, stroke_opacity?, stroke_linecap?, stroke_linejoin?,
-stroke_miterlimit?, start_arrow?, end_arrow?, name?, locks?)` (paint; a name, with one id
+stroke_miterlimit?, start_arrow?, end_arrow?, name?, locks?, hidden?)` (paint; a name, with one id
 only; locks, an empty list unlocking; unlocking runs before the other
-changes and locking after them, all one step), `transform(ids, dx?, dy?,
+changes and locking after them; `hidden` true hides the objects, false
+shows them, all one step). Hiding is document state, as in the editor's
+Objects tree: it is saved as `display="none"` in the SVG and the project,
+changes no paint or opacity, and a paint lock refuses it. Hidden objects,
+and everything in a hidden group, are not rendered, picked, found in a
+region or tidied, and Fit colours leaves them out; `transform(ids, dx?, dy?,
 scale?, anchor?, box?, rotate?, flip?)` (move by `dx`, `dy` in document
 coordinates, also for objects inside transformed groups, and/or scale,
 rotate by `rotate` degrees clockwise and mirror (`flip` `horizontal` or

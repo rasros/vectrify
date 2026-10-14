@@ -74,7 +74,13 @@ from vectrify.document.model import (
 )
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import redrawn
-from vectrify.document.svg import GEOMETRY, GRADIENTS, PAINT, validate_attributes
+from vectrify.document.svg import (
+    GEOMETRY,
+    GRADIENTS,
+    HIDEABLE,
+    PAINT,
+    validate_attributes,
+)
 from vectrify.document.topology import (
     EdgeRef,
     inverse_matrix,
@@ -848,6 +854,43 @@ class Transaction:
             validate_attributes(root.tag, attrs)
             self._working = self._working.replace_element(
                 replace(root, attributes=tuple(attrs.items()))
+            )
+
+    def set_hidden(self, object_id: str, hidden: bool) -> None:
+        """Hide or show an object, as display="none" saved with the drawing.
+
+        Hiding changes no paint, opacity or geometry and deletes nothing:
+        showing again restores the object as it was. It is an appearance
+        edit, so a paint lock on the object or a group around it refuses;
+        locks inside a hidden group protect only their own objects' paint.
+        """
+        with self._change():
+            element = self._working.element(object_id)
+            ancestry = self._working.ancestry(object_id)
+            if element.tag not in HIDEABLE or any(
+                a.tag in {"defs", "clipPath"} for a in ancestry
+            ):
+                raise EditRejectedError(
+                    "Only drawing objects and groups can be hidden, not "
+                    "definitions or clipping boundaries"
+                )
+            if EditKind.PAINT not in self._allowed:
+                raise EditRejectedError("Changing visibility is not permitted")
+            if object_id not in self._ids:
+                raise EditRejectedError("Select the objects to hide or show")
+            for ancestor in ancestry:
+                if EditKind.PAINT in ancestor.locks:
+                    raise EditRejectedError(
+                        f"{object_id}: paint is locked; unlock it to "
+                        f"{'hide' if hidden else 'show'} it"
+                    )
+            attrs = dict(element.attributes)
+            if hidden:
+                attrs["display"] = "none"
+            elif attrs.get("display") == "none":
+                del attrs["display"]
+            self._working = self._working.replace_element(
+                replace(element, attributes=tuple(attrs.items()))
             )
 
     def set_clip(

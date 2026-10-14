@@ -155,15 +155,21 @@ export function canvasGestures({view, path, shapes, pencil, selection, nodes, re
       press(gesture, event) { const p = point(event); gesture.start = {x: p.x, y: p.y}; },
       move(gesture, event) {
         gesture.pointer = {clientX: event.clientX, clientY: event.clientY};
+        // A selection holding hidden objects stays put: they would move unseen.
+        if (gesture.moved && gesture.refusal) {
+          if (!gesture.warned) selection.refuse(gesture.refusal);
+          gesture.warned = true; return;
+        }
         if (gesture.moved) moveSelection(gesture, event);
       },
       modifiers(gesture, event) {
-        if (!gesture.moved || !gesture.pointer) return;
+        if (!gesture.moved || !gesture.pointer || gesture.refusal) return;
         const {shiftKey, altKey, ctrlKey, metaKey} = event;
         moveSelection(gesture, {...gesture.pointer, shiftKey, altKey, ctrlKey, metaKey});
       },
       async release(gesture) {
         if (!gesture.moved) return selection.pick(gesture);
+        if (gesture.refusal) return;
         // A drag that ends where it started, or snaps back there, edits nothing.
         if (gesture.members.every(member => !member.offset || (!member.offset[0] && !member.offset[1]))) {
           restoreTransforms(gesture); selection.renderDrawing(); drawOverlay(); return;
