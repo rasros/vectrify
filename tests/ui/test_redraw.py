@@ -9,8 +9,7 @@ import numpy as np
 import pytest
 from shapely.geometry import Point, Polygon
 
-from tests.ui.helpers import PIXEL, SPIKED, SQUARE, STROKE, session
-from tests.ui.helpers import redraw_send as send
+from tests.ui.helpers import PIXEL, SPIKED, SQUARE, STROKE, send, session
 from vectrify.document import DocumentError, import_svg
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.topology import mapped_point

@@ -54,40 +54,6 @@ def reference_url(polygon):
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
-def session(d=SQUARE, wrapper="", reference=True):
-    path = f'<path id="p" fill="black" d="{d}"/>'
-    if wrapper:
-        path = f'<g id="g" transform="{wrapper}">{path}</g>'
-    result = Session(
-        import_svg(f'<svg width="100" height="100" viewBox="0 0 100 100">{path}</svg>')
-    )
-    if reference:
-        redraw_send(
-            result,
-            "reference",
-            reference={"name": "r", "data_url": reference_url(SPIKED), "opacity": 0.5},
-        )
-    redraw_send(result, "select", objects=["p"])
-    return result
-
-
-def redraw_send(session, command, **data):
-    return session.action(
-        {
-            "command": command,
-            "epoch": session.epoch,
-            "revision": session.editor.snapshot.revision,
-            **data,
-        }
-    )
-
-
-SVG = """<svg width="100" height="100"><g id="layer">
-<path id="a" fill="red" d="M0 0 L20 0 L20 20 Z"/>
-<rect id="b" x="30" width="20" height="20" fill="blue"/>
-</g></svg>"""
-
-
 def send(session, command, **data):
     return session.action(
         {
@@ -97,6 +63,29 @@ def send(session, command, **data):
             **data,
         }
     )
+
+
+def session(d=SQUARE, wrapper="", reference=True):
+    path = f'<path id="p" fill="black" d="{d}"/>'
+    if wrapper:
+        path = f'<g id="g" transform="{wrapper}">{path}</g>'
+    result = Session(
+        import_svg(f'<svg width="100" height="100" viewBox="0 0 100 100">{path}</svg>')
+    )
+    if reference:
+        send(
+            result,
+            "reference",
+            reference={"name": "r", "data_url": reference_url(SPIKED), "opacity": 0.5},
+        )
+    send(result, "select", objects=["p"])
+    return result
+
+
+SVG = """<svg width="100" height="100"><g id="layer">
+<path id="a" fill="red" d="M0 0 L20 0 L20 20 Z"/>
+<rect id="b" x="30" width="20" height="20" fill="blue"/>
+</g></svg>"""
 
 
 def png_url(width, height, colour=(200, 40, 40)):

@@ -14,17 +14,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from vectrify.document import StaleRevisionError
-from vectrify.ui.agent import (
-    REFUSALS,
-    Agent,
-    RefusedError,
-    Reply,
-    reason,
-)
+from vectrify.ui.agent import REFUSALS, Agent, Reply, reason
 from vectrify.ui.agent_channel import OFF, AgentChannel
 from vectrify.ui.agent_setup import discovery_file
 from vectrify.ui.server import Backend
+from vectrify.ui.shared import refusal
 
 
 class TargetError(Exception):
@@ -70,12 +64,9 @@ def call_agent(agent: Agent, tool: str, args: dict[str, Any]) -> Reply:
     """One call on an Agent in this process, its refusals as TargetError."""
     try:
         return agent.call(tool, args)
-    except StaleRevisionError as exc:
-        raise TargetError(str(exc)) from None
-    except RefusedError as exc:
-        raise TargetError(str(exc), exc.where) from None
     except REFUSALS as exc:
-        raise TargetError(reason(exc)) from None
+        _, body = refusal(exc, reason)
+        raise TargetError(body["error"], body.get("where")) from None
 
 
 class WindowTarget:

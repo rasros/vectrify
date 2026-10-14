@@ -142,8 +142,8 @@ def test_new_model_boolean_failure_keeps_established_family_opportunities(monkey
     factory = Families(evidence, build(evidence), options)
 
     def broken(_self, _state, _work):
+        yield from ()
         raise pathops.PathOpsError("Injected broad material boolean failure")
-        yield
 
     monkeypatch.setattr(MaterialSurfaces, "__call__", broken)
     edits = list(factory(state, Work.start(10)))
