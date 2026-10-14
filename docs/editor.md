@@ -473,7 +473,10 @@ and saved projects restore it.
   25600%) to reveal dense points. **None**, **One** and **Two** handles turn
   the selected points into corners, points curved on one side (again to switch
   sides), or smooth points with their handles in line. The keys 1, 2 and 3 do
-  the same. **Pinned** in the right panel (or **Pin points** in the command
+  the same. An open contour's endpoints can only have one handle, even when
+  its fill makes it look closed. **Two** explains this; select both endpoints
+  and use **Join points** (5) to close the contour before adding two handles.
+  **Pinned** in the right panel (or **Pin points** in the command
   palette) keeps them in place; **Add node** (6, also under Point operations) adds a node
   halfway along the edge leading into each selected node, preserving the
   curve. At the start of an open path it uses the outgoing edge instead.

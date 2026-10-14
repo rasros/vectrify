@@ -411,6 +411,36 @@ selectedPoints = ['line a'];
 renderCommands();
 agrees('join-points', points, 'Select exactly two points to join');
 
+// Filled open contours still have free endpoints. Two handles explains the
+// limit at every entry point, including a direct keyboard command invocation.
+const handleList = new Node('div');
+handleList.dataset.commands = 'handles-0 handles-1 handles-2';
+document.append(handleList); buildCommandLists();
+const contour = {closed: false, nodes: [{id: 'a'}, {id: 'b'}, {id: 'c'}]};
+context.geometry.contourAt = () => contour;
+editor.state.selection.objects = ['shape'];
+const endpointReason = 'An open endpoint can only have one handle; join the contour\'s ends first';
+for (const id of ['a', 'c']) {
+  selectedPoints = [`shape ${id}`]; renderCommands();
+  agrees('handles-2', handleList, endpointReason);
+  const before = actions.length;
+  context.commands.runCommand('handles-2');
+  assert.equal(actions.length, before);
+  assert.deepEqual(toasts.at(-1), {message: endpointReason, error: true});
+  assert.equal(commandRefusal(commandById.get('handles-0')), '');
+  assert.equal(commandRefusal(commandById.get('handles-1')), '');
+}
+selectedPoints = ['shape b']; renderCommands();
+agrees('handles-2', handleList, '');
+context.commands.runCommand('handles-2');
+assert.deepEqual(actions.at(-1).slice(0, 2), ['node_handles', {points: [['shape', 'b']], count: 2}]);
+selectedPoints = ['shape a', 'shape b']; renderCommands();
+agrees('handles-2', handleList, endpointReason);
+contour.closed = true; renderCommands();
+agrees('handles-2', handleList, '');
+selectedPoints = []; renderCommands();
+agrees('handles-2', handleList, 'Select points first');
+
 // The page names only registry commands, and each inspector list holds the
 // commands of the group it is headed by: point operations under the points.
 const {readFileSync} = await import('node:fs');

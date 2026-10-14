@@ -283,3 +283,25 @@ nodes[1].handles_aligned = false;
 press('c', '0', 'p b');
 call('previewPointDrag')(new Point(10, 8));
 assert.deepEqual(plain(nodes[1].values.slice(2, 4)), [8, -1]);
+
+// The inspector explains the open-end limit without waiting for a failed
+// Two-handles click; it disappears for interior points and closed contours.
+const inspectorFields = new Map();
+const inspector = createSelectionController(context, {
+  $: id => { if (!inspectorFields.has(id)) inspectorFields.set(id, {}); return inspectorFields.get(id); },
+  document: {querySelectorAll: () => []},
+  contourAt: () => ({nodes, closed}), nodeAt: context.nodeAt,
+  geometryNodes: () => nodes, pointPaths: () => ['p'], selectedPoints: () => selected,
+  level: () => 'points', pointTargetsNow: () => ({instances: []}), sharingPaths: () => [],
+  renderCommands() {}, scheduleStrip() {},
+});
+context.activeHandle = null; closed = false;
+for (const id of ['a', 'c']) {
+  selected = [`p ${id}`]; inspector.renderNodeInspector();
+  assert.match(inspectorFields.get('node-hint').textContent, /open.*only have one handle.*Join points/);
+  assert.equal(inspectorFields.get('node-hint').hidden, false);
+}
+selected = ['p b']; inspector.renderNodeInspector();
+assert.equal(inspectorFields.get('node-hint').hidden, true);
+closed = true; selected = ['p a']; inspector.renderNodeInspector();
+assert.equal(inspectorFields.get('node-hint').hidden, true);
