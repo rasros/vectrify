@@ -82,7 +82,7 @@ const flashContext = Object.assign(createEditorState(), {
  drawOverlay: () => (flashContext.drawFlash()),
 });
 flashContext.FLASH_MS = 1500;
-  flashContext.flash = {ids: [], start: 0, timer: null, seen: 0};
+  flashContext.agent.flash = {ids: [], start: 0, timer: null, seen: 0};
 const flashContext_frames = createFramesController(flashContext, {
   DOMMatrix: flashContext.DOMMatrix,
   document: flashContext.document,

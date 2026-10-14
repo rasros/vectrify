@@ -24,19 +24,19 @@ export function createAgentsController(editor, {
   let agentPoll = null;
 
   function flashTouched(touched) {
-    const ids = [...new Set(touched.filter(t => t.change > editor.flash.seen).flatMap(t => t.ids))];
-    editor.flash.seen = Math.max(editor.flash.seen, ...touched.map(t => t.change));
+    const ids = [...new Set(touched.filter(t => t.change > editor.agent.flash.seen).flatMap(t => t.ids))];
+    editor.agent.flash.seen = Math.max(editor.agent.flash.seen, ...touched.map(t => t.change));
     if (!ids.length) return;
-    clearTimeout(editor.flash.timer);
-    editor.flash = {...editor.flash, ids, start: performance.now(), timer: setTimeout(() => { editor.flash.ids = []; drawOverlay(); }, FLASH_MS)};
+    clearTimeout(editor.agent.flash.timer);
+    editor.agent.flash = {...editor.agent.flash, ids, start: performance.now(), timer: setTimeout(() => { editor.agent.flash.ids = []; drawOverlay(); }, FLASH_MS)};
     drawOverlay();
   }
 
   function drawFlash() {
-    if (!editor.flash.ids.length) return;
+    if (!editor.agent.flash.ids.length) return;
     // Redrawing the overlay keeps the fade where it was.
-    const delay = `${-Math.min(FLASH_MS, performance.now() - editor.flash.start)}ms`;
-    for (const id of editor.flash.ids) {
+    const delay = `${-Math.min(FLASH_MS, performance.now() - editor.agent.flash.start)}ms`;
+    for (const id of editor.agent.flash.ids) {
       const element = svgElement(id), matrix = localToOverlay(element);
       if (!element?.getBBox || !matrix) continue;
       try {
@@ -63,7 +63,7 @@ export function createAgentsController(editor, {
   }
 
   function reportView() {
-    if (!editor.agentStatus.enabled) return;
+    if (!editor.agent.status.enabled) return;
     clearTimeout(viewTimer);
     viewTimer = setTimeout(pollAgent, 250);
   }
@@ -71,16 +71,16 @@ export function createAgentsController(editor, {
   async function pulse(result) {
     if (!editor.state) return;
     if (pulsing) { nextPulse = result; return; }
-    editor.agentStatus = result.agent; showAgent();
+    editor.agent.status = result.agent; showAgent();
     // What agents did before the page opened is not news.
-    if (editor.flash.seen === null) editor.flash.seen = editor.agentStatus.changes;
+    if (editor.agent.flash.seen === null) editor.agent.flash.seen = editor.agent.status.changes;
     // An edit the page did not make: take the session's state as it is now,
     // once the person is not mid-gesture (until then, look again soon).
-    const behind = editor.agentStatus.changes !== editor.agentSeen || result.epoch !== editor.state.epoch || result.project_version !== editor.state.project_version;
+    const behind = editor.agent.status.changes !== editor.agent.seen || result.epoch !== editor.state.epoch || result.project_version !== editor.state.project_version;
     if (!behind) return;
     if (editor.drag || editor.pending > 0) { schedulePoll(AGENT_RETRY_MS); return; }
-    editor.agentSeen = editor.agentStatus.changes;
-    const touched = editor.agentStatus.touched || [];
+    editor.agent.seen = editor.agent.status.changes;
+    const touched = editor.agent.status.touched || [];
     pulsing = true;
     editor.queue = editor.queue.then(async () => {
       const next = await request('/api/session', {session: editor.session});
@@ -96,7 +96,7 @@ export function createAgentsController(editor, {
 
   function schedulePoll(ms) {
     clearTimeout(agentPoll);
-    if (editor.agentStatus.enabled) agentPoll = setTimeout(pollAgent, ms);
+    if (editor.agent.status.enabled) agentPoll = setTimeout(pollAgent, ms);
   }
 
   async function pollAgent() {

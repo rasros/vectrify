@@ -95,35 +95,29 @@ let selectedPoints = [], pointLevel = false, turnLock = '';
 const actions = [], toasts = [];
 const editor = Object.assign(createEditorState(), {
   state: {epoch: 'e', revision: 0, selection: {objects: ['line'], nodes: []}, objects, undo: [], redo: [], clipboard: null, reference: null, bounds: [0, 0, 100, 100]},
-  zoom: 1, tool: 'select', agentStatus: {enabled: false},
+  zoom: 1, tool: 'select', agent: {status: {enabled: false}},
 });
 const object = id => objects.find(item => item.id === id);
-const context = {};
-const registry = createCommandRegistryController(editor, {
-  $, action: (...args) => { actions.push(args); return true; }, document, object,
-  oneObject: () => editor.state.selection.objects.length === 1 ? object(editor.state.selection.objects[0]) : null,
-  level: () => pointLevel ? 'points' : 'objects', selectedPoints: () => selectedPoints, nodeAt: () => ({}),
-  contourAt: () => ({closed: false, nodes: [{id: 'a'}, {id: 'b'}, {id: 'c'}]}), selectedHandle: () => null,
-  pointPairs: () => selectedPoints.map(key => key.split(' ')), segmentPicked: () => false, holeContours: () => null,
-  gradientRefusal: () => '', tidyTargets: () => 0,
-  transformRefusal: () => turnLock, turnRefusal: verb => turnLock && `${turnLock}; unlock it to ${verb}`,
-  flip: axis => { actions.push(['flip', axis]); return true; },
-  ...Object.fromEntries(['noSelection', 'noPoints', 'noReference', 'visiblePaths', 'linePaths', 'fillPaths', 'joinCandidates', 'twoEnds', 'deleteSelection', 'breakPoints', 'cutHole', 'splitParts', 'openPalette']
-    .map(name => [name, (...args) => context.commands[name](...args)])),
-  ...Object.fromEntries(['joinEnds', 'mergeShapes', 'joinOpensDialog'].map(name => [name, (...args) => context.join[name](...args)])),
-  openSetClip: () => context.clipping.openSetClip(), removeClip: () => context.clipping.removeClip(),
-  setClipRefusal: () => context.clipping.setRefusal(), removeClipRefusal: () => context.clipping.removeRefusal(),
-  regionCommand: mode => context.region.command(mode), regionRefusal: mode => context.region.refusal(mode),
-  align: alignment => context.align.align(alignment), alignRefusal: alignment => context.align.alignRefusal(alignment),
-  alignDescription: alignment => context.align.alignDescription(alignment),
-  distribute: (axis, spacing) => context.align.distribute(axis, spacing), distributeRefusal: (axis, spacing) => context.align.distributeRefusal(axis, spacing),
-  distributeDescription: (axis, spacing) => context.align.distributeDescription(axis, spacing),
-  booleanDescription: operation => context.booleans.description(operation), booleanRefusal: () => context.booleans.refusal(),
-  runBoolean: operation => context.booleans.run(operation),
-  setTool: async tool => { editor.tool = tool; },
-  selectAll: () => { actions.push(['select-all']); return true; }, selectAllRefusal: () => '',
-});
-context.commands = createCommandsController(editor, {
+// The application the registry finds its controllers on: the real commands,
+// join, clipping, region, align and booleans controllers, and fakes for the rest.
+const context = {
+  actions: {action: (...args) => { actions.push(args); return true; }},
+  session: {object, oneObject: () => editor.state.selection.objects.length === 1 ? object(editor.state.selection.objects[0]) : null},
+  geometry: {
+    level: () => pointLevel ? 'points' : 'objects', selectedPoints: () => selectedPoints, nodeAt: () => ({}),
+    contourAt: () => ({closed: false, nodes: [{id: 'a'}, {id: 'b'}, {id: 'c'}]}),
+  },
+  selection: {
+    selectedHandle: () => null, pointPairs: () => selectedPoints.map(key => key.split(' ')), holeContours: () => null,
+    selectAll: () => { actions.push(['select-all']); return true; }, selectAllRefusal: () => '',
+  },
+  gradients: {gradientRefusal: () => ''}, dialogs: {tidyTargets: () => 0},
+  transform: {fieldRefusal: () => turnLock},
+  rotating: {turnRefusal: verb => turnLock && `${turnLock}; unlock it to ${verb}`, flip: axis => { actions.push(['flip', axis]); return true; }},
+  view: {setTool: async tool => { editor.tool = tool; }},
+};
+const registry = createCommandRegistryController(editor, {$, document, app: context});
+context.commands = {...createCommandsController(editor, {
   $, COMMANDS: registry.COMMANDS, commandById: registry.commandById, commandName: registry.commandName,
   commandRefusal: registry.commandRefusal, commandTitle: registry.commandTitle, document, object,
   action: (...args) => { actions.push(args); return true; },
@@ -131,22 +125,22 @@ context.commands = createCommandsController(editor, {
   resolvedPaint: (id, kind, fallback) => object(id)?.paint[kind] ?? fallback,
   pointPairs: () => selectedPoints.map(key => key.split(' ')), pointContours: () => [], selectedHandle: () => null,
   toast: (message, error) => toasts.push({message, error: !!error}), stage: new Node('div'), window: new Node('window'),
-});
+}), segmentPicked: () => false};
 context.join = createJoinController(editor, {
-  action: (...args) => { actions.push(args); return true; }, plural: (n, one) => `${n} ${one}`, toast() {},
+  action: (...args) => { actions.push(args); return true; }, toast() {},
   fillPaths: context.commands.fillPaths, joinCandidates: context.commands.joinCandidates, linePaths: context.commands.linePaths,
   openJoin: () => actions.push(['dialog']),
 });
 context.clipping = createClippingController(editor, {
   $, action: (...args) => { actions.push(args); return true; }, document, object, noSelection: () => context.commands.noSelection(),
-  paintSwatch() {}, plural: (n, one) => `${n} ${one}`, toast() {},
+  paintSwatch() {}, toast() {},
 });
 // The region's preview, as the session answers it: Delete is refused.
 const previews = [];
 context.region = createRegionController(editor, {
   $, action: (...args) => { actions.push(args); return true; }, document, object, later: run => run(),
   drawOverlay: () => context.region.drawRegion(), renderCommands: () => context.commands.renderCommands(),
-  plural: (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`, runCommand: id => context.commands.runCommand(id),
+  runCommand: id => context.commands.runCommand(id),
   request: async (path, body) => {
     previews.push({path, body});
     return {epoch: 'e', revision: editor.state.revision, crossing: ['shape'], extract: {targets: [{id: 'shape', outcome: 'cut'}], error: null},
@@ -250,12 +244,12 @@ agrees('join-points', points, 'Select points in Nodes (S) first');
 // Align's tooltip names the reference it lines up to.
 agrees('align-left', arrange, 'Select two or more objects to align them to each other, or align to the artboard');
 agrees('distribute-gaps-horizontal', arrange, 'Select three or more objects to distribute');
-editor.alignReference = 'artboard';
+editor.align.reference = 'artboard';
 renderCommands();
 agrees('align-top', arrange, '');
 assert.match(button(arrange, 'align-top').title, /top edges with the artboard's/);
 assert.equal(button(arrange, 'distribute-gaps-horizontal').textContent, 'Distribute horizontally: equal gaps');
-editor.alignReference = 'selection';
+editor.align.reference = 'selection';
 renderCommands();
 assert.equal(stripJoin.getAttribute('aria-disabled'), 'true');
 assert.equal(stripJoin.title, commandTitle(commandById.get('join-points')), 'the strip says why too');

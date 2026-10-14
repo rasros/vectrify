@@ -87,7 +87,7 @@ const region = createRegionController(editor, {
   action: async (command, data) => { sent.push({command, data}); if (succeed) editor.state = {...editor.state, revision: editor.state.revision + 1}; return succeed; },
   drawOverlay: () => { editor.overlayFrame.content = new Node('g'); region.drawRegion(); },
   localToOverlay: () => ({toString: () => 'matrix(1 0 0 1 0 0)'}), object: id => objects[id],
-  plural: (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`, renderCommands() {},
+  renderCommands() {},
   request: async (path, body) => { asked.push({path, body}); await hold; return {epoch: 'e', revision: body.revision, ...answer}; },
   runCommand: id => region.command(id === 'delete-region' ? 'delete' : 'extract'),
   selectionContour: element => new Node('path', {id: element.id}), setTool: async tool => { editor.tool = tool; },

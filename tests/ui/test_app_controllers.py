@@ -9,7 +9,13 @@ import pytest
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
 @pytest.mark.parametrize(
-    "filename", ["app_controllers.mjs", "application_wiring.mjs", "transport.mjs"]
+    "filename",
+    [
+        "app_controllers.mjs",
+        "application_wiring.mjs",
+        "application_smoke.mjs",
+        "transport.mjs",
+    ],
 )
 def test_operation_dialog_lifetimes(filename):
     script = Path(__file__).with_name(filename)

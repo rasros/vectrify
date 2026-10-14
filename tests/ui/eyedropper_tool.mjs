@@ -39,7 +39,6 @@ let answer = {colour: '#12ab34'}, overlays = 0;
 const stageEvents = {};
 const eyedropper = createEyedropperController(editor, {
   $, xmlElement, object: id => objects[id],
-  plural: (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`,
   drawOverlay: () => { overlays++; },
   request: async (path, body) => { requests.push({path, body}); if (answer instanceof Error) throw answer; return {...answer}; },
   action: async (command, body, label) => { actions.push([command, body, label]); return true; },

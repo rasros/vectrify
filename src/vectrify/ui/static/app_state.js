@@ -28,22 +28,24 @@ export function createEditorState() {
       redrawHover: null,
       selectionBox: null,
       keepRatio: false,
-      alignReference: 'selection',
-      alignKey: null,
-      alignSeen: [],
+      // Align's reference, its key object and the selection it last saw.
+      align: {reference: 'selection', key: null, seen: []},
       pending: 0,
       queue: Promise.resolve(),
       dirty: false,
       space: false,
       svgElements: new Map(),
-      collapsedGroups: new Set(),
-      treeDrag: null,
-      treeDragEnded: false,
+      // The Objects tree: folded groups and a row being dragged.
+      tree: {collapsed: new Set(), drag: null, dragEnded: false},
       nearPoint: null,
       nearAnchor: null,
-      agentStatus: {enabled: false, connected: false, last_action: null, changes: 0, touched: []},
-      agentSeen: 0,
-      flash: {ids: [], start: 0, timer: null, seen: null},
+      // Agents: their status, the change last caught up with, and the flash
+      // of what they touched.
+      agent: {
+        status: {enabled: false, connected: false, last_action: null, changes: 0, touched: []},
+        seen: 0,
+        flash: {ids: [], start: 0, timer: null, seen: null},
+      },
       pathHoles: new Map(),
       overlayFrame: null,
       holding: null,

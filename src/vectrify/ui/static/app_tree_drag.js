@@ -15,16 +15,16 @@ export function createTreeDragController(editor, {
 
   function pressTreeRow(event, item) {
     if (event.button !== 0 || item.resource) return;
-    editor.treeDrag = {item: item.id, x: event.clientX, y: event.clientY, active: false, target: null};
+    editor.tree.drag = {item: item.id, x: event.clientX, y: event.clientY, active: false, target: null};
   }
 
   function moveTreeDrag(event) {
-    if (!editor.treeDrag) return;
-    if (!editor.treeDrag.active) {
-      if (Math.hypot(event.clientX - editor.treeDrag.x, event.clientY - editor.treeDrag.y) < 5) return;
+    if (!editor.tree.drag) return;
+    if (!editor.tree.drag.active) {
+      if (Math.hypot(event.clientX - editor.tree.drag.x, event.clientY - editor.tree.drag.y) < 5) return;
       const selected = editor.state.selection.objects;
-      const ids = selected.includes(editor.treeDrag.item) ? selected.filter(id => !object(id)?.resource) : [editor.treeDrag.item];
-      editor.treeDrag = {...editor.treeDrag, active: true, ids: new Set(ids), revision: `${editor.state.epoch}:${editor.state.revision}`};
+      const ids = selected.includes(editor.tree.drag.item) ? selected.filter(id => !object(id)?.resource) : [editor.tree.drag.item];
+      editor.tree.drag = {...editor.tree.drag, active: true, ids: new Set(ids), revision: `${editor.state.epoch}:${editor.state.revision}`};
       $('objects').classList.add('dragging');
     }
     const list = $('objects'), box = list.getBoundingClientRect();
@@ -34,19 +34,19 @@ export function createTreeDragController(editor, {
       if (event.clientY < box.top + 24) list.scrollTop -= 12;
       else if (event.clientY > box.bottom - 24) list.scrollTop += 12;
     }
-    editor.treeDrag.point = {x: event.clientX, y: event.clientY};
-    Object.assign(editor.treeDrag, treeDropAt(editor.treeDrag.point, editor.treeDrag.ids));
+    editor.tree.drag.point = {x: event.clientX, y: event.clientY};
+    Object.assign(editor.tree.drag, treeDropAt(editor.tree.drag.point, editor.tree.drag.ids));
     showTreeDrop();
   }
 
   function endTreeDrag(drop) {
-    const finished = editor.treeDrag;
-    editor.treeDrag = null; treeDropLine.hidden = true;
+    const finished = editor.tree.drag;
+    editor.tree.drag = null; treeDropLine.hidden = true;
     $('objects').classList.remove('dragging', 'drop-refused'); $('objects').title = '';
     for (const row of $('objects').querySelectorAll('.drop-into, .dragged')) row.classList.remove('drop-into', 'dragged');
     if (!finished?.active) return;
     // The pointer is released over a row: that is not a click on it.
-    editor.treeDragEnded = true; setTimeout(() => editor.treeDragEnded = false);
+    editor.tree.dragEnded = true; setTimeout(() => editor.tree.dragEnded = false);
     if (!drop) return;
     // Dropped while an edit runs, it lands once the edit is done, next to the
     // rows it was dropped by, if they are still there.

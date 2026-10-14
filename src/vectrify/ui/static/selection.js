@@ -5,6 +5,8 @@
 // A point is named by its path and node, as `${object} ${node}`: SVG ids hold
 // no spaces, and a node of shared geometry is a point of each path using it.
 
+import {pluralLocale} from './util.js';
+
 // Which level each tool works on: object tools pick whole objects, point tools
 // show and pick the points of every selected path, and the rest ignore the
 // selection.
@@ -113,14 +115,12 @@ export function boxSelect(current, found, toggle) {
   return [...result];
 }
 
-const plural = (count, one, many = `${one}s`) => `${count.toLocaleString()} ${count === 1 ? one : many}`;
-
 // The tool strip's status: the level and what is selected at it.
 export function selectionStatus(level, objects, points) {
   if (level === 'points') {
     const paths = new Set(points.map(key => splitKey(key)[0])).size;
-    if (points.length) return `Points · ${plural(points.length, 'point')} in ${plural(paths, 'path')}`;
-    return objects.length ? `Points · none selected in ${plural(objects.length, 'path')}` : 'Points · select a path';
+    if (points.length) return `Points · ${pluralLocale(points.length, 'point')} in ${pluralLocale(paths, 'path')}`;
+    return objects.length ? `Points · none selected in ${pluralLocale(objects.length, 'path')}` : 'Points · select a path';
   }
   return objects.length ? `Objects · ${objects.length.toLocaleString()} selected` : 'Objects · nothing selected';
 }

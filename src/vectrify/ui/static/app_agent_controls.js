@@ -15,7 +15,7 @@ export function createAgentControlsController(editor, {
   let agentEvents = null;
 
   function showAgent() {
-    const s = editor.agentStatus, button = $('agent-toggle');
+    const s = editor.agent.status, button = $('agent-toggle');
     button.setAttribute('aria-pressed', String(s.enabled));
     button.classList.toggle('connected', s.enabled && s.connected);
     const text = !s.enabled ? 'Agents off' : s.connected ? `Agent connected${s.last_action ? ' · ' + s.last_action.replace(/^Agent: /, '') : ''}` : 'Agents allowed';
@@ -44,25 +44,25 @@ export function createAgentControlsController(editor, {
   // The push channel, open while agents are allowed.
   function listenAgents() {
     if (desktop) return;
-    if (editor.agentStatus.enabled && !agentEvents && editor.session) {
+    if (editor.agent.status.enabled && !agentEvents && editor.session) {
       agentEvents = new EventSource(`/api/events?session=${encodeURIComponent(editor.session)}`);
       agentEvents.onmessage = event => { try { pulse(JSON.parse(event.data)); } catch { /* The poll catches up. */ } };
-    } else if (!editor.agentStatus.enabled && agentEvents) {
+    } else if (!editor.agent.status.enabled && agentEvents) {
       agentEvents.close(); agentEvents = null;
     }
   }
 
   async function setAgents(body) {
     try {
-      editor.agentStatus = await request('/api/agent', body);
-      editor.agentSeen = editor.flash.seen = editor.agentStatus.changes; showAgent();
-      if (editor.agentStatus.enabled) pollAgent();
+      editor.agent.status = await request('/api/agent', body);
+      editor.agent.seen = editor.agent.flash.seen = editor.agent.status.changes; showAgent();
+      if (editor.agent.status.enabled) pollAgent();
     } catch (error) { toast(error.message, true); }
   }
 
   async function toggleAgents() {
-    await setAgents({enabled: !editor.agentStatus.enabled});
-    if (editor.agentStatus.enabled) openAgentPopover();
+    await setAgents({enabled: !editor.agent.status.enabled});
+    if (editor.agent.status.enabled) openAgentPopover();
   }
 
   function openAgentPopover() {
@@ -72,7 +72,7 @@ export function createAgentControlsController(editor, {
     const width = popover.offsetWidth;
     popover.style.left = `${Math.max(16, Math.min(window.innerWidth - width - 16, rect.right - width))}px`;
     popover.style.bottom = `${window.innerHeight - rect.top + 8}px`;
-    $(editor.agentStatus.enabled && editor.agentStatus.mcp ? 'agent-copy' : 'agent-enabled').focus();
+    $(editor.agent.status.enabled && editor.agent.status.mcp ? 'agent-copy' : 'agent-enabled').focus();
   }
 
   function closeAgentPopover() {
@@ -83,7 +83,7 @@ export function createAgentControlsController(editor, {
   function wire() {
     $('agent-toggle').onclick = async () => {
       if (!$('agent-popover').hidden) { closeAgentPopover(); return; }
-      if (!editor.agentStatus.enabled) await setAgents({enabled: true});
+      if (!editor.agent.status.enabled) await setAgents({enabled: true});
       openAgentPopover();
     };
 

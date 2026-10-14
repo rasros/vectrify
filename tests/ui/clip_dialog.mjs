@@ -87,7 +87,7 @@ const clipping = createClippingController(editor, {
   $, document, object,
   action: async (command, data) => { sent.push({command, data}); if (!succeed) $('toast-message').textContent = 'shade: locked'; return succeed; },
   noSelection: () => !editor.state.selection.objects.length && 'Select objects first',
-  paintSwatch() {}, plural: (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`,
+  paintSwatch() {},
   toast: (message, error = false) => toasts.push({message, error}),
 }).wire();
 

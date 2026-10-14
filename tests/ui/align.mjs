@@ -87,7 +87,7 @@ const objects = {
 };
 const bounds = Object.fromEntries(items.map(item => [item.id, item.box]));
 const sent = [], toasts = [], drawn = [];
-const editor = {alignReference: 'selection', alignKey: null, alignSeen: [], overlayFrame: {content: {append: shape => drawn.push(shape)}}};
+const editor = {align: {reference: 'selection', key: null, seen: []}, overlayFrame: {content: {append: shape => drawn.push(shape)}}};
 const select = (...ids) => {
   editor.state = {selection: {objects: ids, nodes: []}, objects: Object.values(objects), bounds: [0, 0, 200, 100]};
   align.renderAlign();
@@ -120,7 +120,7 @@ Object.assign(bounds, Object.fromEntries(items.map(item => [item.id, item.box]))
 
 // Artboard: one object aligns too.
 $('align-reference').fire('change', 'artboard');
-assert.equal(editor.alignReference, 'artboard');
+assert.equal(editor.align.reference, 'artboard');
 assert.equal($('align-key-field').hidden, true);
 select('c');
 await align.align('right');

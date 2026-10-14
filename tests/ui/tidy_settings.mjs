@@ -105,7 +105,7 @@ assert.equal($('nodes-detail').disabled, false, 'settings read the new reference
 // Exercise the integration binding, not just the dialog's private helper.
 const context = {state};
 const tidy = createCommandRegistryController(context, {
-  tidyTargets: () => dialogs.tidyTargets(), openTidy: () => {},
+  app: {dialogs: {tidyTargets: () => dialogs.tidyTargets(), openTidy: () => {}}},
 }).commandById.get('tidy');
 for (const [objects, reference, enabled] of [
   [[], false, false], [['path'], false, true], [['group'], false, true],

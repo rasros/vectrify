@@ -1,4 +1,5 @@
 import {closesPolygon, polygonArea, rectangleCorners, regionPreview} from './region.js';
+import {plural} from './util.js';
 
 // Each operation's command, its apply button and its busy label.
 const OPERATIONS = {
@@ -26,7 +27,6 @@ export function createRegionController(editor, {
   later,
   localToOverlay,
   object,
-  plural,
   renderCommands,
   request,
   runCommand,
