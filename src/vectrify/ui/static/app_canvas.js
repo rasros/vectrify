@@ -1,4 +1,5 @@
 import {boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, pickTarget, pointInside, pointKey, pointerTarget, rectInside, selectionContains, splitKey} from './selection.js';
+import {SHAPE_TOOLS} from './shapes.js';
 
 // Canvas owns its controls; editor contains the live state shared with other controllers.
 export function createCanvasController(editor, {
@@ -224,6 +225,12 @@ export function createCanvasController(editor, {
       event.clientY < bounds.top || event.clientY > bounds.bottom);
     if (middle || editor.space || editor.tool === 'hand') {
       startGesture('pan', event, common); return;
+    }
+    // A shape starts wherever it is pressed, the artboard's edge being no
+    // limit; a click places one at the tool strip's size.
+    if (SHAPE_TOOLS.includes(editor.tool)) {
+      common.deselectOutside = false;
+      startGesture('shape', event, common, {tool: editor.tool}); return;
     }
     if (editor.tool === 'path' && !common.deselectOutside) {
       const p=point(event), first=editor.pathDraft[0];

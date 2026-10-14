@@ -1,6 +1,6 @@
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, selection, nodes, resize, knife, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, selection, nodes, resize, knife, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
@@ -36,6 +36,26 @@ export function canvasGestures({view, path, selection, nodes, resize, knife, red
     },
     closePath: {
       async release(gesture) { if (!gesture.moved) await path.finish(true); },
+    },
+    // A shape tool's drag, previewed as drawn. Shift and Alt are read on
+    // every move and as they are pressed, so the preview follows them.
+    shape: {
+      press(gesture, event) {
+        const p = point(event);
+        gesture.start = {x: p.x, y: p.y}; gesture.end = gesture.start;
+        gesture.square = event.shiftKey; gesture.centre = event.altKey;
+      },
+      move(gesture, event) {
+        const p = point(event);
+        gesture.end = {x: p.x, y: p.y}; gesture.square = event.shiftKey; gesture.centre = event.altKey;
+        if (gesture.moved) { shapes.preview(gesture); drawOverlay(); }
+      },
+      modifiers(gesture, event) {
+        gesture.square = event.shiftKey; gesture.centre = event.altKey;
+        if (gesture.moved) { shapes.preview(gesture); drawOverlay(); }
+      },
+      async release(gesture) { drawOverlay(); await shapes.finish(gesture); },
+      cancel: () => shapes.cancel(),
     },
     knife: {
       press(gesture, event) {

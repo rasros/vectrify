@@ -13,6 +13,7 @@ export function createOverlayController(editor, {
   drawPathDraft,
   drawPoints,
   drawRedraw,
+  drawShape,
   drawSnap,
   drawing,
   getComputedStyle = globalThis.getComputedStyle,
@@ -124,6 +125,7 @@ export function createOverlayController(editor, {
     drawClippingBoundaries();
     drawFrame();
     drawPathDraft();
+    drawShape();
     drawKnife();
     drawRedraw();
     drawSnap();

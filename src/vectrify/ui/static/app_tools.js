@@ -10,6 +10,8 @@ export function createToolsController(editor, {
   action,
   drawOverlay,
   drawing,
+  drawingContainer,
+  drawingPaint,
   filledPath,
   geometryNodes,
   localToOverlay,
@@ -179,7 +181,8 @@ export function createToolsController(editor, {
   async function finishPath(closed) {
     if(editor.pathDraft.length<(closed?3:2))return;
     const draft=editor.pathDraft; editor.pathDraft=[];editor.pathHover=null;
-    if(await action('add_path',{d:draftPathData(draft,closed),stroke_width:2/editor.zoom},'Drawing path…'))await setTool('select');
+    // The drawing paint and container, as the shape tools use them.
+    if(await action('add_path',{d:draftPathData(draft,closed),...drawingPaint(closed),...drawingContainer()},'Drawing path…'))await setTool('select');
     else {editor.pathDraft=draft;drawOverlay();}
   }
 

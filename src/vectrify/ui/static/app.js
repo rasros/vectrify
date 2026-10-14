@@ -26,6 +26,7 @@ import {createResizingController} from './app_resizing.js';
 import {createMarkersController} from './app_markers.js';
 import {createLayoutController} from './app_layout.js';
 import {createToolsController} from './app_tools.js';
+import {createShapesController} from './app_shapes.js';
 import {createCanvasController} from './app_canvas.js';
 import {createCanvasEventsController} from './app_canvas_events.js';
 import {createJoinController} from './app_join.js';
@@ -359,6 +360,7 @@ export function createApplication({document = globalThis.document, window = glob
     drawPathDraft: (...args) => toolsController.drawPathDraft(...args),
     drawPoints: (...args) => markersController.drawPoints(...args),
     drawRedraw: (...args) => toolsController.drawRedraw(...args),
+    drawShape: (...args) => shapesController.drawShape(...args),
     drawSnap: (...args) => toolsController.drawSnap(...args),
     drawing,
     later: (...args) => transportController.later(...args),
@@ -415,6 +417,8 @@ export function createApplication({document = globalThis.document, window = glob
     action: (...args) => actionsController.action(...args),
     drawOverlay: (...args) => framesController.drawOverlay(...args),
     drawing,
+    drawingContainer: (...args) => shapesController.container(...args),
+    drawingPaint: (...args) => shapesController.paint(...args),
     filledPath: (...args) => commandsController.filledPath(...args),
     geometryNodes: (...args) => geometryController.geometryNodes(...args),
     localToOverlay: (...args) => framesController.localToOverlay(...args),
@@ -425,9 +429,17 @@ export function createApplication({document = globalThis.document, window = glob
     toast: (...args) => transportController.toast(...args),
     xmlElement: (...args) => sessionController.xmlElement(...args),
   });
+  const shapesController = createShapesController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    document,
+    toast: (...args) => transportController.toast(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
+  });
   const canvas_eventsController = createCanvasEventsController(editor, {
     $,
     action: (...args) => actionsController.action(...args),
+    cancelShape: (...args) => shapesController.cancel(...args),
     cancelStage: (...args) => canvasController.cancelStage(...args),
     cutWithKnife: (...args) => toolsController.cutWithKnife(...args),
     document,
@@ -436,6 +448,7 @@ export function createApplication({document = globalThis.document, window = glob
     finishBox: (...args) => canvasController.finishBox(...args),
     finishPath: (...args) => toolsController.finishPath(...args),
     finishPointDrag: (...args) => canvasController.finishPointDrag(...args),
+    finishShape: (...args) => shapesController.finish(...args),
     fit: (...args) => viewController.fit(...args),
     hitStack: (...args) => hitsController.hitStack(...args),
     input: transportController.input,
@@ -448,6 +461,7 @@ export function createApplication({document = globalThis.document, window = glob
     pressStage: (...args) => canvasController.pressStage(...args),
     previewPointDrag: (...args) => canvasController.previewPointDrag(...args),
     previewResize: (...args) => resizingController.previewResize(...args),
+    previewShape: (...args) => shapesController.preview(...args),
     redrawOutline: (...args) => toolsController.redrawOutline(...args),
     releaseStage: (...args) => canvasController.releaseStage(...args),
     renderDrawing: (...args) => drawingController.renderDrawing(...args),
@@ -643,6 +657,7 @@ export function createApplication({document = globalThis.document, window = glob
       markersController.wire();
       layoutController.wire();
       toolsController.wire();
+      shapesController.wire();
       canvasController.wire();
       canvas_eventsController.wire();
       clippingController.wire();
@@ -680,6 +695,7 @@ export function createApplication({document = globalThis.document, window = glob
     markers: markersController,
     layout: layoutController,
     tools: toolsController,
+    shapes: shapesController,
     canvas: canvasController,
     canvas_events: canvas_eventsController,
     clipping: clippingController,
