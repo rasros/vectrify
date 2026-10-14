@@ -15,7 +15,6 @@ from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from vectrify.document import StaleRevisionError
 from vectrify.ui.agent_setup import (
     _write_private,
     agent_token,
@@ -27,6 +26,7 @@ from vectrify.ui.agent_setup import (
     port_file,
     remembered_port,
 )
+from vectrify.ui.shared import refusal
 
 if TYPE_CHECKING:
     from vectrify.ui.agent import Agent
@@ -238,7 +238,7 @@ class AgentChannel:
     def http(self, method: str, path: str, headers: Any, body: bytes) -> tuple:
         """Answer one agent request as (status, content type, body)."""
 
-        from vectrify.ui.agent import REFUSALS, RefusedError, reason
+        from vectrify.ui.agent import REFUSALS, reason
 
         def error(status: int, message: str) -> tuple:
             return status, "application/json", json.dumps({"error": message}).encode()
@@ -265,16 +265,9 @@ class AgentChannel:
             ):
                 raise ValueError("Expected {tool, args}")
             reply = agent.call(request["tool"], request.get("args") or {})
-        except StaleRevisionError as exc:
-            return error(409, str(exc))
-        except RefusedError as exc:
-            return (
-                400,
-                "application/json",
-                json.dumps({"error": str(exc), "where": exc.where}).encode(),
-            )
         except REFUSALS as exc:
-            return error(400, reason(exc))
+            status, refused = refusal(exc, reason)
+            return status, "application/json", json.dumps(refused).encode()
         names = []
         with self._lock:
             for name, png in reply.images:

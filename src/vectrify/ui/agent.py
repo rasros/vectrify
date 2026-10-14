@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import inspect
 import io
 import itertools
 import json
@@ -32,7 +33,7 @@ import xml.etree.ElementTree as ET
 from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import numpy as np
@@ -84,6 +85,9 @@ from vectrify.ui.agent_setup import port_file as port_file
 from vectrify.ui.agent_setup import remembered_port as remembered_port
 from vectrify.ui.agent_setup import state_dir as state_dir
 from vectrify.ui.agent_setup import token_file as token_file
+from vectrify.ui.shared import REFUSALS as REFUSALS
+from vectrify.ui.shared import finite as _finite
+from vectrify.ui.shared import png as _png
 
 # What the history puts before an agent's edits.
 AGENT_PREFIX = "Agent: "
@@ -175,25 +179,20 @@ LEFT_OUT = {
     "renamed to this inside the session.",
 }
 
-# Calls that only look, and so need no refresh of the window.
-LOOKS = frozenset(
-    {
-        "hello",
-        "settings_schema",
-        "isolate_feature",
-        "describe",
-        "render",
-        "compare",
-        "get_svg",
-        "points",
-        "pick",
-        "trace_reference",
-        "history",
-        "export",
-    }
-)
-
 Box = tuple[float, float, float, float]
+# What the calls take, as their annotations say for the MCP server's schemas
+# (which adds that ids and points are never empty). An edit's targets,
+# always given: no call acts on the current selection.
+Ids = list[str]
+# [object id, node id].
+Point = list[str]
+Points = list[Point]
+# A region: [x, y, width, height] in document units.
+Region = list[float]
+# What the person's window shows, as describe() reports it.
+View = Literal["view"]
+# A region, or a polygon [[x, y], ...] around it.
+Area = list[float] | list[list[float]]
 # The paint describe() and pick() list of an object.
 PAINT_KEYS = (
     "fill",
@@ -220,26 +219,20 @@ Step = dict | Callable[[], dict | None] | None
 REGION_TAGS = frozenset({"path", "rect", "circle", "ellipse", "line", "use"})
 
 
-# What a session refuses an edit with, as Backend.handle answers them.
-REFUSALS = (
-    DocumentError,
-    ValueError,
-    TypeError,
-    KeyError,
-    IndexError,
-    AttributeError,
-    OSError,
-)
-
-
 def reason(exc: BaseException) -> str:
     """A refusal's message for the agent."""
-    if isinstance(exc, KeyError):
-        return (
-            f"No such object, point or field: {exc.args[0] if exc.args else ''} "
-            "(pick(x, y) gives the ids at a spot, points(id) a path's node ids)"
-        )
     return str(exc) or type(exc).__name__
+
+
+# Calls that only look, and so need no refresh of the window; the MCP
+# server marks their tools read-only.
+LOOKS: set[str] = set()
+
+
+def look(call: Callable[..., Reply]) -> Callable[..., Reply]:
+    """Mark the call *call* (an ``Agent.tool_*`` method) as one that only looks."""
+    LOOKS.add(call.__name__.removeprefix("tool_"))
+    return call
 
 
 class RefusedError(DocumentError):
@@ -260,15 +253,6 @@ class Reply:
 
     data: dict[str, Any]
     images: list[tuple[str, bytes]] = field(default_factory=list)
-
-
-def _finite(value: Any, what: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise DocumentError(f"{what} must be a number")
-    result = float(value)
-    if not math.isfinite(result):
-        raise DocumentError(f"{what} must be finite")
-    return result
 
 
 def _box(value: Any, what: str = "The region") -> Box:
@@ -368,12 +352,6 @@ def _contour_summary(subpath: Subpath, index: int, matrix: Matrix) -> dict[str, 
     }
 
 
-def _png(image: Image.Image) -> bytes:
-    buffer = io.BytesIO()
-    image.save(buffer, "PNG")
-    return buffer.getvalue()
-
-
 def _size(region: Box, side: int) -> tuple[int, int]:
     scale = side / max(region[2], region[3])
     return max(1, round(region[2] * scale)), max(1, round(region[3] * scale))
@@ -453,10 +431,12 @@ class Agent:
         self, tool: str, handler: Callable[..., Reply], seen: Any, args: dict
     ) -> Reply:
         try:
-            reply = handler(seen, **args)
+            inspect.signature(handler).bind(seen, **args)
         except TypeError as exc:
             # A wrong or missing argument, said in the tool's own terms.
             raise DocumentError(f"{tool}: {exc}") from None
+        try:
+            reply = handler(seen, **args)
         finally:
             self.last_time = time.monotonic()
         # A job's status only looks; its other actions change something.
@@ -511,9 +491,9 @@ class Agent:
                 self._svg = self._index = None
                 self._renders.clear()
             try:
-                with session.planning(seen[1]):
-                    reply = self._edit_steps(seen, steps, label)
-                    touched.update(self._touched)
+                # A stale plan starts on the agent's own selection too.
+                with session.planning(seen[1], Selection()):
+                    reply = self._edit_steps(steps, label, touched)
             except RefusedError as exc:
                 if stale:
                     # The private plan was rolled back; live state never
@@ -532,73 +512,69 @@ class Agent:
             return reply
 
     def _edit_steps(
-        self,
-        seen: Any,
-        steps: Sequence[Step],
-        label: str | None = None,
+        self, steps: Sequence[Step], label: str | None, touched: set[str]
     ) -> Reply:
-        """Send *steps* to Session.action as one undo step, as the agent.
+        """Send *steps* to Session.action as one undo step, as the agent,
+        within ``_edit``; what each step selects is added to *touched*.
 
         A step is a payload, or a function giving one (or None to skip)
         once the steps before it are done. A refusal takes back the steps
         already done.
         """
         session = self.session
-        with session.lock, self._own_selection() as touched:
-            self._check_seen(seen)
-            editor = session.editor
-            before = {e.id for e in editor.snapshot.document.elements()}
-            revision = editor.snapshot.revision
-            since = len(editor.undo_entries)
-            reference = session.reference
-            reference_revision = session.reference_revision
-            project_version = session.project_version
-            editor.label_prefix = AGENT_PREFIX
-            editor.author = "agent"
-            try:
-                for step in steps:
-                    payload = step() if callable(step) else step
-                    if payload is None:
-                        continue
-                    session.action(
-                        {
-                            **payload,
-                            "epoch": session.epoch,
-                            "revision": editor.snapshot.revision,
-                        }
-                    )
-                    # What each step selects, its targets and its results.
-                    touched.update(editor.snapshot.selection.object_ids)
-            except Exception as exc:
-                session.restore_reference(reference, reference_revision)
-                editor.rollback(since)
-                self._settle(revision)
-                if editor.snapshot.revision != revision:
-                    raise RefusedError(reason(exc), self._where()) from exc
-                raise
-            finally:
-                editor.label_prefix = ""
-                editor.author = "person"
-            if label is not None:
-                label = AGENT_PREFIX + label
-            editor.squash(since, label)
+        editor = session.editor
+        before = {e.id for e in editor.snapshot.document.elements()}
+        revision = editor.snapshot.revision
+        since = len(editor.undo_entries)
+        reference = session.reference
+        reference_revision = session.reference_revision
+        project_version = session.project_version
+        editor.label_prefix = AGENT_PREFIX
+        editor.author = "agent"
+        try:
+            for step in steps:
+                payload = step() if callable(step) else step
+                if payload is None:
+                    continue
+                session.action(
+                    {
+                        **payload,
+                        "epoch": session.epoch,
+                        "revision": editor.snapshot.revision,
+                    }
+                )
+                # What each step selects, its targets and its results.
+                touched.update(editor.snapshot.selection.object_ids)
+        except Exception as exc:
+            session.restore_reference(reference, reference_revision)
+            editor.rollback(since)
             self._settle(revision)
-            snapshot = editor.snapshot
-            after = {e.id for e in snapshot.document.elements()}
-            data: dict[str, Any] = {
-                **self._where(),
-                "changed": session.project_version != project_version,
-                "result": self._selection(),
-            }
-            if len(editor.undo_entries) > since:
-                data["step"] = editor.undo_labels[-1]
-                data["edit_id"] = editor.undo_entries[-1].id
-            created, removed = sorted(after - before), sorted(before - after)
-            if created:
-                data["created"] = created[:200]
-            if removed:
-                data["removed"] = removed[:200]
-            return Reply(data)
+            if editor.snapshot.revision != revision:
+                raise RefusedError(reason(exc), self._where()) from exc
+            raise
+        finally:
+            editor.label_prefix = ""
+            editor.author = "person"
+        if label is not None:
+            label = AGENT_PREFIX + label
+        editor.squash(since, label)
+        self._settle(revision)
+        snapshot = editor.snapshot
+        after = {e.id for e in snapshot.document.elements()}
+        data: dict[str, Any] = {
+            **self._where(),
+            "changed": session.project_version != project_version,
+            "result": self._selection(),
+        }
+        if len(editor.undo_entries) > since:
+            data["step"] = editor.undo_labels[-1]
+            data["edit_id"] = editor.undo_entries[-1].id
+        created, removed = sorted(after - before), sorted(before - after)
+        if created:
+            data["created"] = created[:200]
+        if removed:
+            data["removed"] = removed[:200]
+        return Reply(data)
 
     def _settle(self, revision: int) -> None:
         """Make the call one revision past *revision*, however many edits it
@@ -773,7 +749,19 @@ class Agent:
             max_side if max_side is not None else default
         )
 
-    def tool_settings_schema(self, _seen: Any, action: str, method: str) -> Reply:
+    @look
+    def tool_settings_schema(
+        self,
+        _seen: Any,
+        action: str,
+        method: str,
+    ) -> Reply:
+        """Discover a job's JSON settings schema, defaults, ranges and interactions.
+
+        Use generate/cel, generate/colour-regions, generate/cel-planned,
+        improve/nodes (tidy), improve/colours, improve/path-fit,
+        snap/edges or simplify/cleanup. Unknown settings are refused before work.
+        """
         from vectrify.operations.settings import settings_schema
 
         return Reply(
@@ -785,6 +773,7 @@ class Agent:
             }
         )
 
+    @look
     def tool_hello(self, _seen: Any) -> Reply:
         return Reply({**self._where(), "name": self.session.name})
 
@@ -873,15 +862,28 @@ class Agent:
     def _rows_by_id(self) -> dict[str, dict[str, Any]]:
         return {r["id"]: r for r in self.session.state(svg=False)["objects"]}
 
+    @look
     def tool_describe(
         self,
         _seen: Any,
         page: int = 0,
         page_size: int = PAGE_SIZE,
         within: str | None = None,
-        region: Any = None,
+        region: Region | None = None,
         objects: bool = True,
     ) -> Reply:
+        """The drawing: artboard, reference, selection, window view and objects.
+
+        Objects (id, label, tag, parent, paint, bounds [x, y, w, h], locks)
+        come a page at a time, in document order (later is in front);
+        within lists one group's contents. With region [x, y, w, h], only the
+        objects that paint inside it (not just their bounds), front to back,
+        each path with the contours of it that do.
+        Window context includes visible region, zoom, canvas pixels, active
+        tool, entered group and reference view; without a reported window,
+        window=false and the visible region is the artboard. objects=false
+        skips object lookup and pagination for a lightweight context read.
+        """
         session = self.session
         if type(page) is not int or page < 0:
             raise DocumentError("page is a whole number from 0")
@@ -952,16 +954,21 @@ class Agent:
                 )
             return Reply(data)
 
+    @look
     def tool_pick(
         self,
         _seen: Any,
         x: float,
         y: float,
-        radius: float = 0.0,
+        radius: float = 0,
         limit: int = PICKED,
     ) -> Reply:
-        """What paints at (x, y), or within radius of it, front to back, and
-        the drawing's and the reference's colour there."""
+        """What paints at document point (x, y), or within radius of it,
+        front to back: each object with its groups and, for a path, the
+        contours (index, first node, bounds) whose own stroke or fill is
+        there. Stroke widths and transforms count; bounds alone do not.
+        colour gives the drawing's and the reference's mean colour there and
+        their difference (0 to 1)."""
         at = (_finite(x, "x"), _finite(y, "y"))
         reach = _finite(radius, "radius")
         if reach < 0:
@@ -1072,65 +1079,88 @@ class Agent:
         image.paste(reference, (size[0] + SIDE_GAP, 0))
         return image, size
 
+    @look
     def tool_render(
         self,
         _seen: Any,
-        region: Any = None,
-        overlay: str = "none",
+        region: Region | View | None = None,
+        overlay: Literal["none", "side", "over", "reference"] = "none",
         max_side: int | None = None,
         grid: bool = False,
     ) -> Reply:
+        """A PNG of the drawing, optionally of region [x, y, w, h] only, or
+        region="view": what the person's window shows, including its
+        drawing, overlay, reference-only or shared reference-error mode.
+
+        overlay="side" puts the reference beside it, "over" blends the two,
+        "reference" shows the reference alone. max_side caps the longer side
+        in pixels (default 1024, at most 2048). grid=true draws lines
+        labelled with document coordinates. The text says how pixels map to
+        document coordinates.
+        """
         if overlay not in {"none", "side", "over", "reference"}:
             raise DocumentError(
                 "overlay is none, side (by side), over or reference (alone)"
             )
         box, side = self._look(region, max_side)
         opacity = 0.5
+        # What it shows: in the view, as the window shows the reference.
+        shown: str = overlay
         if region == "view":
             view = self._view()
             mode = view["reference_view"] if self.session.reference else None
             if overlay == "none" and mode in {"overlay", "reference", "error"}:
                 # As the window shows it: the reference over the drawing at its
                 # opacity there, the reference alone, or their pixel error.
-                overlay = "over" if mode == "overlay" else mode
+                shown = "over" if mode == "overlay" else mode
                 opacity = view.get("reference_opacity") or 0.5
-        image, size = self._compose(box, side, overlay, opacity)
+        image, size = self._compose(box, side, shown, opacity)
         if grid:
             image = agent_look.draw_grid(image, box, 0, size[0])
-            if overlay == "side":
+            if shown == "side":
                 image = agent_look.draw_grid(image, box, size[0] + SIDE_GAP, size[0])
         data = {
             **self._where(),
             "region": list(box),
             "pixels": list(image.size),
             "mapping": agent_look.mapping(
-                box, size, gap=SIDE_GAP if overlay == "side" else 0
+                box, size, gap=SIDE_GAP if shown == "side" else 0
             ),
         }
         if region == "view":
             data["shows"] = (
                 "what the person's window shows"
-                + (", the reference over the drawing" if overlay == "over" else "")
-                + (", the reference alone" if overlay == "reference" else "")
-                + (", the reference error" if overlay == "error" else "")
+                + (", the reference over the drawing" if shown == "over" else "")
+                + (", the reference alone" if shown == "reference" else "")
+                + (", the reference error" if shown == "error" else "")
             )
-        name = "reference" if overlay == "reference" else "render"
+        name = "reference" if shown == "reference" else "render"
         return Reply(data, [(name, _png(image))])
 
+    @look
     def tool_compare(
         self,
         _seen: Any,
-        region: Any = None,
+        region: Region | View | None = None,
         max_side: int | None = None,
         grid: bool = False,
         edge_aware: bool = False,
         edge_threshold: float = 0.05,
         edge_tolerance: float = 1.0,
-        feature_checks: list[dict] | None = None,
-        close_region: Any = None,
+        feature_checks: list[dict[str, Any]] | None = None,
+        close_region: Region | None = None,
     ) -> Reply:
-        """The mean squared error against the reference, a heat map of where
-        they differ, and the worst cells of a 4 by 4 grid over the region."""
+        """How far the drawing is from the reference, over region or all.
+
+        edge_aware adds separate boundary displacement, edge precision/recall,
+        missing/extra/duplicated edge annotation and reference/drawing crops.
+        edge_tolerance is in document units; edge_threshold is normalized RGB
+        gradient magnitude. feature_checks use object/node/expected [x,y],
+        max_displacement and min_turn (degrees). close_region adds a 1024px crop.
+
+        Gives the mean squared error (0 is identical), the worst cells of a
+        4 x 4 grid as regions to look at next, and a heat map (black agrees).
+        """
         box, side = self._look(region, max_side, 512)
         size = _size(box, side)
         drawing = np.asarray(self._cached("drawing", box, size), dtype=np.float64)
@@ -1227,18 +1257,23 @@ class Agent:
             )
         return colours
 
+    @look
     def tool_trace_reference(
         self,
         _seen: Any,
-        region: Any = None,
+        region: Region | View | None = None,
         colour: str | None = None,
         dark: bool = True,
         tolerance: float | None = None,
         min_area: float | None = None,
-        protected_features: list[dict] | None = None,
+        protected_features: list[dict[str, Any]] | None = None,
     ) -> Reply:
-        """Outlines, in document units, of the reference's dark areas (or
-        those near *colour*) in a region."""
+        """Outlines of the reference's dark areas in region (luminance at
+        most tolerance, default 0.35), or of the areas near colour (RGB
+        distance 0-1, default 0.12), as closed path data in document
+        coordinates, largest first, holes included. Areas under min_area
+        square units are left out. Adjust the drawing to these instead of
+        reading coordinates off an image."""
         box, _ = self._look(region, None)
         picture = self._reference_image()
         if picture is None:
@@ -1297,7 +1332,13 @@ class Agent:
             )
         return Reply(data)
 
-    def tool_get_svg(self, _seen: Any, ids: Any = None) -> Reply:
+    @look
+    def tool_get_svg(
+        self,
+        _seen: Any,
+        ids: list[str] | None = None,
+    ) -> Reply:
+        """The SVG of the whole drawing, or of the objects ids."""
         wanted = _ids(ids)
         with self.session.lock:
             svg = self._document_svg()
@@ -1321,19 +1362,30 @@ class Agent:
             }
         )
 
+    @look
     def tool_points(
         self,
         _seen: Any,
         id: str,  # noqa: A002
-        region: Any = None,
-        contours: Any = None,
-        coords: str = "document",
+        region: Region | None = None,
+        contours: list[int] | None = None,
+        coords: Literal["document", "local", "both"] = "document",
         nodes: bool = True,
         page: int = 0,
         page_size: int = NODES,
     ) -> Reply:
-        """A path's contours, and their nodes a page at a time: all, those of
-        the contours *contours*, or those inside *region*."""
+        """A path's contours (index, id, first node, count, closed, bounds,
+        hole) with their nodes (id, i, command, values, pinned), a page at a
+        time.
+
+        A contour with hole=true is a hole of a filled path, with its area;
+        holes() takes [path id, contour id]. region [x, y, w, h] keeps the
+        contours crossing it and the nodes inside it; contours keeps those
+        indices; nodes=false lists contours only. Values are [x, y] for M and
+        L, [c1x, c1y, c2x, c2y, x, y] for C, in document coordinates
+        (coords="local": the path's own, "both": both). "more" says when
+        there is another page.
+        """
         if coords not in {"document", "local", "both"}:
             raise DocumentError("coords is document, local or both")
         if type(page) is not int or page < 0:
@@ -1466,7 +1518,16 @@ class Agent:
                 )
             return Reply(data)
 
-    def tool_history(self, _seen: Any, limit: int = 30) -> Reply:
+    @look
+    def tool_history(
+        self,
+        _seen: Any,
+        limit: int = 30,
+    ) -> Reply:
+        """The undo and redo stacks, newest first: id, label, author, revision.
+
+        author is "agent" for edits made through this server, else "person".
+        """
         if type(limit) is not int or limit < 1:
             raise DocumentError("limit is a whole number from 1")
         with self.session.lock:
@@ -1493,6 +1554,7 @@ class Agent:
                 }
             )
 
+    @look
     def tool_export(self, _seen: Any, project: bool = False) -> Reply:
         with self.session.lock:
             content = self.session.project() if project else self._document_svg()
@@ -1506,18 +1568,27 @@ class Agent:
 
     # Editing ------------------------------------------------------------
 
+    @look
     def tool_isolate_feature(
         self,
         seen: Any,
-        action: str = "inspect",
-        region: Any = None,
-        seed: Any = None,
+        action: Literal["inspect", "stage"] = "inspect",
+        region: Area | None = None,
+        seed: list[float] | None = None,
         radius: float = 12,
-        members: Any = None,
+        members: list[dict[str, Any]] | None = None,
         name: str = "Feature",
         cut: bool = False,
         detach: bool = False,
     ) -> Reply:
+        """Inspect multi-object feature candidates, explicitly choose membership, stage.
+
+        Begin with a region or seed point/radius. Candidates show contour IDs,
+        fragment paths, paint and boundary cuts. Each member must explicitly name
+        object, contours, role (fill/shading/highlight/shadow/outline), include.
+        Stage returns a batch preview and source mapping; edit_batch applies it.
+        cut=true permits boundary fragments; detach=true authorizes shared copies.
+        """
         from vectrify.ui.agent_features import ROLES, inspect
 
         if region is None:
@@ -1547,6 +1618,8 @@ class Agent:
                 raise DocumentError(
                     "action is inspect or stage; use edit_batch to apply"
                 )
+            # Previewed over the region as given, a polygon included.
+            preview: Any = region
             reply = self.tool_edit_batch(
                 seen,
                 edits=[
@@ -1561,8 +1634,8 @@ class Agent:
                         },
                     }
                 ],
-                region=region,
-                close_region=region,
+                region=preview,
+                close_region=preview,
                 label=f"Isolate {name}",
             )
             reply.data["feature"] = reply.data["edits"][0]["feature"]
@@ -1571,12 +1644,15 @@ class Agent:
     def tool_isolate_components(
         self,
         seen: Any,
-        region: Any,
-        members: Any,
+        region: Area,
+        members: list[dict[str, Any]],
         name: str = "Feature",
         cut: bool = False,
         detach: bool = False,
     ) -> Reply:
+        """Extract explicit feature members as one named group. Prefer isolate_feature
+        with action=stage to inspect the result before applying. Refuses regrouping
+        that would change unrelated overlapping paint or stacking."""
         from vectrify.ui.agent_features import isolate
 
         polygon = region_polygon(region)
@@ -1590,8 +1666,17 @@ class Agent:
         return reply
 
     def tool_protect_features(
-        self, seen: Any, points: Any, kind: str = "corner"
+        self,
+        seen: Any,
+        points: Points,
+        kind: Literal["position", "tip", "corner", "junction", "none"] = "corner",
     ) -> Reply:
+        """Protect explicit nodes from movement/removal and preserve corner geometry.
+
+        position fixes an endpoint; tip/corner/junction also freeze its incoming
+        and outgoing geometry. Positional pins still allow handle edits. none
+        explicitly releases feature protection. Save a project to preserve it.
+        """
         pairs = _points(points)
 
         def protect() -> None:
@@ -1611,6 +1696,13 @@ class Agent:
         width: float = 1.0,
         layer: str = "Outlines",
     ) -> Reply:
+        """Create or update a stroke-only outline sharing a filled path's geometry.
+
+        The named top-level layer is placed above fills/shading. Width is in
+        source-local units; the source's effective transform is copied. Node
+        edits update both; describe/points report source and geometry users.
+        Call again to refresh placement/transform or configure colour/width.
+        """
         from vectrify.ui.agent_outlines import create
 
         width = _finite(width, "width")
@@ -1634,12 +1726,26 @@ class Agent:
     def tool_clip(
         self,
         seen: Any,
-        ids: Any,
-        boundary: Any = None,
-        action: str = "set",
+        ids: Ids,
+        boundary: Ids | None = None,
+        action: Literal["set", "remove"] = "set",
         linked: bool = True,
         inset: float = 0.0,
     ) -> Reply:
+        """Clip objects or groups to the union of closed boundary paths.
+
+        Keeps paint, geometry, stacking and IDs. Boundary paths remain drawn;
+        strokes are excluded and fill-rule holes are preserved. A boundary may
+        be inside its target group. Each target gets its own transformed clip.
+        linked=true shares path geometry, so node edits update the boundary;
+        false copies it. Placement is captured: call again after transforming
+        or reparenting a source. inset >= 0 removes a band from each boundary
+        before their union, in source-local units; holes grow and narrow areas
+        can disappear. Use half a body's stroke width to protect its outline
+        from later shading. Linked insets follow node edits. set replaces
+        existing clipping; remove clears it (omit boundary and inset). Use
+        edit_batch to preview and apply as one undo step.
+        """
         from vectrify.document.clipping import apply_clip
 
         targets = _targets(ids)
@@ -1669,24 +1775,31 @@ class Agent:
     def tool_properties(
         self,
         seen: Any,
-        ids: Any,
+        ids: Ids,
         fill: str | None = None,
         stroke: str | None = None,
         stroke_width: float | None = None,
         opacity: float | None = None,
         fill_opacity: float | None = None,
         stroke_opacity: float | None = None,
-        stroke_linecap: str | None = None,
-        stroke_linejoin: str | None = None,
+        stroke_linecap: Literal["butt", "round", "square"] | None = None,
+        stroke_linejoin: Literal["miter", "round", "bevel"] | None = None,
         stroke_miterlimit: float | None = None,
-        start_arrow: str | None = None,
-        end_arrow: str | None = None,
+        start_arrow: Literal["none", "arrow"] | None = None,
+        end_arrow: Literal["none", "arrow"] | None = None,
         name: str | None = None,
-        locks: Any = None,
+        locks: list[str] | None = None,
         hidden: bool | None = None,
     ) -> Reply:
-        """Set the paint, the name (of one object), the locks and whether
-        *ids* are hidden (display="none", saved with the drawing)."""
+        """Set the objects' paint (colours as CSS colours or "none"), name
+        (one object; empty clears it), locks and visibility. Stroke caps: butt,
+        round, square; joins: miter, round, bevel; miter limit >= 1; start/end
+        arrows: none or arrow (on open contours, following the stroke colour
+        and width). Locks: edit kinds (geometry, paint,
+        structure, transform) or properties (fill, stroke, d, ...); an empty
+        list unlocks. hidden true hides objects as display="none", saved in
+        the SVG: they and all a hidden group holds are not drawn, rendered or
+        picked; false shows them. A paint lock refuses it. One undo step."""
         targets = _targets(ids)
         changes = {
             key: str(value)
@@ -1761,20 +1874,22 @@ class Agent:
     def tool_transform(
         self,
         seen: Any,
-        ids: Any,
+        ids: Ids,
         dx: float | None = None,
         dy: float | None = None,
-        scale: Any = None,
-        anchor: Any = "center",
-        box: Any = None,
+        scale: list[float] | None = None,
+        anchor: str | list[float] = "center",
+        box: Region | None = None,
         rotate: float | None = None,
-        flip: str | None = None,
+        flip: Literal["horizontal", "vertical"] | None = None,
     ) -> Reply:
-        """Scale the objects *ids* by *scale*, rotate them by *rotate* degrees
-        (clockwise) and mirror them (*flip* horizontal or vertical), all about
-        *anchor* (a point, or center, top-left, top-right, bottom-left,
-        bottom-right), then move them by *dx*, *dy*; or fit their painted
-        bounds to *box*."""
+        """Scale objects by scale [sx, sy], rotate them by rotate degrees
+        (clockwise on the page) and/or mirror them (flip horizontal swaps left
+        and right, vertical top and bottom), in that order, all about anchor
+        (a point, or center, top-left, top-right, bottom-left, bottom-right of
+        their bounds), then move them by dx, dy document units; or fit their
+        painted bounds to box [x, y, w, h]. Objects inside transformed groups
+        turn and mirror on the page like the rest; strokes keep their width."""
         offset = (
             _finite(dx if dx is not None else 0.0, "dx"),
             _finite(dy if dy is not None else 0.0, "dy"),
@@ -1876,14 +1991,15 @@ class Agent:
     def tool_arrange(
         self,
         seen: Any,
-        ids: Any,
-        to: str | None = None,
+        ids: Ids,
+        to: Literal["front", "back", "forward", "backward"] | None = None,
         parent: str | None = None,
         index: int | None = None,
     ) -> Reply:
-        """Restack *ids* within their group (*to*), or move them into the
-        group *parent* at *index* among its children (0 is the back; the
-        front by default)."""
+        """Restack objects within their group (to; forward and backward move
+        one step), or move them into group parent (the root id for the top
+        level) at index among its children (0 is the back; default the
+        front)."""
         targets = _targets(ids)
         if (to is None) == (parent is None):
             raise DocumentError(
@@ -1919,7 +2035,14 @@ class Agent:
             seen, [self._select(_targets(ids)), {"command": command, **extra}]
         )
 
-    def tool_group(self, seen: Any, ids: Any, action: str = "create") -> Reply:
+    def tool_group(
+        self,
+        seen: Any,
+        ids: Ids,
+        action: Literal["create", "dissolve"] = "create",
+    ) -> Reply:
+        """Group two or more objects (action="create", the default), or
+        dissolve groups, keeping their children (action="dissolve")."""
         if action == "create":
             command = "group"
         elif action == "dissolve":
@@ -1940,9 +2063,16 @@ class Agent:
         return found
 
     def tool_combine(
-        self, seen: Any, ids: Any, paint_source: str | None = None
+        self,
+        seen: Any,
+        ids: Ids,
+        paint_source: str | None = None,
     ) -> Reply:
-        """Collect paths into one compound path without connecting or unioning."""
+        """Combine paths or path-only groups into one compound path, keeping
+        every contour without connecting ends or unioning overlaps. Uses the
+        frontmost path's entire paint, or paint_source's; compound fill rules
+        still apply. Transforms are resolved; per-path clipping must first be
+        moved to the common containing group."""
         return self._simple(
             "combine_paths", seen, _targets(ids), paint_source=paint_source
         )
@@ -1950,16 +2080,20 @@ class Agent:
     def tool_join(
         self,
         seen: Any,
-        ids: Any = None,
-        points: Any = None,
+        ids: list[str] | None = None,
+        points: Points | None = None,
         reach: float | None = None,
-        bridge: str | None = None,
+        bridge: Literal["curve", "line"] | None = None,
         color_source: str | None = None,
     ) -> Reply:
-        """As the editor's Join: two points join each other; stroked lines
-        join their ends within reach; filled paths merge into one outline,
-        its colour mixed by area or taken from the path color_source.
-        One filled path unions its overlapping contours, keeping its paint."""
+        """Join, as the editor's Join does: two points ([object id, node id]
+        each) join each other, cutting a contour open first where one is not
+        a free end; stroked lines (ids) join their ends lying within reach
+        (default 4) of each other, bridged by a curve or a line; filled paths
+        (ids) merge into one outline, unioning overlapping areas and removing
+        internal seams. Its colour is mixed by area or taken from the path
+        color_source. With one filled path, union its overlapping contours,
+        preserving holes and paint. "joined" says which."""
         if (ids is None) == (points is None):
             raise DocumentError(
                 "Give ids (the paths to join) or points (two [object id, node "
@@ -2021,15 +2155,37 @@ class Agent:
         reply.data["joined"] = "line ends"
         return reply
 
-    def tool_split_parts(self, seen: Any, ids: Any) -> Reply:
+    def tool_split_parts(
+        self,
+        seen: Any,
+        ids: Ids,
+    ) -> Reply:
+        """Split paths into their disconnected parts; holes stay with theirs."""
         return self._simple("split_disconnected", seen, ids)
 
-    def tool_cut_hole(self, seen: Any, ids: Any) -> Reply:
+    def tool_cut_hole(
+        self,
+        seen: Any,
+        ids: Ids,
+    ) -> Reply:
+        """With two paths, cut the inner (or overlapping) one out of the
+        other as a hole."""
         return self._simple("cut_hole", seen, ids)
 
-    def tool_boolean(self, seen: Any, ids: Any, operation: Any) -> Reply:
-        """As the editor's Union, Subtract, Intersect and Exclude: the
-        backmost path is the target, keeping its id and paint."""
+    def tool_boolean(
+        self,
+        seen: Any,
+        ids: Ids,
+        operation: Literal["union", "subtract", "intersect", "exclude"],
+    ) -> Reply:
+        """Combine the filled areas of two or more paths, as the editor's
+        Path commands do. The backmost path (in stacking order, whatever the
+        order of ids) is the target: it keeps its id, paint and place and
+        takes the result; the paths in front are deleted. union: inside any;
+        subtract: the target minus every path in front; intersect: inside
+        all; exclude: inside an odd number. Curves are kept; the result is
+        in the target's frame, its own clip cut in. Basic shapes need
+        convert(to="path") first; an empty result is refused."""
         if operation not in {"union", "subtract", "intersect", "exclude"}:
             raise DocumentError("operation is union, subtract, intersect or exclude")
         return self._simple(operation, seen, ids)
@@ -2037,12 +2193,14 @@ class Agent:
     def tool_holes(
         self,
         seen: Any,
-        contours: Any,
-        action: str = "fill",
+        contours: Points,
+        action: Literal["fill", "shape"] = "fill",
         delete_enclosed: bool = False,
     ) -> Reply:
-        """Fill holes, or turn them into shapes of their own; *contours* are
-        [object id, hole id] pairs, the ids points() marks as holes."""
+        """Fill holes (action="fill"), or turn them into shapes of their own
+        ("shape"); contours are [path id, contour id] pairs of the contours
+        points() marks hole=true. delete_enclosed also deletes the shapes
+        lying wholly inside the filled holes."""
         try:
             pairs = _points(contours)
         except DocumentError:
@@ -2082,7 +2240,17 @@ class Agent:
 
         return self._edit(seen, [self._select(objects), fill])
 
-    def tool_convert(self, seen: Any, ids: Any, to: str = "either") -> Reply:
+    def tool_convert(
+        self,
+        seen: Any,
+        ids: Ids,
+        to: Literal["line", "fill", "either", "path"] = "either",
+    ) -> Reply:
+        """Turn thin filled shapes into centre lines (to="line"), stroked
+        lines into filled outlines (to="fill"), or each into the other; or
+        give an instance (use), a basic shape (rect, circle, ellipse, line)
+        or a path sharing its geometry an editable path of its own
+        (to="path"), keeping its id and paint."""
         commands = {
             "line": "fill_to_line",
             "fill": "line_to_fill",
@@ -2096,16 +2264,19 @@ class Agent:
     def tool_delete(
         self,
         seen: Any,
-        ids: Any = None,
-        points: Any = None,
-        region: Any = None,
+        ids: list[str] | None = None,
+        points: Points | None = None,
+        region: Area | None = None,
         contours: bool = False,
         cut: bool = False,
         detach: bool = False,
     ) -> Reply:
-        """Delete the objects *ids*; the *points* (or, with *contours*, the
-        contours they are on); or the contours inside *region*, of the paths
-        and shapes *ids* or every unlocked one painting there."""
+        """Delete objects (ids); points ([object id, node id] pairs; a
+        contour or path left too small goes too), or with contours=true the
+        whole contours they are on; or the contours lying inside region
+        ([x, y, w, h] or a polygon), of the paths and shapes ids or every
+        unlocked one painting there (cut=true also cuts away the parts
+        crossing into it; detach as for extract). One undo step."""
         if points is not None and region is not None:
             raise DocumentError("Give points or a region, not both")
         if (cut or detach) and region is None:
@@ -2180,6 +2351,13 @@ class Agent:
         index: int | None = None,
         name: str | None = None,
     ) -> Reply:
+        """Draw a new path from SVG path data in document coordinates (close
+        it with Z for a shape; more subpaths are holes or parts).
+
+        It goes into the group of what is drawn under it, just above that
+        (placed says where and why), or into parent at index; its id is in
+        created.
+        """
         placed: dict[str, Any] = {}
 
         def new() -> str:
@@ -2284,8 +2462,14 @@ class Agent:
         return reply
 
     def tool_set_points(
-        self, seen: Any, changes: Any, coords: str = "document"
+        self,
+        seen: Any,
+        changes: dict[str, dict[str, list[float]]],
+        coords: Literal["document", "local"] = "document",
     ) -> Reply:
+        """Set node values: {object id: {node id: values}}, values as
+        points() lists them, in document coordinates unless coords="local"
+        (moving a node, move its handles with it)."""
         if not isinstance(changes, dict) or not changes:
             raise DocumentError(
                 "changes is {object id: {node id: [values]}}, the values as "
@@ -2334,11 +2518,12 @@ class Agent:
     def tool_point_style(
         self,
         seen: Any,
-        points: Any,
-        handles: int | None = None,
+        points: Points,
+        handles: Literal[0, 1, 2] | None = None,
         pinned: bool | None = None,
     ) -> Reply:
-        """Give *points* 0, 1 or 2 curve handles, and pin or unpin them."""
+        """Give points 0, 1 or 2 curve handles, and pin them (so no edit or
+        operation moves them) or unpin them."""
         pairs = _points(points)
         if handles is None and pinned is None:
             raise DocumentError("Give handles (0, 1 or 2) or pinned")
@@ -2390,9 +2575,14 @@ class Agent:
                     return True
         return False
 
-    def tool_break_points(self, seen: Any, points: Any) -> Reply:
-        """Cut lines or closed contours open at points; given the two points
-        at a segment's ends, delete that segment instead, as Break does."""
+    def tool_break_points(
+        self,
+        seen: Any,
+        points: Points,
+    ) -> Reply:
+        """Cut lines or closed contours open at points. Given the two points
+        at the ends of a segment, delete that segment instead, as the
+        editor's Break does."""
         pairs = _points(points)
         with self.session.lock:
             segment = self._segment_among(pairs)
@@ -2401,7 +2591,12 @@ class Agent:
         reply.data["broke"] = "segment deleted" if segment else "at the points"
         return reply
 
-    def tool_split_edge(self, seen: Any, points: Any) -> Reply:
+    def tool_split_edge(
+        self,
+        seen: Any,
+        points: Points,
+    ) -> Reply:
+        """Add a point halfway along the edge leading into each point."""
         return self._on_points("split", seen, points)
 
     def _region_paths(
@@ -2539,12 +2734,25 @@ class Agent:
     def tool_extract(
         self,
         seen: Any,
-        region: Any,
-        ids: Any = None,
+        region: Area,
+        ids: list[str] | None = None,
         cut: bool = True,
         group: bool = False,
         detach: bool = False,
     ) -> Reply:
+        """Take the contours lying inside region ([x, y, w, h] or a polygon
+        [[x, y], ...], document coordinates) out of their paths, each path's
+        into a new path with its paint, just above it in its group;
+        group=true puts the new paths into one new group instead, just above
+        the frontmost path they came from.
+
+        The paths ids, or every unlocked path painting there; a rect, circle,
+        ellipse or line it cuts becomes a path first, keeping its id and
+        paint. An instance (use) draws shared geometry: detach=true gives it
+        a path of its own first, else it is refused. cut=true cuts strokes
+        crossing the region's edge there (and splits fills along it);
+        cut=false takes only whole contours. One undo step.
+        """
         return self._in_region(
             seen, region, ids, cut, delete=False, group=bool(group), detach=detach
         )
@@ -2552,11 +2760,13 @@ class Agent:
     def tool_knife(
         self,
         seen: Any,
-        start: Any,
-        end: Any,
-        ids: Any = None,
+        start: list[float],
+        end: list[float],
+        ids: list[str] | None = None,
         within: str | None = None,
     ) -> Reply:
+        """Cut paths along the line start to end ([x, y] each): the paths
+        ids, or every unlocked path it crosses (within a group if given)."""
         payload: dict[str, Any] = {"command": "knife", "start": start, "end": end}
         if within is not None:
             payload["within"] = within
@@ -2569,10 +2779,13 @@ class Agent:
         self,
         seen: Any,
         id: str,  # noqa: A002
-        points: Any,
+        points: list[list[float]],
         long_way: bool = False,
         pixel: float = 1.0,
     ) -> Reply:
+        """Redraw the stretch of a path's outline that the stroke points
+        ([x, y] each) runs along; both ends must lie on the same contour,
+        within 10 pixel sizes. long_way takes the other way round a loop."""
         return self._edit(
             seen,
             [
@@ -2627,10 +2840,27 @@ class Agent:
                 }
             )
 
-    def tool_undo(self, seen: Any, ids: list[str]) -> Reply:
+    def tool_undo(
+        self,
+        seen: Any,
+        ids: list[str],
+    ) -> Reply:
+        """Undo exact history IDs, in the given order, whoever made them.
+
+        Get IDs from history() or an edit's edit_id. Unrelated later edits
+        stay; conflicting edits are refused. The whole batch is atomic.
+        """
         return self._history(seen, "undo", ids)
 
-    def tool_redo(self, seen: Any, ids: list[str]) -> Reply:
+    def tool_redo(
+        self,
+        seen: Any,
+        ids: list[str],
+    ) -> Reply:
+        """Redo exact undone history IDs, in the given order.
+
+        Get IDs from history(). Conflicts refuse the entire batch.
+        """
         return self._history(seen, "redo", ids)
 
     # Operations ---------------------------------------------------------
@@ -2638,13 +2868,20 @@ class Agent:
     def tool_edit_batch(
         self,
         seen: Any,
-        action: str = "stage",
-        edits: Any = None,
+        action: Literal["stage", "status", "apply", "discard"] = "stage",
+        edits: list[dict[str, Any]] | None = None,
         id: str | None = None,  # noqa: A002
-        region: Any = None,
-        close_region: Any = None,
+        region: Region | None = None,
+        close_region: Region | None = None,
         label: str = "Edit batch",
     ) -> Reply:
+        """Stage drawing edits privately, inspect eight normal/close views, apply once.
+
+        edits=[{tool: 'properties', args: {ids: ['path'], fill: 'green'}}].
+        Each supported drawing edit can be staged; history/reference/job calls cannot.
+        An edit's optional `as` names its result; later arguments use '$name'.
+        Apply merges against the staged revision and refuses conflicts atomically.
+        """
         from vectrify.ui.agent_batches import Batch, resolve, views
         from vectrify.ui.session import Session
 
@@ -2822,11 +3059,17 @@ class Agent:
     def tool_generate(
         self,
         seen: Any,
-        method: str = "cel",
-        settings: Any = None,
+        method: Literal["cel", "colour-regions"] = "cel",
+        settings: dict[str, Any] | None = None,
         group: str | None = None,
     ) -> Reply:
-        """Over the whole drawing, or into the area of the group *group*."""
+        """Trace the reference into new shapes, as a job to preview.
+
+        cel: flat colour regions with ink lines (settings regions,
+        tolerance, line_width, strokes, outline); colour-regions: posterised
+        regions (colours, min_pixels, tolerance, ...).
+        Over the whole drawing, or into the area of the group group.
+        """
         return self._start(
             seen,
             [] if group is None else [str(group)],
@@ -2840,13 +3083,16 @@ class Agent:
     def tool_tidy(
         self,
         seen: Any,
-        ids: Any = None,
-        settings: Any = None,
+        ids: list[str] | None = None,
+        settings: dict[str, Any] | None = None,
         rounds: int | None = None,
-        region: Any = None,
+        region: Area | None = None,
     ) -> Reply:
-        """Tidy the paths *ids*; within *region*, only the points inside it,
-        of *ids* or every unlocked path painting there."""
+        """Tidy paths as a job: snap to the reference, simplify, fit (steps
+        shape, snap, detail, simplify; budget: % simplify may worsen the
+        match, tolerance: px cap; allowance: % any step may; seconds, ...).
+        With region ([x, y, w, h] or a polygon) only the points inside it
+        move, of the paths ids or every unlocked one painting there."""
         from vectrify.operations.methods.nodes import SETTINGS
 
         if region is None and ids is None:
@@ -2881,11 +3127,13 @@ class Agent:
     def tool_fit_colours(
         self,
         seen: Any,
-        ids: Any,
-        fill: str = "flat",
+        ids: Ids,
+        fill: Literal["flat", "linear"] = "flat",
         passes: int | None = None,
         resolution: int | None = None,
     ) -> Reply:
+        """Fit the fills of objects to the reference, flat or as linear
+        private per-object gradients, as a job."""
         settings: dict[str, Any] = {"fill": fill}
         if passes is not None:
             settings["passes"] = passes
@@ -2895,7 +3143,13 @@ class Agent:
             seen, _targets(ids), "improve", "colours", {"paint": True}, settings
         )
 
-    def tool_snap_edges(self, seen: Any, ids: Any, tolerance: float = 1.0) -> Reply:
+    def tool_snap_edges(
+        self,
+        seen: Any,
+        ids: Ids,
+        tolerance: float = 1.0,
+    ) -> Reply:
+        """Snap the touching edges of two or more paths together, as a job."""
         return self._start(
             seen,
             _targets(ids),
@@ -2906,7 +3160,12 @@ class Agent:
             bounds=True,
         )
 
-    def tool_cleanup(self, seen: Any, ids: Any) -> Reply:
+    def tool_cleanup(
+        self,
+        seen: Any,
+        ids: Ids,
+    ) -> Reply:
+        """Merge duplicate paths and drop redundant points, as a job."""
         return self._start(
             seen,
             _targets(ids),
@@ -2925,12 +3184,15 @@ class Agent:
         self,
         seen: Any,
         id: str,  # noqa: A002
-        action: str = "status",
-        wait_seconds: float = 0,
+        action: Literal["status", "apply", "discard", "stop"] = "status",
+        wait_seconds: float = 30,
         choice: int = 0,
     ) -> Reply:
-        """A job's status (waiting up to *wait_seconds* for it), or apply
-        its result (or alternative *choice*), discard it or stop it."""
+        """A job's progress (action="status"): waits up to wait_seconds (at
+        most 120) for it to finish, then gives its metrics and before/after
+        previews. "apply" keeps a finished job's result (or alternative
+        choice) as one undo step, "discard" drops the job, "stop" stops it
+        early keeping its best result so far."""
         if action == "status":
             return self._job_status(id, wait_seconds)
         if action == "apply":
@@ -2976,3 +3238,11 @@ class Agent:
                 data["step"] = editor.undo_labels[-1]
                 data["edit_id"] = editor.undo_entries[-1].id
             return Reply(data)
+
+
+# Each call by name: its method's signature and docstring are the MCP tool's.
+CALLS: dict[str, Callable[..., Reply]] = {
+    name.removeprefix("tool_"): method
+    for name, method in vars(Agent).items()
+    if name.startswith("tool_")
+}

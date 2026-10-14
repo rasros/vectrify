@@ -25,8 +25,10 @@ from vectrify.document import (
     Editor,
     EditRejectedError,
     Element,
+    Geometry,
     Selection,
     StaleRevisionError,
+    Subpath,
     export_svg,
     import_svg,
     load_project,
@@ -61,7 +63,7 @@ from vectrify.operations import (
     Permissions,
     method,
 )
-from vectrify.project_file import MAX_SOURCE, decode_source
+from vectrify.project_file import MAX_SOURCE, decode_source, encode_project
 from vectrify.refine.centreline import centreline
 from vectrify.refine.redraw import redraw_stretch
 
@@ -103,19 +105,20 @@ KNIFE_EDITS = frozenset({EditKind.GEOMETRY, EditKind.STRUCTURE})
 NO_CONTOUR = "No contour of these paths lies inside the region"
 
 
-# Commands on points, possibly in several selected paths, and their undo labels.
+# Commands on points, possibly in several selected paths: their undo labels
+# and handlers.
 POINT_COMMANDS = {
-    "node": "Edit node",
-    "move_nodes": "Move points",
-    "split": "Add node",
-    "node_handles": "Change handles",
-    "delete_handle": "Delete handle",
-    "straighten_handles": "Toggle straight handles",
-    "delete_node": "Delete node",
-    "delete_contour": "Delete contour",
-    "break_points": "Break at point",
-    "delete_segment": "Delete segment",
-    "join_two_ends": "Join points",
+    "node": ("Edit node", "_point_node"),
+    "move_nodes": ("Move points", "_point_move_nodes"),
+    "split": ("Add node", "_point_split"),
+    "node_handles": ("Change handles", "_point_handles"),
+    "delete_handle": ("Delete handle", "_point_delete_handle"),
+    "straighten_handles": ("Toggle straight handles", "_point_handles"),
+    "delete_node": ("Delete node", "_point_delete_node"),
+    "delete_contour": ("Delete contour", "_point_delete_contour"),
+    "break_points": ("Break at point", "_point_break"),
+    "delete_segment": ("Delete segment", "_point_break"),
+    "join_two_ends": ("Join points", "_point_join_two_ends"),
 }
 
 
@@ -142,7 +145,7 @@ ACTION_COMMANDS = {
     "artboard": Command("_command_artboard"),
     **{
         name: Command("_command_points", label)
-        for name, label in POINT_COMMANDS.items()
+        for name, (label, _) in POINT_COMMANDS.items()
     },
     "add_path": Command("_command_add_path", "Draw path"),
     "add_shape": Command("_command_add_shape", "Draw shape"),
@@ -1003,6 +1006,35 @@ class Session:
             separators=(",", ":"),
         )
 
+    def export(self, payload: dict) -> dict[str, Any]:
+        """The drawing to save: its SVG, or the project, compressed with a
+        summary of what it holds when *compressed* asks."""
+        self.check_revision(payload)
+        if (
+            "project_version" in payload
+            and payload["project_version"] != self.project_version
+        ):
+            raise StaleRevisionError("The project changed while saving. Save again.")
+        content = self.project() if payload.get("project") else self.state()["svg"]
+        result = {**self.content_version(), "content": content}
+        if payload.get("project") and payload.get("compressed"):
+            result["content"] = base64.b64encode(
+                encode_project(result["content"])
+            ).decode("ascii")
+            result["encoding"] = "base64"
+            document = self.editor.snapshot.document
+            geometry_ids = {element.geometry_id for element in document.elements()}
+            result["summary"] = {
+                "objects": len(document.elements()) - 1,
+                "nodes": sum(
+                    len(subpath.nodes)
+                    for geometry in document.geometries
+                    if geometry.id in geometry_ids
+                    for subpath in geometry.subpaths
+                ),
+            }
+        return result
+
     def action(self, payload: dict) -> dict:
         command = payload["command"]
         # Selection is UI state. A concurrent document edit must not
@@ -1238,7 +1270,6 @@ class Session:
     def _edit_points(self, command: str, payload: dict) -> None:
         """Edit points of one or more selected paths as one undoable step."""
         document = self.editor.snapshot.document
-        changes: dict = {}
         if command == "move_nodes":
             changes = payload.get("changes") or {}
             if (
@@ -1259,136 +1290,192 @@ class Session:
         scope = objects.union(
             *(document.geometry_users(document.geometry_for(o).id) for o in objects)
         )
+        label, handler = POINT_COMMANDS[command]
         with self.editor.transaction(
-            POINT_COMMANDS[command], selection=Selection(object_ids=scope)
+            label, selection=Selection(object_ids=scope)
         ) as tx:
-            if command == "node":
-                oid, nid = points[0]
-                values = tuple(number(v) for v in payload["values"])
-                if "handle_offset" in payload:
-                    offset = payload["handle_offset"]
-                    if offset not in {0, 2} or len(values) != 6:
-                        raise DocumentError("Choose a curve handle to move")
-                    tx.move_handle(
-                        oid, nid, offset, (values[offset], values[offset + 1])
-                    )
-                else:
-                    tx.update_node(oid, nid, values)
-            elif command == "move_nodes":
-                # The values already carry the handles each point takes along.
-                # A node of shared geometry moves once, as its first path has it.
-                kept = set(points)
-                for oid, nodes in changes.items():
-                    moved = {
-                        str(nid): tuple(number(v) for v in values)
-                        for nid, values in nodes.items()
-                        if (str(oid), str(nid)) in kept
-                    }
-                    if moved:
-                        tx.update_nodes(str(oid), moved)
-            elif command == "split":
-                edges = {}
-                for oid, nid in points:
-                    geometry = document.geometry_for(oid)
-                    node = geometry.node(nid)
-                    contour = next(s for s in geometry.subpaths if node in s.nodes)
-                    if node.command == "M" and not contour.closed:
-                        if len(contour.nodes) < 2:
-                            raise DocumentError(
-                                "This contour has no edge to add a node on"
-                            )
-                        nid = contour.nodes[1].id
-                    # Both ends of the first edge may be selected. Split each
-                    # original edge once, regardless of selection order.
-                    edges.setdefault((geometry.id, nid), (oid, nid))
-                for oid, nid in edges.values():
-                    tx.split_edge(oid, nid)
-            elif command == "delete_handle":
-                oid, nid = points[0]
-                tx.delete_handle(oid, nid, payload["offset"])
-            elif command in {"node_handles", "straighten_handles"}:
-                seen = set()
-                for oid, nid in points:
-                    geometry = document.geometry_for(oid)
-                    node = geometry.node(nid)
-                    contour = next(s for s in geometry.subpaths if node in s.nodes)
-                    first, last = contour.nodes[0], contour.nodes[-1]
-                    # A box selection can include both nodes at a closed
-                    # contour's join. Switch its one handle only once.
-                    canonical = (
-                        first.id
-                        if contour.closed
-                        and first.endpoint == last.endpoint
-                        and nid == last.id
-                        else nid
-                    )
-                    key = geometry.id, canonical
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    if command == "node_handles":
-                        tx.set_node_handles(oid, nid, int(payload["count"]))
-                    else:
-                        tx.set_node_handle_alignment(
-                            oid,
-                            nid,
-                            bool(payload.get("aligned", True)),
-                            payload.get("side"),
-                        )
-            elif command == "delete_node":
-                # Deleting one point can take its contour, or its path, along.
-                for oid, nid in points:
-                    if has_node(tx.preview, oid, nid):
-                        tx.delete_node(oid, nid)
-            elif command in {"break_points", "delete_segment"}:
-                by_object: dict[str, list[str]] = {}
-                for oid, nid in points:
-                    by_object.setdefault(oid, []).append(nid)
-                for oid, nids in by_object.items():
-                    if command == "break_points":
-                        tx.break_points(oid, nids)
-                    else:
-                        tx.delete_segments(oid, frozenset(nids))
-            elif command == "join_two_ends":
-                if len(points) != 2 or points[0] == points[1]:
-                    raise DocumentError("Select the two points to join")
-                # Any two points join: one that is not a free end yet is
-                # cut there first, opening a closed contour or splitting a
-                # line, so it becomes one.
-                ends = []
-                for oid, nid in points:
-                    copies: dict[str, set[str]] = {}
-                    geometry = tx.preview.geometry_for(oid)
-                    free_end = any(
-                        not sp.closed and nid in {sp.nodes[0].id, sp.nodes[-1].id}
-                        for sp in geometry.subpaths
-                    )
-                    if not free_end:
-                        copies = tx.break_points(oid, [nid])
-                    # A closed contour's start opens under other IDs.
-                    found: set[str] = set()
-                    grown = {nid}
-                    while grown != found:
-                        found = grown
-                        grown = found.union(*(copies.get(i, ()) for i in found))
-                    geometry = tx.preview.geometry_for(oid)
-                    present = {n.id for sp in geometry.subpaths for n in sp.nodes}
-                    alive = sorted(found & present)
-                    ends.append((oid, nid if nid in present or not alive else alive[0]))
-                tx.join_ends(objects, ends=ends)
-            elif command == "delete_contour":
-                contours = {}
-                for oid, nid in points:
-                    geometry = document.geometry_for(oid)
-                    subpath = next(
-                        s
-                        for s in geometry.subpaths
-                        if any(n.id == nid for n in s.nodes)
-                    )
-                    contours.setdefault((geometry.id, subpath.id), (oid, nid))
-                for oid, nid in contours.values():
-                    if has_node(tx.preview, oid, nid):
-                        tx.delete_contour(oid, nid)
+            getattr(self, handler)(tx, document, points, payload)
+
+    @staticmethod
+    def _contour_of(geometry: Geometry, nid: str) -> Subpath:
+        """The contour of *geometry* holding node *nid*."""
+        return next(s for s in geometry.subpaths if any(n.id == nid for n in s.nodes))
+
+    def _point_node(
+        self,
+        tx: Transaction,
+        _document: Document,
+        points: list[tuple[str, str]],
+        payload: dict,
+    ) -> None:
+        oid, nid = points[0]
+        values = tuple(number(v) for v in payload["values"])
+        if "handle_offset" in payload:
+            offset = payload["handle_offset"]
+            if offset not in {0, 2} or len(values) != 6:
+                raise DocumentError("Choose a curve handle to move")
+            tx.move_handle(oid, nid, offset, (values[offset], values[offset + 1]))
+        else:
+            tx.update_node(oid, nid, values)
+
+    def _point_move_nodes(
+        self,
+        tx: Transaction,
+        _document: Document,
+        points: list[tuple[str, str]],
+        payload: dict,
+    ) -> None:
+        # The values already carry the handles each point takes along.
+        # A node of shared geometry moves once, as its first path has it.
+        kept = set(points)
+        for oid, nodes in payload["changes"].items():
+            moved = {
+                str(nid): tuple(number(v) for v in values)
+                for nid, values in nodes.items()
+                if (str(oid), str(nid)) in kept
+            }
+            if moved:
+                tx.update_nodes(str(oid), moved)
+
+    def _point_split(
+        self,
+        tx: Transaction,
+        document: Document,
+        points: list[tuple[str, str]],
+        _payload: dict,
+    ) -> None:
+        edges = {}
+        for oid, nid in points:
+            geometry = document.geometry_for(oid)
+            node = geometry.node(nid)
+            contour = self._contour_of(geometry, nid)
+            if node.command == "M" and not contour.closed:
+                if len(contour.nodes) < 2:
+                    raise DocumentError("This contour has no edge to add a node on")
+                nid = contour.nodes[1].id
+            # Both ends of the first edge may be selected. Split each
+            # original edge once, regardless of selection order.
+            edges.setdefault((geometry.id, nid), (oid, nid))
+        for oid, nid in edges.values():
+            tx.split_edge(oid, nid)
+
+    def _point_delete_handle(
+        self,
+        tx: Transaction,
+        _document: Document,
+        points: list[tuple[str, str]],
+        payload: dict,
+    ) -> None:
+        oid, nid = points[0]
+        tx.delete_handle(oid, nid, payload["offset"])
+
+    def _point_handles(
+        self,
+        tx: Transaction,
+        document: Document,
+        points: list[tuple[str, str]],
+        payload: dict,
+    ) -> None:
+        seen = set()
+        for oid, nid in points:
+            geometry = document.geometry_for(oid)
+            geometry.node(nid)
+            contour = self._contour_of(geometry, nid)
+            first, last = contour.nodes[0], contour.nodes[-1]
+            # A box selection can include both nodes at a closed
+            # contour's join. Switch its one handle only once.
+            canonical = (
+                first.id
+                if contour.closed and first.endpoint == last.endpoint and nid == last.id
+                else nid
+            )
+            key = geometry.id, canonical
+            if key in seen:
+                continue
+            seen.add(key)
+            if payload["command"] == "node_handles":
+                tx.set_node_handles(oid, nid, int(payload["count"]))
+            else:
+                tx.set_node_handle_alignment(
+                    oid, nid, bool(payload.get("aligned", True)), payload.get("side")
+                )
+
+    def _point_delete_node(
+        self,
+        tx: Transaction,
+        _document: Document,
+        points: list[tuple[str, str]],
+        _payload: dict,
+    ) -> None:
+        # Deleting one point can take its contour, or its path, along.
+        for oid, nid in points:
+            if has_node(tx.preview, oid, nid):
+                tx.delete_node(oid, nid)
+
+    def _point_break(
+        self,
+        tx: Transaction,
+        _document: Document,
+        points: list[tuple[str, str]],
+        payload: dict,
+    ) -> None:
+        by_object: dict[str, list[str]] = {}
+        for oid, nid in points:
+            by_object.setdefault(oid, []).append(nid)
+        for oid, nids in by_object.items():
+            if payload["command"] == "break_points":
+                tx.break_points(oid, nids)
+            else:
+                tx.delete_segments(oid, frozenset(nids))
+
+    def _point_join_two_ends(
+        self,
+        tx: Transaction,
+        _document: Document,
+        points: list[tuple[str, str]],
+        _payload: dict,
+    ) -> None:
+        if len(points) != 2 or points[0] == points[1]:
+            raise DocumentError("Select the two points to join")
+        # Any two points join: one that is not a free end yet is cut there
+        # first, opening a closed contour or splitting a line, so it becomes one.
+        ends = []
+        for oid, nid in points:
+            copies: dict[str, set[str]] = {}
+            geometry = tx.preview.geometry_for(oid)
+            free_end = any(
+                not sp.closed and nid in {sp.nodes[0].id, sp.nodes[-1].id}
+                for sp in geometry.subpaths
+            )
+            if not free_end:
+                copies = tx.break_points(oid, [nid])
+            # A closed contour's start opens under other IDs.
+            found: set[str] = set()
+            grown = {nid}
+            while grown != found:
+                found = grown
+                grown = found.union(*(copies.get(i, ()) for i in found))
+            geometry = tx.preview.geometry_for(oid)
+            present = {n.id for sp in geometry.subpaths for n in sp.nodes}
+            alive = sorted(found & present)
+            ends.append((oid, nid if nid in present or not alive else alive[0]))
+        tx.join_ends(frozenset(o for o, _ in points), ends=ends)
+
+    def _point_delete_contour(
+        self,
+        tx: Transaction,
+        document: Document,
+        points: list[tuple[str, str]],
+        _payload: dict,
+    ) -> None:
+        contours = {}
+        for oid, nid in points:
+            geometry = document.geometry_for(oid)
+            subpath = self._contour_of(geometry, nid)
+            contours.setdefault((geometry.id, subpath.id), (oid, nid))
+        for oid, nid in contours.values():
+            if has_node(tx.preview, oid, nid):
+                tx.delete_contour(oid, nid)
 
     def _object_selection(self) -> Selection:
         # Object commands act on whole objects, whichever points are selected.

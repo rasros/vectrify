@@ -1,0 +1,2391 @@
+[
+ {
+  "name": "open",
+  "description": "Open an .svg or .vectrify file to edit headlessly (no window).\n\nReplaces the current target; the file is written only by save().\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "title": "openArguments"
+  }
+ },
+ {
+  "name": "connect",
+  "description": "Attach to the running editor window, which shows each edit live.\n\nThe person allows it with 'Agents' in the editor's footer; url and\ntoken default to what that wrote to ~/.local/state/vectrify/editor.json.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Url"
+    },
+    "token": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Token"
+    }
+   },
+   "title": "connectArguments"
+  }
+ },
+ {
+  "name": "save",
+  "description": "Save the drawing: to the opened file, or to path.\n\nA .vectrify path writes a project (locks, pins, the reference and the\nselection kept); a .svg path, or any other, plain SVG. The editor\nwindow needs a path.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Path"
+    }
+   },
+   "title": "saveArguments"
+  }
+ },
+ {
+  "name": "load_reference",
+  "description": "Load a PNG, JPEG or WebP as the reference image the drawing traces,\nstretched over the artboard as the editor shows it; without a path,\nremove the reference.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Path"
+    }
+   },
+   "title": "load_referenceArguments"
+  }
+ },
+ {
+  "name": "settings_schema",
+  "description": "Discover a job's JSON settings schema, defaults, ranges and interactions.\n\nUse generate/cel, generate/colour-regions, generate/cel-planned,\nimprove/nodes (tidy), improve/colours, improve/path-fit,\nsnap/edges or simplify/cleanup. Unknown settings are refused before work.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "title": "Action",
+     "type": "string"
+    },
+    "method": {
+     "title": "Method",
+     "type": "string"
+    }
+   },
+   "required": [
+    "action",
+    "method"
+   ],
+   "title": "settings_schemaArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "describe",
+  "description": "The drawing: artboard, reference, selection, window view and objects.\n\nObjects (id, label, tag, parent, paint, bounds [x, y, w, h], locks)\ncome a page at a time, in document order (later is in front);\nwithin lists one group's contents. With region [x, y, w, h], only the\nobjects that paint inside it (not just their bounds), front to back,\neach path with the contours of it that do.\nWindow context includes visible region, zoom, canvas pixels, active\ntool, entered group and reference view; without a reported window,\nwindow=false and the visible region is the artboard. objects=false\nskips object lookup and pagination for a lightweight context read.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "page": {
+     "default": 0,
+     "title": "Page",
+     "type": "integer"
+    },
+    "page_size": {
+     "default": 100,
+     "title": "Page Size",
+     "type": "integer"
+    },
+    "within": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Within"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "objects": {
+     "default": true,
+     "title": "Objects",
+     "type": "boolean"
+    }
+   },
+   "title": "describeArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "pick",
+  "description": "What paints at document point (x, y), or within radius of it,\nfront to back: each object with its groups and, for a path, the\ncontours (index, first node, bounds) whose own stroke or fill is\nthere. Stroke widths and transforms count; bounds alone do not.\ncolour gives the drawing's and the reference's mean colour there and\ntheir difference (0 to 1).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "title": "X",
+     "type": "number"
+    },
+    "y": {
+     "title": "Y",
+     "type": "number"
+    },
+    "radius": {
+     "default": 0,
+     "title": "Radius",
+     "type": "number"
+    }
+   },
+   "required": [
+    "x",
+    "y"
+   ],
+   "title": "pickArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "render",
+  "description": "A PNG of the drawing, optionally of region [x, y, w, h] only, or\nregion=\"view\": what the person's window shows, including its\ndrawing, overlay, reference-only or shared reference-error mode.\n\noverlay=\"side\" puts the reference beside it, \"over\" blends the two,\n\"reference\" shows the reference alone. max_side caps the longer side\nin pixels (default 1024, at most 2048). grid=true draws lines\nlabelled with document coordinates. The text says how pixels map to\ndocument coordinates.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "const": "view",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "overlay": {
+     "default": "none",
+     "enum": [
+      "none",
+      "side",
+      "over",
+      "reference"
+     ],
+     "title": "Overlay",
+     "type": "string"
+    },
+    "max_side": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Side"
+    },
+    "grid": {
+     "default": false,
+     "title": "Grid",
+     "type": "boolean"
+    }
+   },
+   "title": "renderArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "compare",
+  "description": "How far the drawing is from the reference, over region or all.\n\nedge_aware adds separate boundary displacement, edge precision/recall,\nmissing/extra/duplicated edge annotation and reference/drawing crops.\nedge_tolerance is in document units; edge_threshold is normalized RGB\ngradient magnitude. feature_checks use object/node/expected [x,y],\nmax_displacement and min_turn (degrees). close_region adds a 1024px crop.\n\nGives the mean squared error (0 is identical), the worst cells of a\n4 x 4 grid as regions to look at next, and a heat map (black agrees).\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "const": "view",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "max_side": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Side"
+    },
+    "grid": {
+     "default": false,
+     "title": "Grid",
+     "type": "boolean"
+    },
+    "edge_aware": {
+     "default": false,
+     "title": "Edge Aware",
+     "type": "boolean"
+    },
+    "edge_threshold": {
+     "default": 0.05,
+     "title": "Edge Threshold",
+     "type": "number"
+    },
+    "edge_tolerance": {
+     "default": 1.0,
+     "title": "Edge Tolerance",
+     "type": "number"
+    },
+    "feature_checks": {
+     "anyOf": [
+      {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Feature Checks"
+    },
+    "close_region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Close Region"
+    }
+   },
+   "title": "compareArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "trace_reference",
+  "description": "Outlines of the reference's dark areas in region (luminance at\nmost tolerance, default 0.35), or of the areas near colour (RGB\ndistance 0-1, default 0.12), as closed path data in document\ncoordinates, largest first, holes included. Areas under min_area\nsquare units are left out. Adjust the drawing to these instead of\nreading coordinates off an image.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "const": "view",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "colour": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Colour"
+    },
+    "dark": {
+     "default": true,
+     "title": "Dark",
+     "type": "boolean"
+    },
+    "tolerance": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Tolerance"
+    },
+    "min_area": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Min Area"
+    },
+    "protected_features": {
+     "anyOf": [
+      {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Protected Features"
+    }
+   },
+   "title": "trace_referenceArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "get_svg",
+  "description": "The SVG of the whole drawing, or of the objects ids.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ids"
+    }
+   },
+   "title": "get_svgArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "points",
+  "description": "A path's contours (index, id, first node, count, closed, bounds,\nhole) with their nodes (id, i, command, values, pinned), a page at a\ntime.\n\nA contour with hole=true is a hole of a filled path, with its area;\nholes() takes [path id, contour id]. region [x, y, w, h] keeps the\ncontours crossing it and the nodes inside it; contours keeps those\nindices; nodes=false lists contours only. Values are [x, y] for M and\nL, [c1x, c1y, c2x, c2y, x, y] for C, in document coordinates\n(coords=\"local\": the path's own, \"both\": both). \"more\" says when\nthere is another page.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "contours": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Contours"
+    },
+    "coords": {
+     "default": "document",
+     "enum": [
+      "document",
+      "local",
+      "both"
+     ],
+     "title": "Coords",
+     "type": "string"
+    },
+    "nodes": {
+     "default": true,
+     "title": "Nodes",
+     "type": "boolean"
+    },
+    "page": {
+     "default": 0,
+     "title": "Page",
+     "type": "integer"
+    },
+    "page_size": {
+     "default": 300,
+     "title": "Page Size",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "title": "pointsArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "history",
+  "description": "The undo and redo stacks, newest first: id, label, author, revision.\n\nauthor is \"agent\" for edits made through this server, else \"person\".\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "default": 30,
+     "title": "Limit",
+     "type": "integer"
+    }
+   },
+   "title": "historyArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "isolate_feature",
+  "description": "Inspect multi-object feature candidates, explicitly choose membership, stage.\n\nBegin with a region or seed point/radius. Candidates show contour IDs,\nfragment paths, paint and boundary cuts. Each member must explicitly name\nobject, contours, role (fill/shading/highlight/shadow/outline), include.\nStage returns a batch preview and source mapping; edit_batch applies it.\ncut=true permits boundary fragments; detach=true authorizes shared copies.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "default": "inspect",
+     "enum": [
+      "inspect",
+      "stage"
+     ],
+     "title": "Action",
+     "type": "string"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "items": {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "seed": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Seed"
+    },
+    "radius": {
+     "default": 12,
+     "title": "Radius",
+     "type": "number"
+    },
+    "members": {
+     "anyOf": [
+      {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Members"
+    },
+    "name": {
+     "default": "Feature",
+     "title": "Name",
+     "type": "string"
+    },
+    "cut": {
+     "default": false,
+     "title": "Cut",
+     "type": "boolean"
+    },
+    "detach": {
+     "default": false,
+     "title": "Detach",
+     "type": "boolean"
+    }
+   },
+   "title": "isolate_featureArguments"
+  },
+  "annotations": {
+   "readOnlyHint": true
+  }
+ },
+ {
+  "name": "isolate_components",
+  "description": "Extract explicit feature members as one named group. Prefer isolate_feature\nwith action=stage to inspect the result before applying. Refuses regrouping\nthat would change unrelated overlapping paint or stacking.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "items": {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      }
+     ],
+     "title": "Region"
+    },
+    "members": {
+     "items": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "title": "Members",
+     "type": "array"
+    },
+    "name": {
+     "default": "Feature",
+     "title": "Name",
+     "type": "string"
+    },
+    "cut": {
+     "default": false,
+     "title": "Cut",
+     "type": "boolean"
+    },
+    "detach": {
+     "default": false,
+     "title": "Detach",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "region",
+    "members"
+   ],
+   "title": "isolate_componentsArguments"
+  }
+ },
+ {
+  "name": "protect_features",
+  "description": "Protect explicit nodes from movement/removal and preserve corner geometry.\n\nposition fixes an endpoint; tip/corner/junction also freeze its incoming\nand outgoing geometry. Positional pins still allow handle edits. none\nexplicitly releases feature protection. Save a project to preserve it.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "points": {
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+     },
+     "minItems": 1,
+     "title": "Points",
+     "type": "array"
+    },
+    "kind": {
+     "default": "corner",
+     "enum": [
+      "position",
+      "tip",
+      "corner",
+      "junction",
+      "none"
+     ],
+     "title": "Kind",
+     "type": "string"
+    }
+   },
+   "required": [
+    "points"
+   ],
+   "title": "protect_featuresArguments"
+  }
+ },
+ {
+  "name": "linked_outline",
+  "description": "Create or update a stroke-only outline sharing a filled path's geometry.\n\nThe named top-level layer is placed above fills/shading. Width is in\nsource-local units; the source's effective transform is copied. Node\nedits update both; describe/points report source and geometry users.\nCall again to refresh placement/transform or configure colour/width.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "colour": {
+     "default": "#000000",
+     "title": "Colour",
+     "type": "string"
+    },
+    "width": {
+     "default": 1.0,
+     "title": "Width",
+     "type": "number"
+    },
+    "layer": {
+     "default": "Outlines",
+     "title": "Layer",
+     "type": "string"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "title": "linked_outlineArguments"
+  }
+ },
+ {
+  "name": "clip",
+  "description": "Clip objects or groups to the union of closed boundary paths.\n\nKeeps paint, geometry, stacking and IDs. Boundary paths remain drawn;\nstrokes are excluded and fill-rule holes are preserved. A boundary may\nbe inside its target group. Each target gets its own transformed clip.\nlinked=true shares path geometry, so node edits update the boundary;\nfalse copies it. Placement is captured: call again after transforming\nor reparenting a source. inset >= 0 removes a band from each boundary\nbefore their union, in source-local units; holes grow and narrow areas\ncan disappear. Use half a body's stroke width to protect its outline\nfrom later shading. Linked insets follow node edits. set replaces\nexisting clipping; remove clears it (omit boundary and inset). Use\nedit_batch to preview and apply as one undo step.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "boundary": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "minItems": 1,
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Boundary"
+    },
+    "action": {
+     "default": "set",
+     "enum": [
+      "set",
+      "remove"
+     ],
+     "title": "Action",
+     "type": "string"
+    },
+    "linked": {
+     "default": true,
+     "title": "Linked",
+     "type": "boolean"
+    },
+    "inset": {
+     "default": 0.0,
+     "title": "Inset",
+     "type": "number"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "clipArguments"
+  }
+ },
+ {
+  "name": "properties",
+  "description": "Set the objects' paint (colours as CSS colours or \"none\"), name\n(one object; empty clears it), locks and visibility. Stroke caps: butt,\nround, square; joins: miter, round, bevel; miter limit >= 1; start/end\narrows: none or arrow (on open contours, following the stroke colour\nand width). Locks: edit kinds (geometry, paint,\nstructure, transform) or properties (fill, stroke, d, ...); an empty\nlist unlocks. hidden true hides objects as display=\"none\", saved in\nthe SVG: they and all a hidden group holds are not drawn, rendered or\npicked; false shows them. A paint lock refuses it. One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "fill": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Fill"
+    },
+    "stroke": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke"
+    },
+    "stroke_width": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke Width"
+    },
+    "opacity": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Opacity"
+    },
+    "fill_opacity": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Fill Opacity"
+    },
+    "stroke_opacity": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke Opacity"
+    },
+    "stroke_linecap": {
+     "anyOf": [
+      {
+       "enum": [
+        "butt",
+        "round",
+        "square"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke Linecap"
+    },
+    "stroke_linejoin": {
+     "anyOf": [
+      {
+       "enum": [
+        "miter",
+        "round",
+        "bevel"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke Linejoin"
+    },
+    "stroke_miterlimit": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke Miterlimit"
+    },
+    "start_arrow": {
+     "anyOf": [
+      {
+       "enum": [
+        "none",
+        "arrow"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Start Arrow"
+    },
+    "end_arrow": {
+     "anyOf": [
+      {
+       "enum": [
+        "none",
+        "arrow"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "End Arrow"
+    },
+    "name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Name"
+    },
+    "locks": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Locks"
+    },
+    "hidden": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Hidden"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "propertiesArguments"
+  }
+ },
+ {
+  "name": "transform",
+  "description": "Scale objects by scale [sx, sy], rotate them by rotate degrees\n(clockwise on the page) and/or mirror them (flip horizontal swaps left\nand right, vertical top and bottom), in that order, all about anchor\n(a point, or center, top-left, top-right, bottom-left, bottom-right of\ntheir bounds), then move them by dx, dy document units; or fit their\npainted bounds to box [x, y, w, h]. Objects inside transformed groups\nturn and mirror on the page like the rest; strokes keep their width.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "dx": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Dx"
+    },
+    "dy": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Dy"
+    },
+    "scale": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Scale"
+    },
+    "anchor": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      }
+     ],
+     "default": "center",
+     "title": "Anchor"
+    },
+    "box": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Box"
+    },
+    "rotate": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Rotate"
+    },
+    "flip": {
+     "anyOf": [
+      {
+       "enum": [
+        "horizontal",
+        "vertical"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Flip"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "transformArguments"
+  }
+ },
+ {
+  "name": "arrange",
+  "description": "Restack objects within their group (to; forward and backward move\none step), or move them into group parent (the root id for the top\nlevel) at index among its children (0 is the back; default the\nfront).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "to": {
+     "anyOf": [
+      {
+       "enum": [
+        "front",
+        "back",
+        "forward",
+        "backward"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "To"
+    },
+    "parent": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Parent"
+    },
+    "index": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Index"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "arrangeArguments"
+  }
+ },
+ {
+  "name": "group",
+  "description": "Group two or more objects (action=\"create\", the default), or\ndissolve groups, keeping their children (action=\"dissolve\").",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "action": {
+     "default": "create",
+     "enum": [
+      "create",
+      "dissolve"
+     ],
+     "title": "Action",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "groupArguments"
+  }
+ },
+ {
+  "name": "combine",
+  "description": "Combine paths or path-only groups into one compound path, keeping\nevery contour without connecting ends or unioning overlaps. Uses the\nfrontmost path's entire paint, or paint_source's; compound fill rules\nstill apply. Transforms are resolved; per-path clipping must first be\nmoved to the common containing group.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "paint_source": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Paint Source"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "combineArguments"
+  }
+ },
+ {
+  "name": "join",
+  "description": "Join, as the editor's Join does: two points ([object id, node id]\neach) join each other, cutting a contour open first where one is not\na free end; stroked lines (ids) join their ends lying within reach\n(default 4) of each other, bridged by a curve or a line; filled paths\n(ids) merge into one outline, unioning overlapping areas and removing\ninternal seams. Its colour is mixed by area or taken from the path\ncolor_source. With one filled path, union its overlapping contours,\npreserving holes and paint. \"joined\" says which.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ids"
+    },
+    "points": {
+     "anyOf": [
+      {
+       "items": {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "type": "array"
+       },
+       "minItems": 1,
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Points"
+    },
+    "reach": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Reach"
+    },
+    "bridge": {
+     "anyOf": [
+      {
+       "enum": [
+        "curve",
+        "line"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Bridge"
+    },
+    "color_source": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Color Source"
+    }
+   },
+   "title": "joinArguments"
+  }
+ },
+ {
+  "name": "split_parts",
+  "description": "Split paths into their disconnected parts; holes stay with theirs.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "split_partsArguments"
+  }
+ },
+ {
+  "name": "cut_hole",
+  "description": "With two paths, cut the inner (or overlapping) one out of the\nother as a hole.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "cut_holeArguments"
+  }
+ },
+ {
+  "name": "boolean",
+  "description": "Combine the filled areas of two or more paths, as the editor's\nPath commands do. The backmost path (in stacking order, whatever the\norder of ids) is the target: it keeps its id, paint and place and\ntakes the result; the paths in front are deleted. union: inside any;\nsubtract: the target minus every path in front; intersect: inside\nall; exclude: inside an odd number. Curves are kept; the result is\nin the target's frame, its own clip cut in. Basic shapes need\nconvert(to=\"path\") first; an empty result is refused.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "operation": {
+     "enum": [
+      "union",
+      "subtract",
+      "intersect",
+      "exclude"
+     ],
+     "title": "Operation",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ids",
+    "operation"
+   ],
+   "title": "booleanArguments"
+  }
+ },
+ {
+  "name": "holes",
+  "description": "Fill holes (action=\"fill\"), or turn them into shapes of their own\n(\"shape\"); contours are [path id, contour id] pairs of the contours\npoints() marks hole=true. delete_enclosed also deletes the shapes\nlying wholly inside the filled holes.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "contours": {
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+     },
+     "minItems": 1,
+     "title": "Contours",
+     "type": "array"
+    },
+    "action": {
+     "default": "fill",
+     "enum": [
+      "fill",
+      "shape"
+     ],
+     "title": "Action",
+     "type": "string"
+    },
+    "delete_enclosed": {
+     "default": false,
+     "title": "Delete Enclosed",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "contours"
+   ],
+   "title": "holesArguments"
+  }
+ },
+ {
+  "name": "convert",
+  "description": "Turn thin filled shapes into centre lines (to=\"line\"), stroked\nlines into filled outlines (to=\"fill\"), or each into the other; or\ngive an instance (use), a basic shape (rect, circle, ellipse, line)\nor a path sharing its geometry an editable path of its own\n(to=\"path\"), keeping its id and paint.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "to": {
+     "default": "either",
+     "enum": [
+      "line",
+      "fill",
+      "either",
+      "path"
+     ],
+     "title": "To",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "convertArguments"
+  }
+ },
+ {
+  "name": "delete",
+  "description": "Delete objects (ids); points ([object id, node id] pairs; a\ncontour or path left too small goes too), or with contours=true the\nwhole contours they are on; or the contours lying inside region\n([x, y, w, h] or a polygon), of the paths and shapes ids or every\nunlocked one painting there (cut=true also cuts away the parts\ncrossing into it; detach as for extract). One undo step.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ids"
+    },
+    "points": {
+     "anyOf": [
+      {
+       "items": {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "type": "array"
+       },
+       "minItems": 1,
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Points"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "items": {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "contours": {
+     "default": false,
+     "title": "Contours",
+     "type": "boolean"
+    },
+    "cut": {
+     "default": false,
+     "title": "Cut",
+     "type": "boolean"
+    },
+    "detach": {
+     "default": false,
+     "title": "Detach",
+     "type": "boolean"
+    }
+   },
+   "title": "deleteArguments"
+  }
+ },
+ {
+  "name": "add_path",
+  "description": "Draw a new path from SVG path data in document coordinates (close\nit with Z for a shape; more subpaths are holes or parts).\n\nIt goes into the group of what is drawn under it, just above that\n(placed says where and why), or into parent at index; its id is in\ncreated.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "d": {
+     "title": "D",
+     "type": "string"
+    },
+    "fill": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Fill"
+    },
+    "stroke": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke"
+    },
+    "stroke_width": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Stroke Width"
+    },
+    "parent": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Parent"
+    },
+    "index": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Index"
+    },
+    "name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Name"
+    }
+   },
+   "required": [
+    "d"
+   ],
+   "title": "add_pathArguments"
+  }
+ },
+ {
+  "name": "set_points",
+  "description": "Set node values: {object id: {node id: values}}, values as\npoints() lists them, in document coordinates unless coords=\"local\"\n(moving a node, move its handles with it).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "changes": {
+     "additionalProperties": {
+      "additionalProperties": {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      "type": "object"
+     },
+     "title": "Changes",
+     "type": "object"
+    },
+    "coords": {
+     "default": "document",
+     "enum": [
+      "document",
+      "local"
+     ],
+     "title": "Coords",
+     "type": "string"
+    }
+   },
+   "required": [
+    "changes"
+   ],
+   "title": "set_pointsArguments"
+  }
+ },
+ {
+  "name": "point_style",
+  "description": "Give points 0, 1 or 2 curve handles, and pin them (so no edit or\noperation moves them) or unpin them.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "points": {
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+     },
+     "minItems": 1,
+     "title": "Points",
+     "type": "array"
+    },
+    "handles": {
+     "anyOf": [
+      {
+       "enum": [
+        0,
+        1,
+        2
+       ],
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Handles"
+    },
+    "pinned": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Pinned"
+    }
+   },
+   "required": [
+    "points"
+   ],
+   "title": "point_styleArguments"
+  }
+ },
+ {
+  "name": "break_points",
+  "description": "Cut lines or closed contours open at points. Given the two points\nat the ends of a segment, delete that segment instead, as the\neditor's Break does.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "points": {
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+     },
+     "minItems": 1,
+     "title": "Points",
+     "type": "array"
+    }
+   },
+   "required": [
+    "points"
+   ],
+   "title": "break_pointsArguments"
+  }
+ },
+ {
+  "name": "split_edge",
+  "description": "Add a point halfway along the edge leading into each point.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "points": {
+     "items": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+     },
+     "minItems": 1,
+     "title": "Points",
+     "type": "array"
+    }
+   },
+   "required": [
+    "points"
+   ],
+   "title": "split_edgeArguments"
+  }
+ },
+ {
+  "name": "extract",
+  "description": "Take the contours lying inside region ([x, y, w, h] or a polygon\n[[x, y], ...], document coordinates) out of their paths, each path's\ninto a new path with its paint, just above it in its group;\ngroup=true puts the new paths into one new group instead, just above\nthe frontmost path they came from.\n\nThe paths ids, or every unlocked path painting there; a rect, circle,\nellipse or line it cuts becomes a path first, keeping its id and\npaint. An instance (use) draws shared geometry: detach=true gives it\na path of its own first, else it is refused. cut=true cuts strokes\ncrossing the region's edge there (and splits fills along it);\ncut=false takes only whole contours. One undo step.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "items": {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      }
+     ],
+     "title": "Region"
+    },
+    "ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ids"
+    },
+    "cut": {
+     "default": true,
+     "title": "Cut",
+     "type": "boolean"
+    },
+    "group": {
+     "default": false,
+     "title": "Group",
+     "type": "boolean"
+    },
+    "detach": {
+     "default": false,
+     "title": "Detach",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "region"
+   ],
+   "title": "extractArguments"
+  }
+ },
+ {
+  "name": "knife",
+  "description": "Cut paths along the line start to end ([x, y] each): the paths\nids, or every unlocked path it crosses (within a group if given).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "start": {
+     "items": {
+      "type": "number"
+     },
+     "title": "Start",
+     "type": "array"
+    },
+    "end": {
+     "items": {
+      "type": "number"
+     },
+     "title": "End",
+     "type": "array"
+    },
+    "ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ids"
+    },
+    "within": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Within"
+    }
+   },
+   "required": [
+    "start",
+    "end"
+   ],
+   "title": "knifeArguments"
+  }
+ },
+ {
+  "name": "redraw_outline",
+  "description": "Redraw the stretch of a path's outline that the stroke points\n([x, y] each) runs along; both ends must lie on the same contour,\nwithin 10 pixel sizes. long_way takes the other way round a loop.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "points": {
+     "items": {
+      "items": {
+       "type": "number"
+      },
+      "type": "array"
+     },
+     "title": "Points",
+     "type": "array"
+    },
+    "long_way": {
+     "default": false,
+     "title": "Long Way",
+     "type": "boolean"
+    },
+    "pixel": {
+     "default": 1.0,
+     "title": "Pixel",
+     "type": "number"
+    }
+   },
+   "required": [
+    "id",
+    "points"
+   ],
+   "title": "redraw_outlineArguments"
+  }
+ },
+ {
+  "name": "undo",
+  "description": "Undo exact history IDs, in the given order, whoever made them.\n\nGet IDs from history() or an edit's edit_id. Unrelated later edits\nstay; conflicting edits are refused. The whole batch is atomic.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Ids",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "undoArguments"
+  }
+ },
+ {
+  "name": "redo",
+  "description": "Redo exact undone history IDs, in the given order.\n\nGet IDs from history(). Conflicts refuse the entire batch.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Ids",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "redoArguments"
+  }
+ },
+ {
+  "name": "edit_batch",
+  "description": "Stage drawing edits privately, inspect eight normal/close views, apply once.\n\nedits=[{tool: 'properties', args: {ids: ['path'], fill: 'green'}}].\nEach supported drawing edit can be staged; history/reference/job calls cannot.\nAn edit's optional `as` names its result; later arguments use '$name'.\nApply merges against the staged revision and refuses conflicts atomically.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "default": "stage",
+     "enum": [
+      "stage",
+      "status",
+      "apply",
+      "discard"
+     ],
+     "title": "Action",
+     "type": "string"
+    },
+    "edits": {
+     "anyOf": [
+      {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Edits"
+    },
+    "id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Id"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    },
+    "close_region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Close Region"
+    },
+    "label": {
+     "default": "Edit batch",
+     "title": "Label",
+     "type": "string"
+    }
+   },
+   "title": "edit_batchArguments"
+  }
+ },
+ {
+  "name": "generate",
+  "description": "Trace the reference into new shapes, as a job to preview.\n\ncel: flat colour regions with ink lines (settings regions,\ntolerance, line_width, strokes, outline); colour-regions: posterised\nregions (colours, min_pixels, tolerance, ...).\nOver the whole drawing, or into the area of the group group.\n",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "method": {
+     "default": "cel",
+     "enum": [
+      "cel",
+      "colour-regions"
+     ],
+     "title": "Method",
+     "type": "string"
+    },
+    "settings": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Settings"
+    },
+    "group": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Group"
+    }
+   },
+   "title": "generateArguments"
+  }
+ },
+ {
+  "name": "tidy",
+  "description": "Tidy paths as a job: snap to the reference, simplify, fit (steps\nshape, snap, detail, simplify; budget: % simplify may worsen the\nmatch, tolerance: px cap; allowance: % any step may; seconds, ...).\nWith region ([x, y, w, h] or a polygon) only the points inside it\nmove, of the paths ids or every unlocked one painting there.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ids"
+    },
+    "settings": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Settings"
+    },
+    "rounds": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Rounds"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "number"
+       },
+       "type": "array"
+      },
+      {
+       "items": {
+        "items": {
+         "type": "number"
+        },
+        "type": "array"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Region"
+    }
+   },
+   "title": "tidyArguments"
+  }
+ },
+ {
+  "name": "fit_colours",
+  "description": "Fit the fills of objects to the reference, flat or as linear\nprivate per-object gradients, as a job.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "fill": {
+     "default": "flat",
+     "enum": [
+      "flat",
+      "linear"
+     ],
+     "title": "Fill",
+     "type": "string"
+    },
+    "passes": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Passes"
+    },
+    "resolution": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Resolution"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "fit_coloursArguments"
+  }
+ },
+ {
+  "name": "snap_edges",
+  "description": "Snap the touching edges of two or more paths together, as a job.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    },
+    "tolerance": {
+     "default": 1.0,
+     "title": "Tolerance",
+     "type": "number"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "snap_edgesArguments"
+  }
+ },
+ {
+  "name": "cleanup",
+  "description": "Merge duplicate paths and drop redundant points, as a job.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ids": {
+     "items": {
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Ids",
+     "type": "array"
+    }
+   },
+   "required": [
+    "ids"
+   ],
+   "title": "cleanupArguments"
+  }
+ },
+ {
+  "name": "job",
+  "description": "A job's progress (action=\"status\"): waits up to wait_seconds (at\nmost 120) for it to finish, then gives its metrics and before/after\npreviews. \"apply\" keeps a finished job's result (or alternative\nchoice) as one undo step, \"discard\" drops the job, \"stop\" stops it\nearly keeping its best result so far.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "action": {
+     "default": "status",
+     "enum": [
+      "status",
+      "apply",
+      "discard",
+      "stop"
+     ],
+     "title": "Action",
+     "type": "string"
+    },
+    "wait_seconds": {
+     "default": 30,
+     "title": "Wait Seconds",
+     "type": "number"
+    },
+    "choice": {
+     "default": 0,
+     "title": "Choice",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "title": "jobArguments"
+  }
+ }
+]

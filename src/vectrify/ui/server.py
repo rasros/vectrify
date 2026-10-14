@@ -12,17 +12,18 @@ import base64
 import json
 import mimetypes
 import secrets
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from vectrify.document import DocumentError, StaleRevisionError, import_svg
+from vectrify.document import DocumentError, import_svg
 from vectrify.document.editor import PinnedDeletionError
-from vectrify.project_file import MAX_SOURCE, decode_source, encode_project
+from vectrify.project_file import MAX_SOURCE, decode_source
 from vectrify.ui.agent_channel import MCP_PORT, AgentChannel, answer
 from vectrify.ui.session import Session
+from vectrify.ui.shared import REFUSALS, png, refusal
 
 STATIC = Path(__file__).with_name("static")
 # How often an idle push channel says it is still there, in seconds.
@@ -83,110 +84,15 @@ class Backend:
             if not isinstance(data, dict):
                 raise DocumentError("Expected an editor request")
             if path == "/api/session":
-                session_id = data.get("session")
-                if session_id not in self.sessions:
-                    session_id = secrets.token_urlsafe(24)
-                    session = Session(
-                        self.document,
-                        self.name,
-                        self.reference if not self.project_source else None,
-                    )
-                    if self.project_source:
-                        session.open(self.project_source, self.name)
-                        if self.reference:
-                            session.reference = session.fit_reference(self.reference)
-                    self.sessions[session_id] = session
-                session = self.sessions[session_id]
-                with session.lock:
-                    result = session.state()
-                    result["session"] = session_id
-                return 200, result
+                return 200, self._session(data)
             session = self.sessions.get(session_id or "")
             if session is None:
                 return 401, {"error": "Editor session expired; reload this page"}
             with session.lock:
-                if path == "/api/action":
-                    result = session.action(data)
-                elif path == "/api/operation":
-                    result = session.operation(data)
-                elif path == "/api/holes":
-                    result = session.holes(data)
-                elif path == "/api/region":
-                    result = session.region(data)
-                elif path == "/api/sample":
-                    result = session.sample(data)
-                elif path == "/api/nodes":
-                    session.check_revision(data)
-                    result = (
-                        session.geometries(data["objects"])
-                        if "objects" in data
-                        else session.nodes(data["object"])
-                    )
-                elif path == "/api/poll":
-                    # What the page checks for agents' edits, and the footer
-                    # (pushed to it as they happen, polled now and then); it
-                    # says what it shows, for an agent's describe().
-                    if data.get("view") is not None:
-                        session.set_view(data["view"])
-                    result = self.pulse(session, session_id or "")
-                elif path == "/api/agent":
-                    if data.get("regenerate"):
-                        result = self.agents.regenerate(session_id or "")
-                    elif data.get("enabled"):
-                        result = self.agents.enable(session_id or "")
-                    else:
-                        result = self.agents.disable(session_id or "")
-                elif path == "/api/reference":
-                    result = {
-                        **session.content_version(),
-                        "reference": session.reference,
-                    }
-                elif path == "/api/reference-error":
-                    session.check_revision(data)
-                    if data.get("view") is not None:
-                        session.set_view(data["view"])
-                    from vectrify.ui.agent import _png
-
-                    result = {
-                        "image": "data:image/png;base64,"
-                        + base64.b64encode(_png(session.reference_error())).decode(),
-                    }
-                elif path == "/api/export":
-                    session.check_revision(data)
-                    if (
-                        "project_version" in data
-                        and data["project_version"] != session.project_version
-                    ):
-                        raise StaleRevisionError(
-                            "The project changed while saving. Save again."
-                        )
-                    result = {
-                        **session.content_version(),
-                        "content": session.project()
-                        if data.get("project")
-                        else session.state()["svg"],
-                    }
-                    if data.get("project") and data.get("compressed"):
-                        result["content"] = base64.b64encode(
-                            encode_project(result["content"])
-                        ).decode("ascii")
-                        result["encoding"] = "base64"
-                        document = session.editor.snapshot.document
-                        geometry_ids = {
-                            element.geometry_id for element in document.elements()
-                        }
-                        result["summary"] = {
-                            "objects": len(document.elements()) - 1,
-                            "nodes": sum(
-                                len(subpath.nodes)
-                                for geometry in document.geometries
-                                if geometry.id in geometry_ids
-                                for subpath in geometry.subpaths
-                            ),
-                        }
-                else:
+                route = ROUTES.get(path)
+                if route is None:
                     return 404, {"error": "Not found"}
-            return 200, result
+                return 200, route(self, session, data, session_id or "")
         except PinnedDeletionError as exc:
             if path == "/api/action" and data.get("command") == "delete":
                 return 200, {
@@ -197,18 +103,78 @@ class Backend:
                     ),
                 }
             return 400, {"error": str(exc)}
-        except StaleRevisionError as exc:
-            return 409, {"error": str(exc)}
-        except (
-            DocumentError,
-            ValueError,
-            TypeError,
-            KeyError,
-            IndexError,
-            AttributeError,
-            OSError,
-        ) as exc:
-            return 400, {"error": str(exc)}
+        except REFUSALS as exc:
+            return refusal(exc)
+
+    def _session(self, data: dict) -> dict[str, Any]:
+        session_id = data.get("session")
+        if session_id not in self.sessions:
+            session_id = secrets.token_urlsafe(24)
+            session = Session(
+                self.document,
+                self.name,
+                self.reference if not self.project_source else None,
+            )
+            if self.project_source:
+                session.open(self.project_source, self.name)
+                if self.reference:
+                    session.reference = session.fit_reference(self.reference)
+            self.sessions[session_id] = session
+        session = self.sessions[session_id]
+        with session.lock:
+            result = session.state()
+            result["session"] = session_id
+        return result
+
+    def _nodes(self, session: Session, data: dict, _session_id: str) -> dict:
+        session.check_revision(data)
+        if "objects" in data:
+            return session.geometries(data["objects"])
+        return session.nodes(data["object"])
+
+    def _poll(self, session: Session, data: dict, session_id: str) -> dict:
+        # What the page checks for agents' edits, and the footer (pushed to it
+        # as they happen, polled now and then); it says what it shows, for an
+        # agent's describe().
+        if data.get("view") is not None:
+            session.set_view(data["view"])
+        return self.pulse(session, session_id)
+
+    def _agent(self, _session: Session, data: dict, session_id: str) -> dict:
+        if data.get("regenerate"):
+            return self.agents.regenerate(session_id)
+        if data.get("enabled"):
+            return self.agents.enable(session_id)
+        return self.agents.disable(session_id)
+
+    def _reference(self, session: Session, _data: dict, _session_id: str) -> dict:
+        return {**session.content_version(), "reference": session.reference}
+
+    def _reference_error(self, session: Session, data: dict, _session_id: str) -> dict:
+        session.check_revision(data)
+        if data.get("view") is not None:
+            session.set_view(data["view"])
+        return {
+            "image": "data:image/png;base64,"
+            + base64.b64encode(png(session.reference_error())).decode(),
+        }
+
+
+# The page's requests on its session, by path: (backend, session, data,
+# session id) to the answer's body.
+ROUTES: dict[str, Callable[[Backend, Session, dict, str], Any]] = {
+    "/api/action": lambda _backend, session, data, _id: session.action(data),
+    "/api/operation": lambda _backend, session, data, _id: session.operation(data),
+    "/api/holes": lambda _backend, session, data, _id: session.holes(data),
+    "/api/region": lambda _backend, session, data, _id: session.region(data),
+    "/api/sample": lambda _backend, session, data, _id: session.sample(data),
+    "/api/nodes": Backend._nodes,
+    "/api/poll": Backend._poll,
+    "/api/agent": Backend._agent,
+    "/api/reference": Backend._reference,
+    "/api/reference-error": Backend._reference_error,
+    "/api/export": lambda _backend, session, data, _id: session.export(data),
+}
 
 
 class EditorServer(ThreadingHTTPServer):

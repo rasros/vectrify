@@ -110,7 +110,7 @@ def feature_checks(document, checks: list[dict]) -> list[dict]:
     from vectrify.document import DocumentError
     from vectrify.document.regions import object_matrix
     from vectrify.document.topology import mapped_point
-    from vectrify.ui.agent import _finite
+    from vectrify.ui.shared import finite
 
     results = []
     for check in checks:
@@ -131,9 +131,9 @@ def feature_checks(document, checks: list[dict]) -> list[dict]:
             raise DocumentError(
                 "Feature expected position is [x,y] in document coordinates"
             )
-        expected = tuple(_finite(v, "expected position") for v in expected)
-        tolerance = _finite(check.get("max_displacement", 0), "max_displacement")
-        min_turn = _finite(check.get("min_turn", 30), "min_turn")
+        expected = tuple(finite(v, "expected position") for v in expected)
+        tolerance = finite(check.get("max_displacement", 0), "max_displacement")
+        min_turn = finite(check.get("min_turn", 30), "min_turn")
         if tolerance < 0 or not 0 <= min_turn <= 180:
             raise DocumentError(
                 "Feature displacement must be nonnegative and turn in [0,180]"
