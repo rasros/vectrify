@@ -12,6 +12,12 @@ import {pluralLocale} from './util.js';
 // selection.
 export const TOOL_LEVEL = {select: 'objects', move: 'objects', knife: 'objects', region: 'objects', eyedropper: 'objects', gradient: 'objects', nodes: 'points', redraw: 'points', path: 'create', rect: 'create', ellipse: 'create', line: 'create', pencil: 'create', hand: 'view'};
 
+// Commands act on selected points, not merely on the active point tool.
+// Keep pending server-selected nodes at point level until geometry loads.
+export function selectionActionLevel(level, points, nodes = []) {
+  return level === 'points' && (points.length || nodes.length) ? 'points' : 'objects';
+}
+
 export const pointKey = (object, node) => `${object} ${node}`;
 export function splitKey(key) {
   const space = key.indexOf(' ');

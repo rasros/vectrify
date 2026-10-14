@@ -167,8 +167,8 @@ export function createKeysController(editor, {
       const contours=event.shiftKey;
       later(()=>{
         if(!editor.state?.selection.objects.length)return;
-        if(level()!=='points') { if(!contours) runCommand('delete'); return; }
-        if(selectedPoints().length) runCommand(contours ? 'delete-contour' : 'delete-points');
+        if (!contours) runCommand('delete-selection');
+        else if (level() === 'points' && selectedPoints().length) runCommand('delete-contour');
       });
     }
   }

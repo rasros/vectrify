@@ -1,4 +1,5 @@
-import {splitKey} from './selection.js';
+import {revealInspectorField} from './inspector.js';
+import {selectionActionLevel, splitKey} from './selection.js';
 import {breakable, freeEnd} from './lines.js';
 import {JOIN_REACH} from './app_config.js';
 import {SHAPES} from './clipping.js';
@@ -27,6 +28,7 @@ export function createCommandRegistryController(editor, {
     {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'A', keywords: 'pick arrow objects box', run: () => app.view.setTool('select')},
     {id: 'tool-move', name: 'Move tool', group: 'Tools', keys: 'V', keywords: 'translate position line objects', run: () => app.view.setTool('move')},
     {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'S', keywords: 'edit points handles', run: () => app.view.setTool('nodes')},
+    {id: 'tool-draw', name: 'Draw tool', group: 'Tools', keywords: 'drawing shapes path rectangle ellipse circle line pencil', run: () => app.view.setTool('draw')},
     {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'D', keywords: 'pen draw path shape', run: () => app.view.setTool('path')},
     {id: 'tool-rect', name: 'Rectangle tool', group: 'Tools', keys: 'M', keywords: 'draw rectangle square rounded corners box shape', run: () => app.view.setTool('rect')},
     {id: 'tool-ellipse', name: 'Ellipse tool', group: 'Tools', keys: 'E', keywords: 'draw ellipse circle oval shape', run: () => app.view.setTool('ellipse')},
@@ -60,6 +62,11 @@ export function createCommandRegistryController(editor, {
     {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: () => app.commands.renameObject(), disabled: () => !app.session.oneObject() && 'Select one object to rename'},
     {id: 'delete', name: 'Delete objects', group: 'Object', keys: 'Delete', keywords: 'remove erase', description: 'Delete the selected objects',
       danger: true, run: () => app.actions.action('delete'), disabled: () => app.commands.noSelection()},
+    // The Delete shortcut and shared controls follow the current selection.
+    // Explicit Delete objects/Delete points commands keep their own targets.
+    {id: 'delete-selection', name: 'Delete selection', label: () => commandName(deleteTarget()), group: 'Edit', keys: 'Delete', hidden: () => true,
+      get description() { return deleteTarget().description; }, danger: true,
+      run: () => deleteTarget().run(), disabled: () => commandRefusal(deleteTarget())},
     // Hiding is saved with the drawing (display="none"): the eye on each row
     // of the Objects tree does the same for its object.
     {id: 'hide-objects', name: 'Hide objects', group: 'Object', keywords: 'visibility visible invisible eye conceal display none',
@@ -84,7 +91,7 @@ export function createCommandRegistryController(editor, {
         || (app.session.oneObject() && hiddenRefusal([app.session.oneObject().id], app.session.object, 'edit'))},
     {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', keywords: 'leave exit group', run: () => app.canvas.stepUp(), disabled: () => !editor.state.selection.objects.length && !editor.scope && 'Nothing to step up from'},
     // Paint
-    {id: 'fill', name: 'Edit fill', group: 'Paint', keywords: 'colour color', run: () => $('fill-value').focus(), disabled: () => app.commands.noSelection()},
+    {id: 'fill', name: 'Edit fill', group: 'Paint', keywords: 'colour color', run: () => revealInspectorField(document, $('fill-value')), disabled: () => app.commands.noSelection()},
     // The Eyedropper's choices: what it samples and what the sample sets.
     {id: 'sample-fill', name: 'Sample fill colour', group: 'Paint', keywords: 'eyedropper colour color picker dropper',
       description: 'Pick up the Eyedropper (I) to set the fill to a colour clicked in the artwork or the reference',
@@ -97,13 +104,13 @@ export function createCommandRegistryController(editor, {
     {id: 'sample-reference', name: 'Sample from the reference', group: 'Paint', keywords: 'eyedropper colour color picker dropper image source',
       description: 'Sample the reference image, with the Eyedropper (I)', run: () => app.eyedropper.choose({source: 'reference'}), disabled: () => app.eyedropper.sourceRefusal('reference')},
     {id: 'create-gradient', name: 'Create linear gradient', group: 'Paint', keywords: 'fill colour color stops shading', run: () => app.gradients.createFillGradient(), disabled: () => app.gradients.gradientRefusal()},
-    {id: 'stroke', name: 'Edit stroke', group: 'Paint', keywords: 'colour color outline', run: () => $('stroke-value').focus(), disabled: () => app.commands.noSelection()},
+    {id: 'stroke', name: 'Edit stroke', group: 'Paint', keywords: 'colour color outline', run: () => revealInspectorField(document, $('stroke-value')), disabled: () => app.commands.noSelection()},
     // Transform
     {id: 'position-size', name: 'Position and size…', group: 'Transform', keywords: 'x y width height dimensions bounds coordinates numeric resize scale',
-      description: 'Type where the selection frame is and how large', run: () => $('transform-x').select(), disabled: () => app.transform.fieldRefusal('x')},
-    {id: 'move-by', name: 'Move by…', group: 'Transform', keywords: 'offset position translate', run: () => $('move-x').select(), disabled: () => app.commands.noSelection()},
+      description: 'Type where the selection frame is and how large', run: () => { revealInspectorField(document, $('transform-x')); $('transform-x').select(); }, disabled: () => app.transform.fieldRefusal('x')},
+    {id: 'move-by', name: 'Move by…', group: 'Transform', keywords: 'offset position translate', run: () => { revealInspectorField(document, $('move-x')); $('move-x').select(); }, disabled: () => app.commands.noSelection()},
     {id: 'rotate', name: 'Rotate…', group: 'Transform', keywords: 'rotation angle turn degrees spin pivot', description: 'Type the selection\'s angle; it turns about the pivot shown in Move',
-      run: () => $('transform-angle').select(), disabled: () => app.transform.fieldRefusal('angle')},
+      run: () => { revealInspectorField(document, $('transform-angle')); $('transform-angle').select(); }, disabled: () => app.transform.fieldRefusal('angle')},
     {id: 'flip-horizontal', name: 'Flip horizontal', group: 'Transform', keys: 'Shift H', keywords: 'mirror reflect left right', description: 'Mirror the selection left to right about the centre of its frame',
       run: () => app.rotating.flip('horizontal'), disabled: () => app.rotating.turnRefusal('flip')},
     {id: 'flip-vertical', name: 'Flip vertical', group: 'Transform', keys: 'Shift V', keywords: 'mirror reflect upside down top bottom', description: 'Mirror the selection top to bottom about the centre of its frame',
@@ -229,7 +236,7 @@ export function createCommandRegistryController(editor, {
     // Ctrl/⌘ J runs whichever join fits the selection: the two selected points
     // in a point tool, else merging shapes or joining line ends.
     {id: 'join', name: 'Join', label: () => commandName(joinTarget()), group: 'Path', keys: 'Ctrl/⌘ J', hidden: () => true,
-      run: () => joinTarget().run(), disabled: () => app.geometry.level() === 'points' ? commandRefusal(joinTarget())
+      run: () => joinTarget().run(), disabled: () => selectionActionLevel(app.geometry.level(), app.geometry.selectedPoints(), editor.state?.selection.nodes) === 'points' ? commandRefusal(joinTarget())
         : commandRefusal(joinTarget()) && 'Select paths to merge, or lines whose ends to join'},
   ];
 
@@ -269,8 +276,12 @@ export function createCommandRegistryController(editor, {
     return 'Select rectangles, circles, ellipses or lines';
   }
 
+  function deleteTarget() {
+    return commandById.get(selectionActionLevel(app.geometry.level(), app.geometry.selectedPoints(), editor.state?.selection.nodes) === 'points' ? 'delete-points' : 'delete');
+  }
+
   function joinTarget() {
-    if (app.geometry.level() === 'points') return commandById.get('join-points');
+    if (selectionActionLevel(app.geometry.level(), app.geometry.selectedPoints(), editor.state?.selection.nodes) === 'points') return commandById.get('join-points');
     return commandById.get(!mergeRefusal() || commandRefusal(commandById.get('join-line-ends')) ? 'merge-shapes' : 'join-line-ends');
   }
 
@@ -278,6 +289,6 @@ export function createCommandRegistryController(editor, {
     document.addEventListener('pointerdown', event => { if (!$('agent-popover').hidden && !event.target.closest('#agent-popover, #agent-toggle')) app.agent_controls.closeAgentPopover(); });
       return api;
   }
-  const api = {COMMANDS, commandById, commandName, commandRefusal, commandTitle, joinTarget, wire};
+  const api = {COMMANDS, commandById, commandName, commandRefusal, commandTitle, deleteTarget, joinTarget, wire};
   return api;
 }

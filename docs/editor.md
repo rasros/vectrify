@@ -32,23 +32,31 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   important first (**New…** and **Restore saved…**, then **Open…**, then
   **Save As…** and **Save**), so
   **Commands** and **Export SVG** stay in view.
-- **Left**: the tool rail, the **Objects** tree and, below it, the
-  **Reference** panel. The rail holds the object tools **Select** (`A`),
-  **Move** (`V`), **Knife** (`C`), **Region** (`X`) and **Gradient** (`G`), the point tools **Nodes** (`S`) and
-  **Redraw outline** (`R`), the drawing tools **Draw path** (`D`),
-  **Rectangle** (`M`), **Ellipse** (`E`), **Line** (`L`) and **Pencil** (`P`),
-  which create and ignore the selection, the **Eyedropper** (`I`), and **Pan** (hold Space). The Reference panel holds the reference
-  image and the tools that match the drawing to it (see Operations); its heading folds it
-  away, and loading a reference opens it again.
+- **Left**: the rail keeps **Select** (`A`), **Move** (`V`), **Nodes** (`S`),
+  **Redraw outline** (`R`) and **Eyedropper** (`I`) within reach. **More tools**
+  holds **Draw**, **Knife** (`C`), **Region** (`X`), **Gradient** (`G`) and
+  **Pan** (hold Space). Tool shortcuts still activate these directly; the
+  current tool appears above the canvas and More highlights for a secondary
+  tool. The menu supports arrow keys, Home/End and Escape.
+  Draw has a type picker for **Path** (`D`), **Rectangle** (`M`),
+  **Ellipse / circle** (`E`, Shift for a circle), **Line** (`L`) and
+  **Pencil** (`P`), and remembers its last type.
+  The **Reference** panel sits above the **Objects** tree. Generate, Tidy and
+  Fit colours stay visible, with Fit gradient under **More matching options**.
+  The panel also holds reference views and overlay opacity; its heading folds
+  it away, and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
   controls, and on the right the selection's level and count, such as "Objects
-  · 3 selected" or "Points · 5 points in 3 paths". Select has the stacking
-  buttons and, inside an entered group, a breadcrumb such as "Drawing › Trees"
+  · 3 selected" or "Points · 5 points in 3 paths". Select shows, inside an
+  entered group, a breadcrumb such as "Drawing › Trees"
   (click a part to pick at that level). Nodes has the handle buttons (None /
-  One / Two), **Break**, **Join points**, **Add node**, **Straighten**,
-  **Delete points**, X / Y for a single point, and **Fill hole** / **Hole to
-  shape**, which run when the points are on holes. Numbered controls show their digit, and the keys 1-9 press them (see
-  Keyboard shortcuts). Draw path has Finish, Close shape and Cancel; Rectangle
+  One / Two), **Break**, **Join points**, **Add node**, **Straighten** and
+  **Delete**, shown as icons with tooltips. Delete targets selected handles or
+  points first, otherwise the selected objects. Coordinates and hole
+  operations live in the **Points** inspector tab. Numbered controls show their digit, and the keys 1-9 press them. Stacking
+  is under Actions → Arrange, with keys 1–4 in Select or Move (see
+  Keyboard shortcuts). Draw shows a type picker beside its name; Path has
+  Finish, Close shape and Cancel; Rectangle
   and Ellipse have W and H, Line has Length and Angle, and Rectangle has
   Corners; Pencil has Close shape and Smoothing; all the drawing tools end
   with the drawing paint (Fill, Stroke and Width). The Eyedropper has **Artwork** / **Reference** (what it samples),
@@ -57,48 +65,44 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   tools, the Eyedropper and Pan show a
   one-line hint; Region's choices are in its own panel over the canvas. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
-  important of them (Add node, the coordinates and the hole commands first, and so on) move
+  important of them (Add node first, and so on) move
   into a **⋯** menu at the end of the controls, which holds them until there
   is room again; the status stays in view. A command run from the menu closes
   it.
-- **Right**: only the selection's properties and commands, in the same order
-  every time. With points selected in a point tool, the points come first: a
-  single point's coordinates (in its path's own frame), its handles and
-  whether it is pinned, a note when the points are of shared geometry or the
-  selection holds instances, and the **Point operations**: Break, Join
-  points, Add node, Delete contour, Fill hole, Hole to shape and Delete
-  points. Then the objects' name, role and connections, and their commands
-  by what they change:
-  - **Paint**: fill (solid, linear gradient or none), stroke, stroke width,
-    opacity, and the stroke's corners, ends and arrows.
-  - **Transform**: the selection frame's **X**, **Y**, **W** and **H**, with
-    a proportion lock, its **Rotation**, Flip horizontal and Flip vertical,
-    and **Move by** an offset (see Position and size, and Rotate and flip,
-    below).
-  - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
-    Group and Ungroup; **Align** left, centre, right, top, middle and bottom
-    to the reference chosen beside them (Selection, Artboard or Key object);
-    and **Distribute** horizontally or vertically with equal gaps or equal
-    centres (see Align and distribute below).
-  - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
-    Union, Subtract, Intersect, Exclude, Stroke to path, Fill to centerline, Split parts, Convert to path,
-    Detach, Extract region and Delete region.
-  - **Clipping**: Set clip…, Remove clip and Show (or Hide) clipping
-    boundaries.
-  - **Repair**: Tidy…, Clean up… and Snap edges….
-  - **Locks**, and **Object**: Copy objects, Paste objects and Delete objects.
+- **Right**: three tabs keep the inspector focused. Switching to Nodes or
+  Redraw outline opens **Points**; other tool switches open **Object**. Clicking
+  a point, clearing points or changing the selection never changes the chosen
+  tab, expands a section, or inserts controls above the object properties.
+  - **Object** holds the name, role and connections, **Paint**, **Transform** and **Locks** sections,
+    folded by default. Paint holds fill, stroke, width, opacity, corners,
+    ends and arrows. Transform holds X, Y, W, H, proportions, rotation,
+    flips and Move by. Field commands from the palette and F2 open the tab and
+    section containing their field before focusing it.
+  - **Points** keeps coordinates, handles, alignment, pinning and the common
+    point operations in fixed positions. Coordinates are disabled and blank
+    without exactly one selected point; multiple points show “Multiple”.
+    **Contours & holes** and **Point editing tips** expand for secondary
+    operations and guidance, including notes about shared geometry and instances.
+  - **Actions** offers folded **Arrange**, **Path**, **Clipping**, **Repair**
+    and **Object** groups, with labelled icons. Arrange separates stacking,
+    grouping, alignment and distribution. Path separates join/split, boolean
+    shapes, and conversion/extraction. Each section retains its open state
+    while the selection changes and when switching tabs.
 
-  The tools that compare the drawing with a reference are in the
-  **Reference** panel on the left. Every command stays in its place whatever
-  is selected: one that cannot run now is dimmed, its tooltip says why, and
-  pressing it shows the reason instead of doing anything. The reason is the
-  same wherever the command appears: the right panel, the tool strip, the
-  context menu and the command palette all run the same command.
-- **Right-click** on the canvas or in the tree for a menu of the selection's
-  commands, under the same headings: a right-click on something unselected
-  selects it first. On objects it lists Select, Object, Arrange, Path and
-  Repair; in a point tool, the Nodes commands. Commands that cannot run now
-  are dimmed with the reason as their tooltip.
+  Reference tools remain in the **Reference** panel on the left. Unavailable
+  commands stay in place, dimmed, with the reason in their tooltip; pressing
+  one shows that reason. The inspector, tool strip, context menu and command
+  palette all use the same commands and availability checks.
+- **Right-click** opens a short menu with icons and shortcuts. A selected
+  object's menu holds Edit points/Enter group, Tidy, Fit colours, Copy, Paste,
+  Rename and Delete. With points selected, point menus hold corner/smooth handles, Add node, Break,
+  Join, Select all points and Delete points (or Delete handle). Background
+  menus offer Undo/Redo, Paste, Select all and reference loading/generation.
+  **More actions…** opens the searchable command palette for every advanced
+  command. Unavailable quick actions stay in place and explain why in their
+  tooltip. Right-clicking something unselected selects it first; the object
+  tree always offers object actions, including while editing points. In Nodes,
+  with an object selected but no points, the canvas offers object actions too.
 - **Command palette** (Ctrl/⌘ K, or **Commands** in the top bar): type to find
   any command by name, group or a keyword (tools, paint, arrange, path,
   repair, nodes, reference tools, open, save, export, view), with its
@@ -204,7 +208,7 @@ all of them as one undoable edit.
   with no path selected it says so. A text field keeps its own Ctrl/⌘ A.
 - **Arrow keys** nudge the selection by 1 document unit (the root SVG's
   user unit, as X, Y and Move by use), or 10 with Shift, whatever the zoom:
-  the selected points in a point tool, else the selected objects. Objects
+  selected points when present in a point tool, otherwise the selected objects. Objects
   move through the same **Move selection** as a drag, in document
   coordinates, so objects inside rotated or scaled groups move as far on
   the page as the rest, and repeated nudges add up into one `translate` on
@@ -459,8 +463,10 @@ and saved projects restore it.
   selection moves by one distance on the page, which each object takes in its
   own group's frame, so objects in rotated or scaled groups land where the
   preview showed them. Escape cancels the move.
-- **Nodes (S)** edits the points of every selected path. Delete/Backspace
-  deletes the selected points, a contour's start point included: the next
+- **Nodes (S)** edits the points of every selected path. Without selected
+  points or handles, Delete/Backspace deletes the selected objects, as in
+  Select (A); arrow keys nudge those objects too. With points selected,
+  Delete/Backspace deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points
   (three when closed) is deleted, and a path left without contours is deleted
   too, so a stray speck can be removed point by point or at once with
@@ -628,8 +634,8 @@ and saved projects restore it.
   **Join points** (Nodes) joins two selected points, as above; **Join line
   ends** (Path) joins lines at their ends, below; and **Merge shapes** (Path)
   merges paths by area, through a dialog (**Merge shapes…**) for two or more.
-  Ctrl/⌘ J runs the one that fits: the two selected points in a point tool,
-  else Merge shapes, or Join line ends when only lines are selected. Each
+  Ctrl/⌘ J runs the one that fits: selected points in a point tool,
+  otherwise Merge shapes, or Join line ends when only lines are selected. Each
   says what to select when it cannot run.
 - With a single filled path selected, **Merge shapes** unions overlapping contours
   inside that path and resolves self-intersections, removing internal seams.
@@ -869,7 +875,7 @@ tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
 controls (in Nodes: 1-3 handles, 4 Break, 5 Join points, 6 Add node, 7 Straighten; in Select or Move: 1-4
-the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel; in
+the stacking commands under Actions → Arrange; in Draw path: 1 Finish, 2 Close shape, 3 Cancel; in
 Pencil: 1 Close shape; in the Eyedropper: 1 Artwork, 2 Reference, 3 Fill, 4 Stroke),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins what the
@@ -943,7 +949,7 @@ the artboard (see Operations); changing the artboard never refits it.
 
 ## Operations
 
-The **Reference** panel, below the objects on the left, is where the
+The **Reference** panel, above the objects on the left, is where the
 reference lives, whichever tool is active: **Load…** (or **Replace…**) takes
 a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
 it. A new reference covers the artboard, so the image is fitted to it

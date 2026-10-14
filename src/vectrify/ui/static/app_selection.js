@@ -1,5 +1,5 @@
 import {DOUBLE_CLICK, NUDGE_RUN, POINT_REACH} from './app_config.js';
-import {pickTarget, pointKey, splitKey} from './selection.js';
+import {pickTarget, pointKey, selectionActionLevel, splitKey} from './selection.js';
 import {freeEnd} from './lines.js';
 import {hiddenRefusal} from './visibility.js';
 import {plural} from './util.js';
@@ -175,8 +175,8 @@ export function createSelectionController(editor, {
     const node = points.length === 1 && nodeAt(points[0]);
     const chosen = points.map(nodeAt).filter(Boolean), count = new Set(points.map(key => splitKey(key)[0])).size;
     const instances = pointTargetsNow().instances.length;
-    $('point-section').hidden = !onPoints || (!paths.length && !instances);
-    $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
+    $('point-section').hidden = false;
+    $('point-selection').textContent = !onPoints ? 'Choose the Nodes tool (S) to edit points' : !chosen.length ? 'Select a point on the canvas' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
     $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
     const hints = [selectedHandle() ? 'Handle selected: Delete removes this handle. Toggle Straighten to keep both handles in line while dragging.' : !loaded ? 'Loading path points…' : !chosen.length ? (editor.tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Hold Shift to move horizontally or vertically. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag without snapping.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
     const contour = node && contourAt(points[0]);
@@ -187,15 +187,21 @@ export function createSelectionController(editor, {
     if (instances) hints.push(`${plural(instances, 'instance')} (use) ${instances === 1 ? 'has' : 'have'} no points of ${instances === 1 ? 'its' : 'their'} own here: Detach ${instances === 1 ? 'it' : 'them'} to edit ${instances === 1 ? 'its' : 'their'} points.`);
     $('node-hint').textContent = hints.filter(Boolean).join(' ');
     $('node-hint').hidden = !$('node-hint').textContent;
-    $('point-properties').hidden = !chosen.length;
+    $('point-properties').hidden = false;
+    $('node-pin').disabled = !onPoints || !chosen.length;
     // Coordinates are shown for one point, in its path's own frame.
     for (const row of document.querySelectorAll('.point-coordinates')) {
-      row.hidden = !node;
-      if (!node) continue;
+      row.hidden = false;
+      if (!node) {
+        for (const field of row.querySelectorAll('input')) {
+          field.value = ''; field.placeholder = chosen.length > 1 ? 'Multiple' : '—'; field.disabled = true;
+        }
+        continue;
+      }
       for (const [selector, value] of [['.point-x', node.values.at(-2)], ['.point-y', node.values.at(-1)]]) {
         const field = row.querySelector(selector);
         if (document.activeElement !== field) field.value = +value.toFixed(4);
-        field.disabled = node.pinned;
+        field.placeholder = ''; field.disabled = !onPoints || !!node.pinned;
       }
     }
     const handles = node ? handleCount(points[0]) : null;
@@ -294,7 +300,7 @@ export function createSelectionController(editor, {
   }
 
   // Arrow keys nudge the selection by *dx*, *dy* in document units: the
-  // selected points in a point tool, else the selected objects. Nudges
+  // selected points when any are selected, else the selected objects. Nudges
   // pressed while an edit runs add up into one edit, sent once it is done,
   // so a held key never queues a backlog. A run of nudges of one selection,
   // each within NUDGE_RUN of the last, is one undo step (the server joins
@@ -302,7 +308,7 @@ export function createSelectionController(editor, {
   let nudgeRun = null;
 
   function nudge(dx, dy) {
-    const {epoch, selection} = editor.state, key = JSON.stringify([epoch, level() === 'points', selection.objects, selection.nodes]), time = now();
+    const {epoch, selection} = editor.state, key = JSON.stringify([epoch, selectionActionLevel(level(), selectedPoints(), selection.nodes), selection.objects, selection.nodes]), time = now();
     if (!nudgeRun || nudgeRun.key !== key || time - nudgeRun.time > NUDGE_RUN) nudgeRun = {id: `${epoch}:${time}:${Math.random().toString(36).slice(2)}`, key};
     nudgeRun.time = time;
     const run = nudgeRun.id;
@@ -311,7 +317,7 @@ export function createSelectionController(editor, {
 
   async function nudgeBy(dx, dy, run) {
     if (!editor.state || (!dx && !dy)) return false;
-    const edit = level() === 'points' ? pointNudge(dx, dy) : objectNudge();
+    const edit = selectionActionLevel(level(), selectedPoints(), editor.state.selection.nodes) === 'points' ? pointNudge(dx, dy) : objectNudge();
     if (!edit) return false;
     if (edit.refusal) { toast(edit.refusal, true); return false; }
     if (edit.changes) return action('move_nodes', {changes: edit.changes, nudge: run}, 'Moving points…');
@@ -367,7 +373,7 @@ export function createSelectionController(editor, {
   }
 
   function wire() {
-    // The point's coordinates, in the right panel and the Nodes strip.
+    // The point's coordinates stay in the Points inspector.
     for (const field of document.querySelectorAll('.point-x, .point-y')) {
       field.onchange = () => {
         const row = field.closest('.point-coordinates');

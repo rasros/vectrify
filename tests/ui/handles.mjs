@@ -240,6 +240,13 @@ assert.equal(handle(), null);
 call('deleteSelection')();
 assert.equal(sent.pop().command, 'delete');
 context.tool = 'nodes';
+selected = [];
+call('deleteSelection')();
+assert.equal(sent.pop().command, 'delete', 'Nodes with no points deletes the selected object');
+context.state.selection.nodes = ['pending'];
+call('deleteSelection')();
+assert.equal(sent.length, 0, 'pending point geometry must not delete the selected object');
+context.state.selection.nodes = [];
 
 // Either representation of a closed seam owns its incoming handle.
 closed = true;

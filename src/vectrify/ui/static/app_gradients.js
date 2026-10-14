@@ -1,3 +1,4 @@
+import {revealInspectorField} from './inspector.js';
 
 
 import {ENDPOINTS, ENDPOINT_DEFAULTS, boxPoints, constrainEndpoint, endpointNumber, endpointText, isPercent, unitsMatrix, unitsOf} from './gradient.js';
@@ -61,6 +62,7 @@ export function createGradientsController(editor, {
   function createFillGradient() {
     const reason = gradientRefusal();
     if (reason) { toast(reason, true); renderInspector(); return; }
+    revealInspectorField(document, $('fill-type'));
     const item = oneObject(), bounds = svgElement(item.id).getBBox();
     const value = resolvedPaint(item.id, 'fill', 'black');
     const hex = value === 'none' ? '#000000' : colorHex(cssColour(paintColour(value))) || '#000000';

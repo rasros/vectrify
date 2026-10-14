@@ -5,6 +5,7 @@ export function createEditorState() {
       state: undefined,
       session: undefined,
       tool: 'select',
+      drawTool: 'path',
       zoom: 1,
       pan: {x: 0, y: 0},
       drag: null,

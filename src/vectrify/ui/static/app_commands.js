@@ -1,5 +1,7 @@
+import {iconElement, iconMarkup} from './icons.js';
+import {revealInspectorField} from './inspector.js';
 import {matchCommands, moveHighlight} from './palette.js';
-import {clickPointPath, pointKey, splitKey} from './selection.js';
+import {clickPointPath, pointKey, selectionActionLevel, splitKey} from './selection.js';
 import {segmentAmong} from './lines.js';
 
 // Commands owns its controls; editor contains the live state shared with other controllers.
@@ -47,7 +49,7 @@ export function createCommandsController(editor, {
 
   const visiblePaths = () => editor.state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
 
-  const noReference = () => !editor.state.reference && 'Load a reference image first, under Reference below the objects';
+  const noReference = () => !editor.state.reference && 'Load a reference image first in the Reference panel';
 
   // Lines are paths that paint no fill; fills are paths that do.
   const filledPath = id => resolvedPaint(id, 'fill', 'black') !== 'none';
@@ -71,7 +73,7 @@ export function createCommandsController(editor, {
 
   function pointHandles(count) { return action('node_handles', {points: pointPairs(), count}, 'Changing handles…'); }
 
-  function renameObject() { $('object-name').focus(); $('object-name').select(); }
+  function renameObject() { revealInspectorField(document, $('object-name')); $('object-name').select(); }
 
   // The inspector's command lists: a container naming commands in
   // data-commands gets a button for each, labelled as the registry names it.
@@ -80,8 +82,11 @@ export function createCommandsController(editor, {
       const buttons = list.dataset.commands.split(' ').filter(id => commandById.has(id)).map(id => {
         const button = document.createElement('button');
         button.dataset.command = id; button.dataset.label = 'command';
+        const stackingKey = {'to-back': '1', backward: '2', forward: '3', 'to-front': '4'}[id];
+        if (stackingKey) { button.dataset.key = stackingKey; button.dataset.strip = 'select move'; }
         if (commandById.get(id).danger) button.className = 'danger';
-        button.append(document.createTextNode(commandById.get(id).name));
+        const label = document.createElement('span'); label.className = 'command-label'; label.textContent = commandById.get(id).name;
+        button.append(iconElement(document, id), label);
         return button;
       });
       list.replaceChildren(...buttons);
@@ -98,44 +103,56 @@ export function createCommandsController(editor, {
       const reason = commandRefusal(command);
       button.setAttribute('aria-disabled', String(!!reason));
       button.title = reason ? commandTitle(command) : button.dataset.title || commandTitle(command);
-      if (button.dataset.label === 'command') button.firstChild.textContent = commandName(command);
+      if (button.dataset.label === 'command') (button.querySelector('.command-label') || button.firstChild).textContent = commandName(command);
+      if (command.id === 'delete-selection') button.title = commandTitle(command);
+      if (button.dataset.iconOnly) button.setAttribute('aria-label', commandName(command));
     }
   }
 
-  // The context menu offers the commands for what is selected: object
-  // commands for objects, Nodes for points. Those that cannot run now are
-  // dimmed with the reason, as everywhere else.
-  const MENU_GROUPS = {objects: ['Select', 'Object', 'Transform', 'Arrange', 'Path', 'Clipping', 'Repair'], points: ['Select', 'Nodes']};
-  // Of Select, a point tool's menu offers only Select all points.
-  const MENU_SKIPS = {objects: ['step-up'], points: ['step-up', 'enter']};
+  // Right-click is a short list of frequent actions, not another inspector.
+  // Keep each list stable as commands become unavailable; the full registry
+  // stays searchable through More actions.
+  const CONTEXT_ACTIONS = {
+    objects: [['enter', 'tidy', 'fit-colours'], ['copy', 'paste', 'rename'], ['delete']],
+    points: [['handles-0', 'handles-2'], ['split-edge', 'break-points', 'join-points'], ['select-all', 'delete-points']],
+    canvas: [['undo', 'redo'], ['paste', 'select-all'], ['generate', 'load-reference']],
+  };
 
-  function openContextMenu(x, y) {
-    const menu = $('context-menu'), kind = level() === 'points' ? 'points' : 'objects', groups = MENU_GROUPS[kind];
+  function openContextMenu(x, y, kind = null) {
+    const menu = $('context-menu');
+    kind ||= !editor.state?.selection.objects.length ? 'canvas' : selectionActionLevel(level(), selectedPoints(), editor.state.selection.nodes);
     menu.replaceChildren();
-    for (const group of groups) {
-      const shown = COMMANDS.filter(command => command.group === group && !command.hidden?.() && !MENU_SKIPS[kind].includes(command.id));
+    const separator = () => menu.append(Object.assign(document.createElement('div'), {className: 'menu-divider', role: 'separator'}));
+    function item(label, icon, shortcut, run) {
+      const button = document.createElement('button');
+      button.className = 'menu-item'; button.setAttribute('role', 'menuitem');
+      const name = document.createElement('span'); name.className = 'menu-label'; name.textContent = label;
+      const keys = document.createElement('kbd'); keys.textContent = shortcut || ''; keys.hidden = !shortcut;
+      button.append(iconElement(document, icon), name, keys);
+      button.onclick = run; return button;
+    }
+    for (const ids of CONTEXT_ACTIONS[kind]) {
+      const shown = ids.map(id => commandById.get(id)).filter(command => command && !command.hidden?.());
       if (!shown.length) continue;
-      if (menu.children.length) menu.append(Object.assign(document.createElement('div'), {className: 'menu-divider', role: 'separator'}));
-      menu.append(Object.assign(document.createElement('div'), {className: 'menu-heading', textContent: group, role: 'presentation'}));
+      if (menu.children.length) separator();
       for (const command of shown) {
-        const item = document.createElement('button');
-        item.className = 'menu-item'; item.setAttribute('role', 'menuitem'); item.dataset.command = command.id;
-        const reason = commandRefusal(command);
-        item.setAttribute('aria-disabled', String(!!reason)); item.title = commandTitle(command);
-        const name = document.createElement('span'); name.textContent = commandName(command);
-        const keys = document.createElement('kbd'); keys.textContent = command.keys || '';
-        item.append(name, keys);
-        // One that cannot run says why, as the palette and the inspector do.
-        item.onclick = () => { closeContextMenu(); later(() => runCommand(command.id)); };
-        menu.append(item);
+        const button = item(commandName(command), command.id, command.keys, () => { closeContextMenu(); later(() => runCommand(command.id)); });
+        button.dataset.command = command.id;
+        button.setAttribute('aria-disabled', String(!!commandRefusal(command)));
+        button.classList.toggle('danger', !!command.danger);
+        button.title = commandTitle(command);
+        menu.append(button);
       }
     }
-    if (!menu.children.length) return;
+    if (menu.children.length) separator();
+    const more = item('More actions…', 'actions', 'Ctrl/⌘ K', openPalette);
+    more.dataset.contextMore = 'true'; more.setAttribute('aria-disabled', 'false');
+    more.title = 'Search all commands, including advanced actions'; menu.append(more);
     menu.hidden = false;
     const box = menu.getBoundingClientRect();
-    menu.style.left = `${Math.min(x, innerWidth - box.width - 8)}px`;
+    menu.style.left = `${Math.max(8, Math.min(x, innerWidth - box.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, innerHeight - box.height - 8))}px`;
-    (menu.querySelector('.menu-item[aria-disabled=false]') || menu.querySelector('.menu-item'))?.focus();
+    menu.querySelector('.menu-item[aria-disabled=false]')?.focus();
   }
 
   function closeContextMenu() { $('context-menu').hidden = true; }
@@ -250,12 +267,16 @@ export function createCommandsController(editor, {
     }
   }
 
-  // Delete works at the current level: the selected points in a point tool,
-  // else the selected objects.
+  // Handles and points take precedence; with neither selected, delete the
+  // selected objects in either Select or Nodes.
   function deleteSelection() {
     const handle = selectedHandle();
     if (handle) return action('delete_handle', {object: handle.object, node: handle.node, offset: handle.offset}, 'Deleting handle…');
-    return level() === 'points' ? action('delete_node', {points: pointPairs()}, 'Deleting points…') : action('delete');
+    if (selectionActionLevel(level(), selectedPoints(), editor.state?.selection.nodes) === 'points') {
+      const points = pointPairs();
+      return points.length ? action('delete_node', {points}, 'Deleting points…') : undefined;
+    }
+    return action('delete');
   }
 
   const segmentPicked = () => pointContours().some(({contour, ids}) => segmentAmong(contour, ids));
@@ -275,6 +296,14 @@ export function createCommandsController(editor, {
     });
 
     buildCommandLists();
+    for (const element of document.querySelectorAll('[data-icon]')) element.innerHTML = iconMarkup(element.dataset.icon);
+    // Static strip buttons use the same symbols as the inspector. Keep the
+    // label in the accessible name/tooltip when the strip shows just an icon.
+    for (const button of document.querySelectorAll('[data-command]')) {
+      if ((!button.closest('.tool-controls') && !button.closest('#point-properties') && !button.closest('.reference-tools') && button.id !== 'strip-tidy') || !iconMarkup(button.dataset.command)) continue;
+      const label = document.createElement('span'); label.className = 'command-label'; label.textContent = button.textContent;
+      button.replaceChildren(iconElement(document, button.dataset.command), label);
+    }
 
     $('palette-input').addEventListener('input', renderPalette);
 
@@ -295,7 +324,11 @@ export function createCommandsController(editor, {
     $('context-menu').addEventListener('keydown', event => {
       const items = [...$('context-menu').querySelectorAll('.menu-item')], i = items.indexOf(document.activeElement);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeContextMenu(); stage.focus(); }
-      if (['ArrowDown', 'ArrowUp'].includes(event.key) && items.length) { event.preventDefault(); items[(i + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) && items.length) {
+        event.preventDefault(); event.stopPropagation();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (i + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+        items[next].focus();
+      }
     });
 
     // Right-clicking something unselected selects it first, as a click would.
@@ -330,7 +363,7 @@ export function createCommandsController(editor, {
         if (!object(id)) return;
         if (!editor.state.selection.objects.includes(id)) await selectObject(id);
         await editor.queue;
-        openContextMenu(x, y);
+        openContextMenu(x, y, 'objects');
       });
     });
 
@@ -365,6 +398,6 @@ export function createCommandsController(editor, {
     $('help-close').onclick=()=>$('help-dialog').close();
       return api;
   }
-  const api = {noSelection, noPoints, visiblePaths, noReference, filledPath, strokedPath, linePaths, fillPaths, twoEnds, runCommand, pointHandles, renameObject, buildCommandLists, renderCommands, MENU_GROUPS, openContextMenu, closeContextMenu, openPalette, renderPalette, highlightPalette, runPaletteRow, joinSelectionKey, joinCandidates, openJoin, splitParts, deleteSelection, segmentPicked, breakPoints, cutHole, wire};
+  const api = {noSelection, noPoints, visiblePaths, noReference, filledPath, strokedPath, linePaths, fillPaths, twoEnds, runCommand, pointHandles, renameObject, buildCommandLists, renderCommands, CONTEXT_ACTIONS, openContextMenu, closeContextMenu, openPalette, renderPalette, highlightPalette, runPaletteRow, joinSelectionKey, joinCandidates, openJoin, splitParts, deleteSelection, segmentPicked, breakPoints, cutHole, wire};
   return api;
 }

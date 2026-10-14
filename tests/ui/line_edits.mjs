@@ -124,7 +124,8 @@ shortcut.run(); assert.equal(edits.at(-1)[0], 'join_ends');
 // Two selected points join in a point tool, whatever paths hold them.
 pointLevel = true;
 assert.equal(joinRegistry.commandRefusal(joinPoints), 'Select points first');
-assert.equal(joinRegistry.commandRefusal(shortcut), 'Select points first');
+assert.equal(joinRegistry.commandRefusal(shortcut), '');
+assert.equal(joinRegistry.commandName(shortcut), 'Join line ends', 'Nodes without points keeps object join available');
 points = ['a n1', 'b n2'];
 assert.equal(joinRegistry.commandRefusal(joinPoints), '');
 assert.equal(joinRegistry.commandName(shortcut), 'Join points');

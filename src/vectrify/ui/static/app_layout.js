@@ -1,3 +1,5 @@
+import {wireToolMenuKeys} from './tool_menu.js';
+import {wireInspector} from './inspector.js';
 import {overflowLayout} from './strip.js';
 import {scopeChain, selectionStatus} from './selection.js';
 import {shapeStatus} from './shapes.js';
@@ -72,7 +74,7 @@ export function createLayoutController(editor, {
     const place = () => {
       const box = button.getBoundingClientRect(), size = menu.getBoundingClientRect();
       menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - size.width - 8))}px`;
-      menu.style.top = `${box.bottom + 6}px`;
+      menu.style.top = `${Math.max(8, Math.min(box.bottom + 6, innerHeight - size.height - 8))}px`;
     };
     const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
     button.onclick = () => {
@@ -86,6 +88,8 @@ export function createLayoutController(editor, {
     window.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !button.contains(event.target)) close(); }, true);
     return {place, close};
   }
+
+  const generalMenu = moreMenu($('general-tools'), $('general-tools-menu'));
 
   const stripMenu = moreMenu($('strip-more'), $('strip-more-menu'));
 
@@ -160,6 +164,8 @@ export function createLayoutController(editor, {
   }
 
   function wire() {
+    wireInspector(document);
+    wireToolMenuKeys($('general-tools-menu'), document);
     new ResizeObserver(() => scheduleStrip()).observe($('tool-strip'));
 
     new ResizeObserver(() => layoutTopbar()).observe(document.querySelector('.topbar'));
@@ -169,6 +175,6 @@ export function createLayoutController(editor, {
     document.fonts?.ready.then(() => { topbarSignature = ''; layoutTopbar(); });
       return api;
   }
-  const api = {parked, scheduleStrip, layoutStrip, moreMenu, stripMenu, placeStripMenu, closeStripMenu, topbarPriority, topbarMenu, topbarParked, layoutTopbar, renderStatus, wire};
+  const api = {generalMenu, parked, scheduleStrip, layoutStrip, moreMenu, stripMenu, placeStripMenu, closeStripMenu, topbarPriority, topbarMenu, topbarParked, layoutTopbar, renderStatus, wire};
   return api;
 }

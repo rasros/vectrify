@@ -15,6 +15,8 @@ import pytest
         "application_wiring.mjs",
         "application_smoke.mjs",
         "transport.mjs",
+        "inspector.mjs",
+        "draw_tools.mjs",
     ],
 )
 def test_operation_dialog_lifetimes(filename):
