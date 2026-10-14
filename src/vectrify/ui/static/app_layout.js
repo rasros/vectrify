@@ -9,6 +9,7 @@ export function createLayoutController(editor, {
   document = globalThis.document,
   frameSize,
   getComputedStyle = globalThis.getComputedStyle,
+  gradientStatus = () => '',
   level,
   object,
   parents,
@@ -137,6 +138,8 @@ export function createLayoutController(editor, {
     else if (editor.drag?.kind === 'rotate' && editor.drag.moved && editor.drag.result) $('selection-level').textContent = rotationStatus(editor.drag.result);
     else if (editor.drag?.kind === 'shape' && editor.drag.moved && editor.drag.shape) $('selection-level').textContent = shapeStatus(editor.drag.shape);
     else if (editor.selectionBox) $('selection-level').textContent += ` · ${frameSize(editor.selectionBox)}`;
+    // In Gradient, whose paint moving an end changes.
+    else if (editor.tool === 'gradient') $('selection-level').textContent += ` · ${gradientStatus()}`;
     const trail = $('scope-trail');
     trail.replaceChildren();
     trail.hidden = !editor.scope;

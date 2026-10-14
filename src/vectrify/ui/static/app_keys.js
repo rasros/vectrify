@@ -32,7 +32,7 @@ export function createKeysController(editor, {
 } = {}) {
 
   // Tool shortcuts; Space held pans.
-  const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', c: 'knife', x: 'region', r: 'redraw'};
+  const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', c: 'knife', x: 'region', g: 'gradient', r: 'redraw'};
 
   // A tool strip's numbered controls, by digit.
   function stripKeys(name) {
@@ -60,10 +60,10 @@ export function createKeysController(editor, {
     return busy;
   }
 
-  // Modifiers change a shape being dragged out (Shift and Alt) or a moving
-  // selection (Shift, Alt and Ctrl/⌘) as they are pressed and released,
+  // Modifiers change a shape being dragged out (Shift and Alt), a moving
+  // selection or gradient end (Shift, Alt and Ctrl/⌘) as they are pressed and released,
   // without waiting for the pointer to move.
-  const GESTURE_MODIFIERS = {shape: ['Shift', 'Alt'], move: ['Shift', 'Alt', 'Control', 'Meta']};
+  const GESTURE_MODIFIERS = {shape: ['Shift', 'Alt'], move: ['Shift', 'Alt', 'Control', 'Meta'], gradient: ['Shift', 'Alt', 'Control', 'Meta']};
   function gestureModifiers(event) {
     if (!GESTURE_MODIFIERS[editor.drag?.kind]?.includes(event.key)) return false;
     event.preventDefault(); gestures[editor.drag.kind].modifiers(editor.drag, event);

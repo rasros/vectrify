@@ -1618,19 +1618,27 @@ class Session:
                         )
 
     def _paint_gradient(self, spec: dict) -> None:
-        """An explicit shared-paint edit authorizes its users without selecting them."""
+        """An explicit shared-paint edit authorizes its users without selecting them.
+
+        An edit without *stops*, as dragging an endpoint on the canvas sends,
+        keeps the stops as they are.
+        """
         document = self.editor.snapshot.document
         selected = self._object_selection().object_ids
         try:
             gradient_id = spec["id"]
             attributes = spec["attributes"]
-            stops = tuple(
-                GradientStop(
-                    number(stop["offset"]),
-                    stop["colour"],
-                    number(stop.get("opacity", 1)),
+            stops = (
+                tuple(
+                    GradientStop(
+                        number(stop["offset"]),
+                        stop["colour"],
+                        number(stop.get("opacity", 1)),
+                    )
+                    for stop in spec["stops"]
                 )
-                for stop in spec["stops"]
+                if "stops" in spec
+                else None
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise DocumentError("Invalid gradient edit") from exc

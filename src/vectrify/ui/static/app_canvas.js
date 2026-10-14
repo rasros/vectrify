@@ -14,6 +14,8 @@ export function createCanvasController(editor, {
   frameAt,
   geometryNodes,
   gestures,
+  gradientCursor = () => null,
+  gradientHandleAt = () => null,
   hitStack,
   hoverResize,
   later,
@@ -30,6 +32,7 @@ export function createCanvasController(editor, {
   point,
   pointPaths,
   pressFrame,
+  pressGradient,
   pressRotation,
   redrawLines,
   regionShape,
@@ -256,6 +259,9 @@ export function createCanvasController(editor, {
       if (clip) editor.clipConsumers.set(clip.dataset.objectId, boundary.dataset.clipConsumer);
     }
     common.hits = hits;
+    // In Gradient, a press on the selected shape's gradient handle moves that end.
+    const end = editor.tool === 'gradient' ? gradientHandleAt(event.clientX, event.clientY) : null;
+    if (end) { pressGradient(event, common, end); return; }
     const turning = editor.tool === 'move' ? rotationAt(event.clientX, event.clientY) : null;
     if (turning) { pressRotation(event, common, turning); return; }
     const handle = editor.tool === 'move' ? frameAt(event.clientX, event.clientY) : null;
@@ -329,6 +335,7 @@ export function createCanvasController(editor, {
       if (editor.tool==='region' && editor.region && !editor.region.closed) {const p=point(event);editor.regionHover={x:p.x,y:p.y};drawOverlay();}
       if (['nodes', 'redraw'].includes(editor.tool) && editor.state) hoverPoints(event);
       if (editor.tool === 'move' && editor.state) hoverResize(event);
+      if (editor.tool === 'gradient' && editor.state) stage.style.cursor = gradientCursor(event.clientX, event.clientY) || 'default';
       return;
     }
     editor.drag.moved ||= Math.hypot(event.clientX-editor.drag.x,event.clientY-editor.drag.y)>3;

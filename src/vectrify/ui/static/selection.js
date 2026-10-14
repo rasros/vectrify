@@ -8,7 +8,7 @@
 // Which level each tool works on: object tools pick whole objects, point tools
 // show and pick the points of every selected path, and the rest ignore the
 // selection.
-export const TOOL_LEVEL = {select: 'objects', move: 'objects', knife: 'objects', region: 'objects', nodes: 'points', redraw: 'points', path: 'create', rect: 'create', ellipse: 'create', line: 'create', hand: 'view'};
+export const TOOL_LEVEL = {select: 'objects', move: 'objects', knife: 'objects', region: 'objects', gradient: 'objects', nodes: 'points', redraw: 'points', path: 'create', rect: 'create', ellipse: 'create', line: 'create', hand: 'view'};
 
 export const pointKey = (object, node) => `${object} ${node}`;
 export function splitKey(key) {

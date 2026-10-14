@@ -881,20 +881,28 @@ class Transaction:
         self,
         gradient_id: str,
         attributes: dict[str, str | None],
-        stops: tuple[GradientStop, ...],
+        stops: tuple[GradientStop, ...] | None,
     ) -> None:
-        """Edit a paint server in place, preserving its coordinate system and users."""
+        """Edit a paint server in place, preserving its coordinate system and users.
+
+        Without *stops* the stops stay as they are: moving the endpoints
+        needs no leave to change the colours.
+        """
         with self._change():
             element = self._working.element(gradient_id)
             if element.tag != "linearGradient":
                 raise EditRejectedError("Select a linear gradient to edit")
-            if not attributes.keys() <= GRADIENTS["linearGradient"] or not stops:
+            if not attributes.keys() <= GRADIENTS["linearGradient"] or (
+                stops is not None and not stops
+            ):
                 raise DocumentError("A gradient needs valid attributes and stops")
-            if [stop.offset for stop in stops] != sorted(stop.offset for stop in stops):
+            if stops is not None and [stop.offset for stop in stops] != sorted(
+                stop.offset for stop in stops
+            ):
                 raise DocumentError("Gradient stops must be in offset order")
             affected = self._working.dependents({gradient_id})
             self._authorize(affected, EditKind.PAINT)
-            if len(stops) != len(element.children):
+            if stops is not None and len(stops) != len(element.children):
                 for key in GRADIENTS["stop"]:
                     self._authorize(affected, EditKind.PAINT, key)
             attrs = dict(element.attributes)
@@ -906,8 +914,8 @@ class Transaction:
                 else:
                     attrs[key] = value
             validate_attributes(element.tag, attrs)
-            children = []
-            for index, stop in enumerate(stops):
+            children = [] if stops is not None else list(element.children)
+            for index, stop in enumerate(stops or ()):
                 old = element.children[index] if index < len(element.children) else None
                 made = stop.element(old.id if old else new_id("object"))
                 if old:

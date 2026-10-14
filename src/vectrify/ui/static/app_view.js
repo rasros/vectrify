@@ -99,7 +99,7 @@ export function createViewController(editor, {
     });
     $('active-tool').dataset.tool = editor.tool;
     $('tool-strip').dataset.tool = editor.tool;
-    $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', knife: 'C', region: 'X', redraw: 'R', hand: 'Space'}[editor.tool];
+    $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', knife: 'C', region: 'X', gradient: 'G', redraw: 'R', hand: 'Space'}[editor.tool];
     $('tool-name').textContent = editor.tool === 'select' ? 'Select objects' : editor.tool === 'nodes' ? 'Edit points' : names[editor.tool];
     $('canvas-hint').textContent=hints[editor.tool];
     stage.style.cursor = editor.tool === 'hand' ? 'grab' : ['path','knife','region','redraw',...SHAPE_TOOLS].includes(editor.tool) ? 'crosshair' : 'default';

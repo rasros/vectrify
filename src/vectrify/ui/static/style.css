@@ -296,6 +296,14 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 #overlay .rotate-handle { fill: #141918; stroke: #b0e8bf; stroke-width: calc(1.25px * var(--selection-scale,1)); pointer-events: none; }
 #overlay .rotate-pivot-halo { fill: none; stroke: #141918; stroke-width: calc(3.5px * var(--selection-scale,1)); pointer-events: none; }
 #overlay .rotate-pivot { fill: none; stroke: #d1a962; stroke-width: calc(1.25px * var(--selection-scale,1)); pointer-events: none; }
+/* Gradient handles: a halo keeps the line visible on any paint; a shared gradient's line is dashed. */
+#overlay .gradient-line-halo { stroke: #141918; stroke-width: calc(3.5px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .gradient-line { stroke: #f4f7f5; stroke-width: calc(1.25px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .gradient-line.shared { stroke: #d1a962; stroke-dasharray: calc(5px * var(--selection-scale,1)) calc(3px * var(--selection-scale,1)); }
+#overlay .gradient-handle { fill: #f4f7f5; stroke: #141918; stroke-width: calc(1.5px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .gradient-handle.shared { fill: #d1a962; }
+#overlay .gradient-handle.locked, #overlay .gradient-line.locked { fill: #889690; stroke-dasharray: none; }
+#overlay .gradient-line.locked { stroke: #889690; }
 
 /* The Reference panel, below the objects: the image, the view and the tools that match the drawing to it. */
 .reference-panel { flex: none; padding: 0 12px 14px; }
