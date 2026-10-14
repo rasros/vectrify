@@ -33,7 +33,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`A`),
-  **Move** (`V`), **Knife** (`C`) and **Region** (`X`), the point tools **Nodes** (`S`) and
+  **Move** (`V`), **Knife** (`C`), **Region** (`X`) and **Gradient** (`G`), the point tools **Nodes** (`S`) and
   **Redraw outline** (`R`), the drawing tools **Draw path** (`D`),
   **Rectangle** (`M`), **Ellipse** (`E`) and **Line** (`L`), which create and
   ignore the selection, and **Pan** (hold Space). The Reference panel holds the reference
@@ -50,7 +50,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel; Rectangle
   and Ellipse have W and H, Line has Length and Angle, and Rectangle has
   Corners; all four drawing tools end with the drawing paint (Fill, Stroke and
-  Width). Knife, Region, Redraw outline, the drawing tools and Pan show a
+  Width). Knife, Region, Gradient, Redraw outline, the drawing tools and Pan show a
   one-line hint; Region's choices are in its own panel over the canvas. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
   important of them (Add node, the coordinates and the hole commands first, and so on) move
@@ -398,7 +398,8 @@ and saved projects restore it.
   Shared edits update every user and retain the existing references; the
   panel identifies whether changes apply to one shape or a shared gradient.
   Locks on the gradient, its stops and its users still apply, and edits undo
-  and redo together.
+  and redo together. **Edit on canvas (G)** switches to the Gradient tool to
+  drag the endpoints instead (see below).
 - Fill/stroke/opacity, dragging and resizing the selected objects, their
   numeric position and size (**X**, **Y**, **W**, **H**), and numeric offsets
   (**Move by**).
@@ -682,6 +683,30 @@ and saved projects restore it.
   a region (see Extracting and deleting regions below). Drag a rectangle, or
   choose **Polygon** in its panel and click the corners; a click in
   Rectangle still selects.
+- The **Gradient** tool (`G`) places the selected shape's linear-gradient
+  fill on the canvas: a square handle at its start and a round one at its
+  end, joined by a line. Drag either handle to move that end; the other stays.
+  A dragged end snaps to the shape's corners, edge middles and centre within
+  8 screen pixels (Alt or Ctrl/⌘ drags freely), and **Shift** turns it about
+  the other end in 15° steps. The shape and every other shape using the
+  gradient show the result while dragging, exactly as it will be saved, and
+  the **Endpoints & settings** fields follow; typing in those fields moves the
+  handles in turn. The handles work for both coordinate systems (each shape's
+  bounds, or drawing coordinates) and through the shape's and its groups'
+  transforms and the gradient transform. A percentage endpoint stays a
+  percentage of the bounds; in drawing coordinates the end is written as a
+  number. Only the moved end changes, as one undoable edit; Escape cancels
+  the drag.
+  The status line says whose paint moves: a **private gradient** changes only
+  this shape, a **shared gradient** every shape using it, and its line is
+  dashed and amber. A paint lock on the gradient, on any shape using it or on
+  their groups refuses the drag, and the handles are greyed. Only one
+  selected path or basic shape shows handles (not a group, an instance or the
+  gradient's own entry under Definitions), and only its fill; a gradient
+  stroke and radial gradients have no handles.
+  The handles show only in this tool, so they never compete with Move's
+  frame, rotation handle and dragging, even where an end sits on a corner.
+  A press anywhere else selects and box-selects as in Select.
 - The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
   one gesture, like a magnetic lasso: a missing spike, a notch or a grass
   blade. Press on a path's outline (or on one of its points), draw roughly
@@ -711,7 +736,7 @@ and saved projects restore it.
 Keyboard shortcuts are available from the `?` button. They come in three
 layers that never collide. Tool and view keys: `A`
 Select, `V` Move, `S` Nodes, `D` Draw path, `M` Rectangle, `E` Ellipse, `L` Line,
-`C` Knife, `X` Region and `R` Redraw outline switch
+`C` Knife, `X` Region, `G` Gradient and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip

@@ -99,6 +99,7 @@ export function createCommandRegistryController(editor, {
     {id: 'tool-line', name: 'Line tool', group: 'Tools', keys: 'L', keywords: 'draw straight line segment shape', run: () => setTool('line')},
     {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'C', keywords: 'cut slice', run: () => setTool('knife')},
     {id: 'tool-region', name: 'Region tool', group: 'Tools', keys: 'X', keywords: 'extract delete erase area rectangle polygon lasso crop', run: () => setTool('region')},
+    {id: 'tool-gradient', name: 'Gradient tool', group: 'Tools', keys: 'G', keywords: 'linear gradient endpoints handles fill direction', run: () => setTool('gradient')},
     {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
     {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'Hold Space', keywords: 'hand scroll', run: () => setTool('hand')},
     {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},

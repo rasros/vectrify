@@ -1,22 +1,46 @@
 
 
+import {ENDPOINTS, ENDPOINT_DEFAULTS, boxPoints, constrainEndpoint, endpointNumber, endpointText, isPercent, unitsMatrix, unitsOf} from './gradient.js';
+import {FRAME_REACH, SNAP_RADIUS} from './app_config.js';
+
+// The shapes whose fill the canvas handles place: those that paint an area.
+const PLACED = ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline'];
+
 // Gradients owns its controls; editor contains the live state shared with other controllers.
+//
+// The Gradient tool (G) shows the selected shape's linear-gradient fill on
+// the canvas: a square start handle and a round end handle on a line, dashed
+// when the gradient is shared. Only that tool shows them, so they never
+// compete with the Move tool's frame, rotation handle and dragging, and a
+// press anywhere else selects as Select does. A drag previews by setting the
+// endpoint on the drawn gradient, as the edit will, so every shape using it
+// changes at once; the release sends one gradient edit with just those
+// attributes, and Escape puts them back.
 export function createGradientsController(editor, {
   $,
+  DOMMatrix = globalThis.DOMMatrix,
+  DOMPoint = globalThis.DOMPoint,
   action,
   colorHex,
   cssColour,
   document = globalThis.document,
+  drawOverlay = () => {},
   gradientCss,
   later,
+  localToOverlay = () => null,
   oneObject,
+  overlay,
   paintColour,
   paintGradient,
   paintValue,
+  point,
   renderInspector,
   resolvedPaint,
+  setTool,
+  startGesture,
   svgElement,
   toast,
+  xmlElement,
 } = {}) {
 
   function gradientRefusal() {
@@ -69,6 +93,9 @@ export function createGradientsController(editor, {
     $('fill-gradient').hidden = !gradient;
     if (!gradient) return;
     $('gradient-scope').textContent = gradient.private ? 'Private gradient · changes apply to this shape.' : `Shared gradient · changes apply to all ${gradient.users} ${gradient.users === 1 ? 'shape' : 'shapes'} using it.`;
+    const onCanvas = handlesRefusal(item);
+    $('gradient-on-canvas').disabled = !!onCanvas || editor.tool === 'gradient';
+    $('gradient-on-canvas').title = onCanvas || (editor.tool === 'gradient' ? 'Drag the square start and round end handles on the canvas' : 'Drag the endpoints on the canvas with the Gradient tool (G)');
     const defaults = {x1: '0%', y1: '0%', x2: '100%', y2: '0%'};
     for (const key of ['x1', 'y1', 'x2', 'y2']) $('gradient-' + key).value = gradient.attributes[key] ?? defaults[key];
     $('gradient-units').value = gradient.attributes.gradientUnits || 'objectBoundingBox';
@@ -143,8 +170,164 @@ export function createGradientsController(editor, {
       fill.stops = fill.stops.reverse().map(stop => ({...stop, offset: 1 - stop.offset}));
       saveGradient(fill);
     };
+
+    $('gradient-on-canvas').onclick = () => later(() => setTool('gradient'));
       return api;
   }
-  const api = {gradientRefusal, gradientEndpoints, createFillGradient, setFillType, renderFillGradient, fillGradientValue, gradientEdit, saveGradient, saveFillGradient, wire};
+
+  // Why the canvas cannot show handles for *item*, or ''.
+  function handlesRefusal(item = oneObject()) {
+    if (!item?.fill_gradient) return 'Select one shape with a linear gradient fill';
+    if (item.tag === 'linearGradient') return 'Select a shape using this gradient to place it on the canvas';
+    if (!PLACED.includes(item.tag)) return 'Gradient handles place the fill of one path or basic shape';
+    return '';
+  }
+
+  // Why the endpoints of *gradient* cannot move: a paint lock on it or on a
+  // shape it paints, which the server refuses too. '' when they can.
+  function lockRefusal(gradient) {
+    const keys = ['paint', 'x1', 'y1', 'x2', 'y2'];
+    const users = editor.state.objects.filter(o => o.id === gradient.id || o.fill_gradient?.id === gradient.id);
+    const locked = users.find(o => o.inherited_locks.some(lock => keys.includes(lock)));
+    if (!locked) return '';
+    return gradient.private ? 'This shape’s paint is locked' : `This shared gradient cannot move: ${locked.label}’s paint is locked`;
+  }
+
+  // The handles' placement in the Gradient tool, in the overlay's frame, or
+  // null: the gradient as drawn, the matrix from its coordinates to the
+  // overlay (the shape's frame, its bounds for objectBoundingBox, then the
+  // gradientTransform) and both ends there.
+  function placement() {
+    if (editor.tool !== 'gradient' || !editor.state) return null;
+    const item = oneObject();
+    if (handlesRefusal(item)) return null;
+    const shape = svgElement(item.id), element = svgElement(item.fill_gradient.id);
+    const frame = shape && localToOverlay(shape);
+    if (!frame || element?.localName !== 'linearGradient') return null;
+    const units = unitsOf(element.getAttribute('gradientUnits'));
+    let box;
+    try { box = shape.getBBox(); } catch { return null; /* An unrendered shape has no bounds. */ }
+    const bounds = unitsMatrix(units, box);
+    if (!bounds) return null;
+    const own = element.gradientTransform?.baseVal.consolidate()?.matrix;
+    const matrix = frame.multiply(new DOMMatrix([bounds.a, bounds.b, bounds.c, bounds.d, bounds.e, bounds.f]))
+      .multiply(own ? new DOMMatrix([own.a, own.b, own.c, own.d, own.e, own.f]) : new DOMMatrix());
+    if (Math.abs(matrix.a * matrix.d - matrix.b * matrix.c) < 1e-12) return null;
+    const [, , width, height] = editor.state.bounds;
+    const attributes = Object.fromEntries(Object.keys(ENDPOINT_DEFAULTS).map(key => [key, element.getAttribute(key)]));
+    const end = name => {
+      const [kx, ky] = ENDPOINTS[name], value = key => attributes[key] ?? ENDPOINT_DEFAULTS[key];
+      const x = endpointNumber(value(kx), units, width), y = endpointNumber(value(ky), units, height);
+      return Number.isFinite(x) && Number.isFinite(y) ? new DOMPoint(x, y).matrixTransform(matrix) : null;
+    };
+    const start = end('start'), finish = end('end');
+    if (!start || !finish) return null;
+    return {item, gradient: item.fill_gradient, element, units, matrix, frame, box, attributes, start, end: finish, refusal: lockRefusal(item.fill_gradient)};
+  }
+
+  // The end whose handle is at the screen point (x, y), the nearer if both
+  // are, or null.
+  function handleAt(x, y) {
+    const shown = placement(), screen = shown && overlay.getScreenCTM();
+    if (!screen) return null;
+    let best = null;
+    for (const name of ['end', 'start']) {
+      const p = new DOMPoint(shown[name].x, shown[name].y).matrixTransform(screen), distance = Math.hypot(p.x - x, p.y - y);
+      if (distance <= FRAME_REACH + 2 && (!best || distance < best.distance)) best = {name, distance};
+    }
+    return best?.name ?? null;
+  }
+
+  function handleCursor(x, y) {
+    if (editor.drag) return null;
+    const name = handleAt(x, y);
+    return !name ? 'default' : placement().refusal ? 'not-allowed' : 'move';
+  }
+
+  // A press on a handle starts moving that end. A locked gradient refuses
+  // once dragged; a click still picks what is under the handle.
+  function pressHandle(event, common, name) {
+    const shown = placement(), p = point(event), at = shown[name];
+    startGesture('gradient', event, common, {
+      name, refusal: shown.refusal, gradient: shown.gradient, private: shown.gradient.private, users: shown.gradient.users,
+      element: shown.element, units: shown.units, matrix: shown.matrix, saved: shown.attributes,
+      snaps: boxPoints(shown.box).map(q => new DOMPoint(q.x, q.y).matrixTransform(shown.frame)),
+      fixed: shown[name === 'start' ? 'end' : 'start'], grab: {x: p.x - at.x, y: p.y - at.y}, result: null,
+    });
+  }
+
+  // Where the dragged end goes and its attributes, as previewed and sent.
+  // It snaps to the shape's corners, edge middles and centre unless Alt or
+  // Ctrl/⌘ is held; Shift turns it about the other end in 15° steps.
+  function handleDrag(event) {
+    const drag = editor.drag, p = point(event);
+    let at = {x: p.x - drag.grab.x, y: p.y - drag.grab.y}, snap = null;
+    if (event.shiftKey) at = constrainEndpoint(drag.fixed, at);
+    else if (!event.altKey && !event.ctrlKey && !event.metaKey) {
+      for (const target of drag.snaps) {
+        const distance = Math.hypot(target.x - at.x, target.y - at.y);
+        if (distance <= SNAP_RADIUS / editor.zoom && (!snap || distance < snap.distance)) snap = {x: target.x, y: target.y, distance};
+      }
+      if (snap) at = {x: snap.x, y: snap.y};
+    }
+    const local = new DOMPoint(at.x, at.y).matrixTransform(drag.matrix.inverse()), [kx, ky] = ENDPOINTS[drag.name];
+    return {name: drag.name, snap, attributes: {
+      [kx]: endpointText(local.x, drag.units, isPercent(drag.saved, kx)),
+      [ky]: endpointText(local.y, drag.units, isPercent(drag.saved, ky)),
+    }};
+  }
+
+  // The drawn gradient takes the attributes the edit will set, so every
+  // shape using it shows the result, and the Endpoints fields follow.
+  function previewHandle() {
+    for (const [key, value] of Object.entries(editor.drag.result.attributes)) {
+      editor.drag.element.setAttribute(key, value);
+      $('gradient-' + key).value = value;
+    }
+  }
+
+  function restoreHandle(gesture) {
+    for (const [key, value] of Object.entries(gesture.saved)) {
+      if (value === null) gesture.element.removeAttribute(key);
+      else gesture.element.setAttribute(key, value);
+    }
+    renderFillGradient(oneObject());
+  }
+
+  // One edit of the gradient's endpoint; nothing when it ends where it was.
+  function finishHandle(gesture) {
+    const {attributes} = gesture.result;
+    if (Object.entries(attributes).every(([key, value]) => value === (gesture.saved[key] ?? ENDPOINT_DEFAULTS[key]))) { restoreHandle(gesture); drawOverlay(); return false; }
+    return action('paint', {gradient: {id: gesture.gradient.id, attributes}}, 'Moving gradient…');
+  }
+
+  // The line between the ends, a halo under it, and the handles. The line
+  // is dashed for a shared gradient; locked handles are dimmed.
+  function drawHandles() {
+    const shown = placement();
+    if (!shown) return;
+    const content = editor.overlayFrame.content, r = 4 / editor.zoom, {start, end} = shown;
+    const line = {x1: start.x, y1: start.y, x2: end.x, y2: end.y};
+    const state = `${shown.gradient.private ? '' : ' shared'}${shown.refusal ? ' locked' : ''}`;
+    content.append(xmlElement('line', {...line, class: 'gradient-line-halo'}), xmlElement('line', {...line, class: `gradient-line${state}`}),
+      xmlElement('rect', {x: start.x - r, y: start.y - r, width: 2 * r, height: 2 * r, class: `gradient-handle gradient-start${state}`}),
+      xmlElement('circle', {cx: end.x, cy: end.y, r: 1.15 * r, class: `gradient-handle gradient-end${state}`}));
+    const snap = editor.drag?.kind === 'gradient' && editor.drag.moved && editor.drag.result?.snap;
+    if (snap) {
+      const s = 6 / editor.zoom;
+      content.append(xmlElement('rect', {x: snap.x - s, y: snap.y - s, width: 2 * s, height: 2 * s, transform: `rotate(45 ${snap.x} ${snap.y})`, class: 'snap-target'}));
+    }
+  }
+
+  // The status line in the Gradient tool: whose paint a drag changes.
+  function handlesStatus() {
+    if (editor.tool !== 'gradient') return '';
+    const drag = editor.drag?.kind === 'gradient' ? editor.drag : null, gradient = drag?.gradient ?? placement()?.gradient;
+    if (!gradient) return handlesRefusal();
+    const scope = gradient.private ? 'Private gradient: changes this shape' : `Shared gradient: changes all ${gradient.users} ${gradient.users === 1 ? 'shape' : 'shapes'} using it`;
+    return drag?.moved && drag.result ? `Gradient ${drag.name} · ${scope}` : scope;
+  }
+
+  const api = {gradientRefusal, gradientEndpoints, createFillGradient, setFillType, renderFillGradient, fillGradientValue, gradientEdit, saveGradient, saveFillGradient, handlesRefusal, placement, handleAt, handleCursor, pressHandle, handleDrag, previewHandle, restoreHandle, finishHandle, drawHandles, handlesStatus, wire};
   return api;
 }

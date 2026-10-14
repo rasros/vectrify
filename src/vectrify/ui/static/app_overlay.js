@@ -9,6 +9,7 @@ export function createOverlayController(editor, {
   CSS = globalThis.CSS,
   DOMPoint = globalThis.DOMPoint,
   drawFlash,
+  drawGradient = () => {},
   drawKeyObject,
   drawKnife,
   drawOverlay,
@@ -130,6 +131,7 @@ export function createOverlayController(editor, {
     drawFrame();
     drawKeyObject();
     drawRotation();
+    drawGradient();
     drawPathDraft();
     drawShape();
     drawKnife();

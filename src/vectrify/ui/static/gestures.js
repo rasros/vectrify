@@ -1,6 +1,6 @@
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, rotate, knife, region, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, rotate, gradient, knife, region, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
@@ -211,6 +211,31 @@ export function canvasGestures({view, path, shapes, selection, nodes, resize, mo
       move(gesture, event) { if (gesture.moved) { rotate.placePivot(event); drawOverlay(); } },
       release(gesture) { if (!gesture.moved) return selection.pick(gesture); drawOverlay(); },
       cancel: gesture => rotate.restorePivot(gesture),
+    },
+    // Moving a gradient's end by its handle in the Gradient tool, previewed
+    // on the drawn gradient as the edit will set it. Shift, Alt and Ctrl/⌘
+    // are read as they are pressed too. A click on a handle picks what is
+    // under it, as a click elsewhere does.
+    gradient: {
+      move(gesture, event) {
+        gesture.pointer = {clientX: event.clientX, clientY: event.clientY};
+        if (!gesture.moved) return;
+        if (gesture.refusal) {
+          if (!gesture.warned) gradient.refuse(gesture.refusal);
+          gesture.warned = true; return;
+        }
+        gesture.result = gradient.result(event); gradient.preview(); drawOverlay();
+      },
+      modifiers(gesture, event) {
+        if (!gesture.moved || !gesture.pointer || gesture.refusal) return;
+        const {shiftKey, altKey, ctrlKey, metaKey} = event;
+        gesture.result = gradient.result({...gesture.pointer, shiftKey, altKey, ctrlKey, metaKey}); gradient.preview(); drawOverlay();
+      },
+      async release(gesture) {
+        if (!gesture.moved) return selection.pick(gesture);
+        if (gesture.result) await gradient.finish(gesture);
+      },
+      cancel: gesture => gradient.restore(gesture),
     },
   };
 }
