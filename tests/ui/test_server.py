@@ -190,6 +190,7 @@ def test_compressed_download_reopens_with_reference_and_recovery_metadata(server
         "data_url": "data:image/png;base64,"
         + base64.b64encode(image.getvalue()).decode(),
         "opacity": 0.35,
+        "box": [0.0, 0.0, 1200.0, 800.0],
     }
     original = session.project()
     status, saved = call(

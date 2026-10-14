@@ -237,7 +237,8 @@ def test_project_roundtrip_preserves_reference_and_constraints(compressed):
         encoding="base64" if compressed else None,
         name="saved.vectrify",
     )
-    assert restored.reference == reference
+    # The reference keeps the place it was fitted to: the artboard.
+    assert restored.reference == {**reference, "box": [0.0, 0.0, 100.0, 100.0]}
     assert restored.editor.snapshot.document == session.editor.snapshot.document
     assert restored.editor.snapshot.selection == session.editor.snapshot.selection
     assert json.loads(saved)["vectrify_editor"] == 1

@@ -67,6 +67,9 @@ from vectrify.refine.redraw import redraw_stretch
 
 # Aspect ratios this close (relatively) count as the same shape.
 ASPECT_SLACK = 0.005
+# The most pixels the reference is drawn over a grown artboard at; past
+# this its resolution drops instead (see Session.reference_image).
+REFERENCE_PIXELS = 64_000_000
 # How near, in screen pixels, a redraw stroke's ends attach to a point of the
 # outline, else to the outline itself.
 NODE_REACH = 6
@@ -135,6 +138,7 @@ ACTION_COMMANDS = {
     "locks": Command("_command_locks"),
     "pin": Command("_command_pin"),
     "reference": Command("_command_reference"),
+    "artboard": Command("_command_artboard"),
     **{
         name: Command("_command_points", label)
         for name, label in POINT_COMMANDS.items()
@@ -463,12 +467,41 @@ class Session:
         return (self.epoch, reference if method.needs_reference else None)
 
     def reference_image(self) -> Image.Image | None:
+        """The reference over the artboard, as the editor and every method
+        stretch it.
+
+        The image keeps its own place in the drawing, its *box*, which is
+        the artboard it was fitted to. After the artboard changes it is
+        cropped, or padded with transparency, to cover the new artboard at
+        the same resolution, so it stays under the artwork it was traced
+        into.
+        """
         if not self.reference:
             return None
         data = base64.b64decode(self.reference["data_url"].split(",", 1)[1])
         with Image.open(io.BytesIO(data)) as image:
             image.load()
-            return image.copy()
+            picture = image.copy()
+        ax, ay, aw, ah = self.editor.snapshot.document.artboard()
+        bx, by, bw, bh = self.reference.get("box") or (ax, ay, aw, ah)
+        if (ax, ay, aw, ah) == (bx, by, bw, bh):
+            return picture
+        sx, sy = picture.width / bw, picture.height / bh
+        shrink = min(1.0, math.sqrt(REFERENCE_PIXELS / (aw * sx * ah * sy)))
+        size = (max(1, round(aw * sx * shrink)), max(1, round(ah * sy * shrink)))
+        extent = (
+            (ax - bx) * sx,
+            (ay - by) * sy,
+            (ax + aw - bx) * sx,
+            (ay + ah - by) * sy,
+        )
+        return picture.convert("RGBA").transform(
+            size,
+            Image.Transform.EXTENT,
+            extent,
+            Image.Resampling.BILINEAR,
+            fillcolor=(0, 0, 0, 0),
+        )
 
     def reference_error(self) -> Image.Image:
         """One error map shared by the canvas and MCP's current-view render."""
@@ -841,6 +874,10 @@ class Session:
         else:
             document, selection = import_svg(source), Selection()
         editor = Editor(document, selection=selection)
+        if reference is not None and "box" not in reference:
+            # Projects saved before references kept their place had it
+            # stretched over the artboard.
+            reference["box"] = list(document.artboard())
         for job in self.jobs.values():
             job.stop.set()
         self.jobs = {}
@@ -850,6 +887,13 @@ class Session:
         self._svg_revision = -1
 
     def fit_reference(self, reference: dict) -> dict:
+        """*reference* fitted to the artboard (see _fitted_reference), placed
+        over it: its *box* is the artboard it now covers. Later artboard
+        changes leave it there (see reference_image)."""
+        fitted = self._fitted_reference(reference)
+        return {**fitted, "box": list(self.editor.snapshot.document.artboard())}
+
+    def _fitted_reference(self, reference: dict) -> dict:
         """*reference* fitted to the artboard without distortion.
 
         The editor and every method stretch the reference over the artboard,
@@ -921,11 +965,21 @@ class Session:
         opacity = number(value.get("opacity", 0.5))
         if not 0 <= opacity <= 1:
             raise DocumentError("Reference opacity must be between zero and one")
-        return {
+        reference: dict[str, Any] = {
             "name": str(value.get("name", "Reference")),
             "data_url": url,
             "opacity": opacity,
         }
+        # Where the image lies in the drawing; without it, over the artboard.
+        box = value.get("box")
+        if box is not None:
+            if not isinstance(box, list) or len(box) != 4:
+                raise DocumentError("A reference's box is [x, y, width, height]")
+            box = [number(v) for v in box]
+            if box[2] <= 0 or box[3] <= 0:
+                raise DocumentError("A reference's box needs a positive size")
+            reference["box"] = box
+        return reference
 
     def project(self) -> str:
         return json.dumps(
@@ -1049,7 +1103,36 @@ class Session:
             "data_url"
         ):
             reference = self.fit_reference(reference)
+        elif reference and self.reference:
+            # The image keeps its place: only artboard fitting places it.
+            box = self.reference.get("box")
+            artboard = self.editor.snapshot.document.artboard()
+            reference = {**reference, "box": box or list(artboard)}
         self.reference = reference
+
+    def _command_artboard(self, payload: dict) -> None:
+        """Set the artboard to *box* [x, y, width, height], or with *fit*
+        "artwork" to the painted bounds of everything drawn, as one undoable
+        edit (Transaction.set_artboard). The artwork stays where it is, and
+        so does the reference (see reference_image)."""
+        document = self.editor.snapshot.document
+        if payload.get("fit") == "artwork":
+            painted = HitIndex(document).bounds(
+                frozenset(e.id for e in document.elements())
+            )
+            if painted is None:
+                raise DocumentError("Nothing is drawn to fit the artboard to")
+            left, top, right, bottom = painted
+            box = (left, top, right - left, bottom - top)
+            label = "Fit artboard to artwork"
+        else:
+            raw = payload.get("box")
+            if not isinstance(raw, list) or len(raw) != 4:
+                raise DocumentError("Give the artboard as [x, y, width, height]")
+            box = tuple(number(v) for v in raw)
+            label = "Change artboard"
+        with self.editor.transaction(label) as tx:
+            tx.set_artboard(*box)
 
     def _command_history(self, payload: dict) -> None:
         getattr(self.editor, payload["command"])(payload.get("ids"), author="person")

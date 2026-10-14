@@ -12,11 +12,13 @@ export function createSessionController(editor, {
   loadReference,
   missingGeometries,
   overlay,
+  placeReference,
   renderDrawing,
   renderInspector,
   renderObjects,
   selectedHandle,
   updateObjectSelection,
+  updateView,
 } = {}) {
   let objectsById = new Map();
 
@@ -38,6 +40,7 @@ export function createSessionController(editor, {
     const changed = !editor.state || next.epoch !== editor.state.epoch || next.revision !== editor.state.revision;
     const replaced = !editor.state || next.epoch !== editor.state.epoch;
     const referenceChanged = replaced || (next.reference_revision !== undefined && next.reference_revision !== editor.state.reference_revision);
+    const before = editor.state?.bounds;
     if (replaced) savedVersion = {epoch: next.epoch, project_version: next.project_version};
     editor.state = {...editor.state, ...next};
     editor.dirty = editor.state.epoch !== savedVersion.epoch || editor.state.project_version !== savedVersion.project_version;
@@ -49,6 +52,15 @@ export function createSessionController(editor, {
     overlay.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
     overlay.setAttribute('preserveAspectRatio', 'none');
     $('dimensions').textContent = `${Math.round(w)} × ${Math.round(h)}`;
+    if (!replaced && before && before.join() !== editor.state.bounds.join()) {
+      // The artwork stays where it is on screen when the artboard's corner
+      // moves, and the reference keeps its place over the artwork.
+      if (before[0] !== x || before[1] !== y) {
+        editor.pan = {x: editor.pan.x + (x - before[0]) * editor.zoom, y: editor.pan.y + (y - before[1]) * editor.zoom};
+        updateView();
+      }
+      placeReference();
+    }
     $('undo').disabled = !editor.state.undo.length; $('redo').disabled = !editor.state.redo.length;
     $('undo').title = editor.state.undo.length ? `Undo: ${editor.state.undo.at(-1)}` : 'Nothing to undo';
     $('redo').title = editor.state.redo.length ? `Redo: ${editor.state.redo[0]}` : 'Nothing to redo';

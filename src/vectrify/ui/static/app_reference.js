@@ -37,8 +37,24 @@ export function createReferenceController(editor, {
     referenceError.update(editor.state?.svg, editor.state?.bounds, editor.reference && editor.referenceView === 'error' ? editor.reference.data_url : null);
   }
 
+  // The reference lies over its own place in the drawing, its box: the
+  // artboard it was fitted to. After the artboard changes it stays there,
+  // under the artwork, and shows only where it overlaps the artboard.
+  function placeReference() {
+    const image = $('reference-image'), box = editor.reference?.box, bounds = editor.state?.bounds;
+    if (!box || !bounds) { for (const name of ['left', 'top', 'width', 'height', 'clipPath']) image.style[name] = ''; return; }
+    const [ax, ay, aw, ah] = bounds, [bx, by, bw, bh] = box;
+    const percent = value => `${value * 100}%`;
+    image.style.left = percent((bx - ax) / aw); image.style.top = percent((by - ay) / ah);
+    image.style.width = percent(bw / aw); image.style.height = percent(bh / ah);
+    // Insets, as shares of the image, trim what lies off the artboard.
+    const inset = [ay - by, bx + bw - ax - aw, by + bh - ay - ah, ax - bx].map((value, side) => percent(Math.max(0, value) / (side % 2 ? bw : bh)));
+    image.style.clipPath = inset.some(value => value !== '0%') ? `inset(${inset.join(' ')})` : '';
+  }
+
   function showReference() {
     reportView();
+    placeReference();
     $('reference-controls').hidden=!editor.reference; $('remove-reference').hidden=!editor.reference;
     $('reference-name').textContent=editor.reference?.name || 'No reference';
     $('reference-name').title=editor.reference?.name || '';
@@ -109,6 +125,6 @@ export function createReferenceController(editor, {
     $('reference-opacity').onchange=()=>{if(editor.reference)action('reference',{reference: editor.reference});};
       return api;
   }
-  const api = {VIEWS, errorStatus, referenceError, refreshErrorView, showReference, setView, cycleReference, foldReference, removeReference, wire};
+  const api = {VIEWS, errorStatus, referenceError, refreshErrorView, placeReference, showReference, setView, cycleReference, foldReference, removeReference, wire};
   return api;
 }

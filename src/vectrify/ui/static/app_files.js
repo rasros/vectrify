@@ -149,6 +149,16 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
       }
     }catch(error){if(error.name!=='AbortError')toast(error.message,true);}
   };
+  // A new, empty drawing replaces this one as opening a file does: unsaved
+  // edits are confirmed first, and it starts with no file and no reference.
+  async function newDrawing(width, height) {
+    if(saving)return false;
+    if(isDirty()&&!window.confirm('Start a new drawing? Save your file first if you want to keep these edits.'))return false;
+    const source=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"/>`;
+    if(!await action('open',{name:'Untitled.svg',source},'Starting a new drawing…'))return false;
+    forgetFile();markSaved();await refreshDrawing();
+    return true;
+  }
   function fileSource(file) {
     return new Promise((resolve,reject)=>{
       const reader=new FileReader();
@@ -183,5 +193,5 @@ export function projectFiles({getState, getSession, getBridge, waitForEdits,
     // recovery copy fails. Always show that drawing so the tab stays usable.
     return restored;
   }
-  return {save, download, recover, currentName};
+  return {save, download, newDrawing, recover, currentName};
 }

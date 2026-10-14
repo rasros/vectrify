@@ -267,7 +267,10 @@ JSON text, followed by `Image: <name>` and the PNG for each image.
 `.svg` path writes plain SVG, a `.vectrify` path a project; no path saves to
 the opened file), `load_reference(path?)` (PNG, JPEG or WebP, fitted to
 the artboard as the editor does: an empty drawing takes its size, otherwise it
-is padded to the artboard's shape; no path removes the reference).
+is padded to the artboard's shape; no path removes the reference). The
+reference keeps the place it was fitted to: if the person later changes the
+artboard, it is cropped or padded to cover the new one and stays under the
+artwork.
 
 All coordinates are document coordinates (the root's user space) and every
 region is `[x, y, w, h]`; a region that edits (`extract`, `delete`) may also
@@ -453,6 +456,8 @@ has no tool of its own; it arrives as the first step of every targeted tool. Lef
 
 - `open`: an agent opens a file as its own headless target; it never
   replaces the drawing in the person's window.
+- `artboard`: the person's page set-up; agents work within the artboard
+  `describe` reports and never resize the page.
 - `node`: the one-point drag; `set_points` sends `move_nodes`, which moves
   one point or many.
 - `to_front`, `to_back`: internal names `reorder` (`arrange(to=...)`) is

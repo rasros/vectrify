@@ -813,6 +813,43 @@ class Transaction:
                 replace(element, attributes=tuple(attrs.items()))
             )
 
+    def set_artboard(self, x: float, y: float, width: float, height: float) -> None:
+        """Make (*x*, *y*, *width*, *height*) the artboard: the root's viewBox.
+
+        Artwork keeps its coordinates, so it stays where it is: nothing is
+        moved, scaled or cropped, and what falls off the artboard stays in
+        the drawing, only outside the page. The root's width and height, if
+        set, keep their ratio to the viewBox, so the drawing keeps its scale.
+        """
+        with self._change():
+            box = (x, y, width, height)
+            if not all(math.isfinite(v) for v in box):
+                raise DocumentError("The artboard needs finite numbers")
+            if width <= 0 or height <= 0:
+                raise DocumentError("The artboard needs a positive width and height")
+            if (
+                EditKind.GEOMETRY not in self._allowed
+                and "viewBox" not in self._allowed
+            ):
+                raise EditRejectedError("Changing the artboard is not permitted")
+            root = self._working.root
+            # The artboard frames the artwork without changing it: only the
+            # root's own locks apply, not its descendants'.
+            self._check_locks(root.id, EditKind.GEOMETRY, "viewBox")
+            _, _, old_width, old_height = self._working.artboard()
+            attrs = dict(root.attributes)
+            attrs["viewBox"] = " ".join(f"{v + 0.0:.12g}" for v in box)
+            for name, size, old in (
+                ("width", width, old_width),
+                ("height", height, old_height),
+            ):
+                if attrs.get(name) is not None:
+                    attrs[name] = f"{float(attrs[name]) * size / old:.12g}"
+            validate_attributes(root.tag, attrs)
+            self._working = self._working.replace_element(
+                replace(root, attributes=tuple(attrs.items()))
+            )
+
     def set_clip(
         self,
         object_id: str,
