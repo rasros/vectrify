@@ -233,7 +233,7 @@ def protect_trace(shapes: list[dict], features: list[dict], pixel: float) -> lis
     from vectrify.document import DocumentError
     from vectrify.document.features import KINDS
     from vectrify.document.svg import parse_path
-    from vectrify.ui.agent import _finite
+    from vectrify.ui.shared import finite
 
     geometries = [parse_path(shape["d"]) for shape in shapes]
     diagnostics = []
@@ -242,11 +242,11 @@ def protect_trace(shapes: list[dict], features: list[dict], pixel: float) -> lis
         if not isinstance(feature, dict) or set(feature) - {"x", "y", "kind", "reach"}:
             raise DocumentError("Trace features use x, y, kind and optional reach")
         x, y = (
-            _finite(feature.get("x"), "feature x"),
-            _finite(feature.get("y"), "feature y"),
+            finite(feature.get("x"), "feature x"),
+            finite(feature.get("y"), "feature y"),
         )
         kind = feature.get("kind", "tip")
-        reach = _finite(feature.get("reach", 3 * pixel), "feature reach")
+        reach = finite(feature.get("reach", 3 * pixel), "feature reach")
         if kind not in KINDS or reach <= 0:
             raise DocumentError(
                 "Trace features need a supported kind and positive reach"
