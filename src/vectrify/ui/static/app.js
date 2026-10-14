@@ -32,6 +32,7 @@ import {createJoinController} from './app_join.js';
 import {createReferenceController} from './app_reference.js';
 import {createReferenceDataController} from './app_reference_data.js';
 import {createKeysController} from './app_keys.js';
+import {createTransformController} from './app_transform.js';
 
 // Compose controllers with explicit live state and named collaborators.
 export function createApplication({document = globalThis.document, window = globalThis.window, location = globalThis.location} = {}) {
@@ -107,6 +108,7 @@ export function createApplication({document = globalThis.document, window = glob
     renderFillGradient: (...args) => gradientsController.renderFillGradient(...args),
     renderNodeInspector: (...args) => selectionController.renderNodeInspector(...args),
     renderStrokeControls: (...args) => strokeController.renderStrokeControls(...args),
+    renderTransform: (...args) => transformController.renderTransform(...args),
     scheduleStrip: (...args) => layoutController.scheduleStrip(...args),
     selectObject: (...args) => selectionController.selectObject(...args),
     svgElement: (...args) => sessionController.svgElement(...args),
@@ -191,6 +193,7 @@ export function createApplication({document = globalThis.document, window = glob
     toast: (...args) => transportController.toast(...args),
     toggleAgents: (...args) => agent_controlsController.toggleAgents(...args),
     toggleClipping: (...args) => overlayController.toggleClipping(...args),
+    transformRefusal: (...args) => transformController.fieldRefusal(...args),
     twoEnds: (...args) => commandsController.twoEnds(...args),
     visiblePaths: (...args) => commandsController.visiblePaths(...args),
     zoomAt: (...args) => viewController.zoomAt(...args),
@@ -284,6 +287,16 @@ export function createApplication({document = globalThis.document, window = glob
     paint: (...args) => paintController.paint(...args),
     resolvedPaint: (...args) => paintController.resolvedPaint(...args),
     toast: (...args) => transportController.toast(...args),
+  });
+  const transformController = createTransformController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    later: (...args) => transportController.later(...args),
+    object: (...args) => sessionController.object(...args),
+    resizeRefusal: (...args) => resizingController.resizeRefusal(...args),
+    selectionBounds: (...args) => overlayController.selectionBounds(...args),
+    toast: (...args) => transportController.toast(...args),
+    topSelection: (...args) => canvasController.topSelection(...args),
   });
   const gradientsController = createGradientsController(editor, {
     $,
@@ -604,6 +617,7 @@ export function createApplication({document = globalThis.document, window = glob
       command_registryController.wire();
       arrowsController.wire();
       strokeController.wire();
+      transformController.wire();
       gradientsController.wire();
       viewController.wire();
       hitsController.wire();
@@ -639,6 +653,7 @@ export function createApplication({document = globalThis.document, window = glob
     command_registry: command_registryController,
     arrows: arrowsController,
     stroke: strokeController,
+    transform: transformController,
     gradients: gradientsController,
     view: viewController,
     hits: hitsController,

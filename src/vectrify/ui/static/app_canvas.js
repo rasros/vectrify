@@ -382,11 +382,6 @@ export function createCanvasController(editor, {
 
     $('path-cancel').onclick=()=>{editor.pathDraft=[];editor.pathHover=null;drawOverlay();};
 
-    $('move-apply').onclick=()=>{
-      const dx=Number($('move-x').value), dy=Number($('move-y').value);
-      $('move-x').value='0';$('move-y').value='0';
-      later(()=>action('move',{dx,dy}));
-    };
       return api;
   }
   const api = {targetId, topSelection, pathData, valuesById, restoreValues, carryHandles, previewPointDrag, pressPoint, finishBox, pressStage, hoverPoints, moveStage, finishPointDrag, releaseStage, enterObject, stepUp, cancelStage, wire};

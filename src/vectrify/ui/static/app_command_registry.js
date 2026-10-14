@@ -62,6 +62,7 @@ export function createCommandRegistryController(editor, {
   toast,
   toggleAgents,
   toggleClipping,
+  transformRefusal,
   twoEnds,
   visiblePaths,
   zoomAt,
@@ -116,6 +117,8 @@ export function createCommandRegistryController(editor, {
     {id: 'create-gradient', name: 'Create linear gradient', group: 'Paint', keywords: 'fill colour color stops shading', run: createFillGradient, disabled: gradientRefusal},
     {id: 'stroke', name: 'Edit stroke', group: 'Paint', keywords: 'colour color outline', run: () => $('stroke-value').focus(), disabled: noSelection},
     // Transform
+    {id: 'position-size', name: 'Position and size…', group: 'Transform', keywords: 'x y width height dimensions bounds coordinates numeric resize scale',
+      description: 'Type where the selection frame is and how large', run: () => $('transform-x').select(), disabled: () => transformRefusal('x')},
     {id: 'move-by', name: 'Move by…', group: 'Transform', keywords: 'offset position translate', run: () => $('move-x').select(), disabled: noSelection},
     // Arrange: stacking and grouping.
     {id: 'to-back', name: 'Send to back', group: 'Arrange', keys: 'Ctrl/⌘ Shift [', keywords: 'stacking order', description: 'Move the selection behind everything else in its group',
