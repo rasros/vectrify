@@ -96,6 +96,11 @@ vectrify = ["refine/*.cu", "ui/static/*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 
+[tool.vulture]
+# The whitelist names what is used only by name, by frameworks or by pytest.
+paths = ["src", "scripts", "tests", "vulture_whitelist.py"]
+min_confidence = 60
+
 [tool.pyrefly]
 project-includes = ["src/**/*.py", "tests/**/*.py"]
 # Check this checkout even when the interpreter comes from another worktree.
@@ -139,6 +144,10 @@ select = [
     "TID",
 ]
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# Vulture whitelists are bare attribute accesses.
+"vulture_whitelist.py" = ["B018"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
