@@ -1,0 +1,51 @@
+<!doctype html><html><body><pre id="results">running</pre><canvas id="comparison" hidden></canvas><script type="module">
+import {createErrorRenderer} from '/src/vectrify/ui/static/reference_render.js';
+import {errorView} from '/src/vectrify/ui/static/reference_error.js';
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+(async () => { try {
+  const render = createErrorRenderer();
+  const bounds = [40, 20, 24, 24];
+  const referenceCanvas = document.createElement('canvas'); referenceCanvas.width = referenceCanvas.height = 24;
+  const ctx = referenceCanvas.getContext('2d');
+  const reference = colour => {
+    ctx.clearRect(0, 0, 24, 24); ctx.fillStyle = colour; ctx.fillRect(0, 0, 24, 24);
+    return {data_url: referenceCanvas.toDataURL(), box: bounds};
+  };
+  const empty = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="40 20 24 24"/>';
+  const at = (canvas, x, y) => [...canvas.getContext('2d').getImageData(x, y, 1, 1).data].join(',');
+  let pixels = await render(empty, bounds, reference('white'));
+  assert(at(pixels, 12, 12) === '0,0,0,255', 'exact matches are black');
+  const black = reference('black');
+  pixels = await render(empty, bounds, black);
+  assert(at(pixels, 12, 12) === '255,255,255,255', 'maximal error is white');
+  pixels = await render(empty, bounds, {...black, box: [52, 20, 24, 24]});
+  assert(at(pixels, 6, 12) === '0,0,0,255', 'white outside the placed reference');
+  assert(at(pixels, 18, 12) === '255,255,255,255', 'reference placement follows document coordinates');
+  const translucent = empty.replace('/>', '><rect x="40" y="20" width="24" height="24" fill="red" fill-opacity="0.5"/></svg>');
+  pixels = await render(translucent, bounds, reference('rgba(255,0,0,0.5)'));
+  assert(at(pixels, 12, 12) === '0,0,0,255', 'both transparent images are composited over white');
+  const clipped = empty.replace('/>', `><defs><clipPath id="clip" data-vectrify-clip-owner="shape">
+    <path clip-rule="evenodd" d="M40 20 H64 V44 H40 Z M46 26 H58 V38 H46 Z"/>
+    </clipPath></defs><rect x="40" y="20" width="24" height="24" fill="red" clip-path="url(#clip)"/></svg>`);
+  pixels = await render(clipped, bounds, reference('white'));
+  assert(at(pixels, 12, 12) === '0,0,0,255', 'native clipping preserves the hole');
+  assert(at(pixels, 2, 2) === '255,255,114,255', 'native clipping preserves the painted boundary');
+
+  let next, reject, shared = 0;
+  const original = document.getElementById('comparison');
+  const view = errorView(original, () => {}, () => {}, () => new Promise((yes, no) => {next = yes; reject = no;}), () => shared++);
+  view.update('first', bounds, black); next(pixels); await tick();
+  const first = document.getElementById('comparison');
+  assert(first !== original && !first.hidden, 'publish the prepared canvas in one swap');
+  assert(original.width === 300, 'never resize the previously displayed canvas');
+  assert(at(first, 2, 2) === at(pixels, 2, 2), 'the published pixels are complete');
+  view.update('edited', [0, 0, 48, 48], reference('white'));
+  assert(document.getElementById('comparison') === first && !first.hidden, 'keep the old frame while rendering at a new placement');
+  reject(new Error('failed')); await tick();
+  assert(document.getElementById('comparison') === first && !first.hidden, 'failed refreshes keep the old frame');
+  view.update('latest', bounds, black); next(pixels); await tick();
+  assert(document.getElementById('comparison') !== first && shared === 2, 'only finished frames publish');
+  document.getElementById('results').textContent = 'ok';
+} catch (error) { document.getElementById('results').textContent = error.stack; } })();
+</script></body></html>

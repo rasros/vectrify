@@ -90,8 +90,8 @@ class Backend:
                 return 401, {"error": "Editor session expired; reload this page"}
             # The comparison captures its own snapshot under the lock, then
             # rasterizes it without holding up the person's next edit.
-            if path == "/api/reference-error":
-                return 200, self._reference_error(session, data, session_id or "")
+            if path in {"/api/reference-error", "/api/reference-error-cache"}:
+                return 200, ROUTES[path](self, session, data, session_id or "")
             with session.lock:
                 route = ROUTES.get(path)
                 if route is None:
@@ -180,6 +180,9 @@ ROUTES: dict[str, Callable[[Backend, Session, dict, str], Any]] = {
     "/api/agent": Backend._agent,
     "/api/reference": Backend._reference,
     "/api/reference-error": Backend._reference_error,
+    "/api/reference-error-cache": lambda _backend, session, data, _id: (
+        session.cache_reference_error(data)
+    ),
     "/api/export": lambda _backend, session, data, _id: session.export(data),
 }
 

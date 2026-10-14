@@ -9,7 +9,14 @@ const deferred = () => {
   return {result, resolve, reject};
 };
 const calls = [], statuses = [], failures = [], painted = [];
-const canvas = {hidden: true, getContext: () => ({drawImage: pixels => painted.push(pixels)})};
+let visible;
+const swaps = [];
+const makeCanvas = () => ({hidden: true,
+  cloneNode: () => makeCanvas(),
+  getContext() { return {drawImage: pixels => { assert.notEqual(this, visible, 'paint offscreen before replacing the displayed canvas'); this.pixels = pixels; painted.push(pixels); }}; },
+  replaceWith(next) { assert.equal(this, visible); assert.ok(next.pixels, 'publish only a complete frame'); swaps.push(next); visible = next; },
+});
+const canvas = makeCanvas(); visible = canvas;
 const controller = errorView(canvas, value => statuses.push(value), error => failures.push(error), (...args) => {
   const call = {...deferred(), args}; calls.push(call); return call.result;
 });
@@ -26,25 +33,26 @@ assert.equal(calls.length, 2);
 assert.equal(calls[1].args[0], 'edited', 'skip superseded edits');
 calls[1].resolve({width: 320, height: 240, name: 'edited'}); await flush();
 assert.equal(painted.at(-1).name, 'edited');
-assert.equal(canvas.hidden, false);
+assert.equal(visible.hidden, false);
 update('edited', null);
-assert.equal(canvas.hidden, true);
+assert.equal(visible.hidden, true);
 update('edited');
-assert.equal(canvas.hidden, false);
+assert.equal(visible.hidden, false);
 assert.equal(calls.length, 2, 'returning to the same view reuses its pixels');
 update('edited', 'replacement');
-assert.equal(canvas.hidden, true, 'a replaced reference cannot show old pixels');
+assert.equal(visible.hidden, false, 'retain the old frame while replacing the reference');
 update('edited', null);
 calls[2].resolve({width: 320, height: 240, name: 'replacement'}); await flush();
-assert.equal(canvas.hidden, true, 'leaving the view hides late completions');
+assert.equal(visible.hidden, true, 'leaving the view hides late completions');
 update('edited', 'replacement'); await flush();
 assert.equal(painted.at(-1).name, 'replacement');
 assert.equal(calls.length, 3, 'reuse a completed render when returning');
 update('broken');
-assert.equal(canvas.hidden, true, 'the reference differs from the cached canvas');
+assert.equal(visible.hidden, false, 'retain the old frame until a new one is complete');
 calls[3].reject(new Error('failed')); await flush();
 assert.equal(statuses.at(-1), 'failed');
 assert.equal(failures.length, 1);
+assert.equal(visible.hidden, false, 'a failed refresh must not blank the previous frame');
 update('broken');
 assert.equal(calls.length, 5, 'a failed render can be retried');
 update('broken', null);
@@ -52,7 +60,7 @@ calls[4].reject(new Error('obsolete')); await flush();
 assert.equal(failures.length, 1, 'obsolete failures are ignored');
 
 update('refresh', 'replacement');
-assert.equal(canvas.hidden, false, 'keep the comparison visible during edits');
+assert.equal(visible.hidden, false, 'keep the comparison visible during edits');
 update('refresh', null);
 update('refresh', 'replacement');
 assert.equal(calls.length, 6, 'returning reuses the in-flight request');
@@ -60,13 +68,16 @@ calls[5].resolve({width: 320, height: 240, name: 'refresh'}); await flush();
 assert.equal(painted.at(-1).name, 'refresh');
 assert.equal(calls.length, 6);
 controller.update('resized', [0, 0, 160, 120], 'replacement');
-assert.equal(canvas.hidden, true, 'old pixels cannot use a different artboard');
+assert.equal(visible.hidden, false, 'keep the old frame during an artboard resize');
 update('latest', 'replacement');
 calls[6].reject(new Error('obsolete size')); await flush();
 assert.equal(failures.length, 1);
 assert.equal(calls[7].args[0], 'latest', 'an obsolete failure still starts the latest comparison');
 calls[7].resolve({width: 320, height: 240, name: 'latest'}); await flush();
 assert.equal(painted.at(-1).name, 'latest');
+assert.equal(visible.pixels.name, 'latest');
+assert.equal(swaps.length, painted.length, 'each painted frame publishes in a single swap');
+assert.equal(canvas.width, undefined, 'the original displayed canvas is never resized');
 
 // Exercise the app's actual view controls and wraparound in both directions.
 
