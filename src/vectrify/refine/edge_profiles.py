@@ -3,7 +3,8 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates
 
-from vectrify.refine.snap import CONTRAST, _Frame
+from vectrify.refine.frame import Frame
+from vectrify.refine.snap import CONTRAST
 
 
 class EdgeProfiles:
@@ -19,7 +20,7 @@ class EdgeProfiles:
         response: np.ndarray,
         target: np.ndarray,
         coverage: np.ndarray,
-        frame: _Frame,
+        frame: Frame,
         pixel_scale: float,
     ):
         self.frame = frame

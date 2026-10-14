@@ -37,10 +37,14 @@ from scipy.ndimage import (
     distance_transform_edt as _distance_transform_edt,
 )
 
+from vectrify.document.paint import hex_colour
 from vectrify.refine.tracing import _loops
 from vectrify.svg.cleanup import cleanup_svg_geometry
 
 log = logging.getLogger(__name__)
+
+# Rec. 709 weights of red, green and blue in luminance.
+LUMINANCE = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
 
 def distance_transform_edt(mask: np.ndarray) -> np.ndarray:
@@ -220,8 +224,7 @@ def remove_fragments(labels: np.ndarray, minimum: int) -> np.ndarray:
 
 
 def colour(value: np.ndarray) -> str:
-    red, green, blue = np.clip(np.rint(value), 0, 255).astype(int)
-    return f"#{red:02x}{green:02x}{blue:02x}"
+    return hex_colour((np.rint(value) / 255).tolist())
 
 
 def dark_outline_mask(
@@ -235,7 +238,7 @@ def dark_outline_mask(
     """
     if radius < 1 or not np.isfinite(contrast) or contrast <= 0:
         raise ValueError("outline radius and contrast must be positive")
-    luminance = target @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    luminance = target @ LUMINANCE
     ridge = grey_closing(luminance, size=2 * radius + 1) - luminance
     return binary_propagation(ridge >= contrast, mask=ridge >= contrast / 3)
 
@@ -460,7 +463,7 @@ def follow_ink_boundaries(target: np.ndarray, labels: np.ndarray, minimum: int):
             )
             for y, x in positions:
                 seeds[y, x] = int(index) + 1
-    luminance = target @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    luminance = target @ LUMINANCE
     ridge = grey_closing(luminance, size=7) - luminance
     height_map = np.clip(ridge * 8, 0, 255).astype(np.uint8)
     return remove_fragments(watershed_ift(height_map, seeds) - 1, minimum)
@@ -703,7 +706,7 @@ def clean_region_svg(
     ink = colour(np.percentile(target[mask], 10, axis=0)) if mask.any() else "#000000"
     distance = distance_transform_edt(~mask)
     candidates = []
-    luminance = target @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    luminance = target @ LUMINANCE
     for original, selected in interfaces:
         xs = np.clip(np.rint(original[:, 0]).astype(int), 0, image_width - 1)
         ys = np.clip(np.rint(original[:, 1]).astype(int), 0, height - 1)

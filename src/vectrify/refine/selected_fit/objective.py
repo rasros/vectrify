@@ -11,7 +11,7 @@ from cairosvg.colors import color
 from PIL import Image
 
 from vectrify.refine.enclosure import protected_pixels
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 from vectrify.svg_render import render_image
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ class ExactObjective:
             document,
             context.oid,
             context.geometry,
-            _Frame(
+            Frame(
                 context.linear * context.scale[:, None],
                 (context.offset - context.crop[:2]) * context.scale,
             ),
@@ -112,7 +112,7 @@ class ExactObjective:
                 response,
                 guide_target,
                 self.outline_coverage(context.geometry),
-                _Frame(
+                Frame(
                     context.linear * context.scale[:, None],
                     (context.offset - context.crop[:2]) * context.scale,
                 ),

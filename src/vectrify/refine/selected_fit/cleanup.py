@@ -10,7 +10,7 @@ from cairosvg.colors import color
 from PIL import Image
 
 from vectrify.refine.crossings import crossings
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 
 if TYPE_CHECKING:
     from vectrify.document import Geometry, Selection
@@ -101,7 +101,7 @@ class CleanupPass:
         cleaned(
             geometry,
             context.geometry,
-            _Frame(pixels @ context.linear, pixels @ (context.offset - [vx, vy])),
+            Frame(pixels @ context.linear, pixels @ (context.offset - [vx, vy])),
             self.options.displacement,
             self.held,
             self.accept_bridge,

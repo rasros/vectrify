@@ -9,19 +9,19 @@ from PIL import Image
 
 from tests.helpers import rasterize_svg_to_png_bytes
 from vectrify.refine.paths import (
-    _composite_opaque_fills,
-    _fill_batched_windings,
-    _fill_coverages,
-    _fill_path_coverage,
     _fill_winding,
-    _large_path_tile_boundary_candidates,
-    _large_path_tile_candidates,
     _pad_fused_cubics,
-    _tiled_large_path_coverage,
     _torch_compile_enabled,
-    _xing_loss,
+    composite_opaque_fills,
+    fill_batched_windings,
+    fill_coverages,
+    fill_path_coverage,
     fit_filled_svg,
+    large_path_tile_boundary_candidates,
+    large_path_tile_candidates,
     parse_filled_cubics,
+    tiled_large_path_coverage,
+    xing_loss,
 )
 
 
@@ -138,12 +138,12 @@ def test_native_winding_matches_torch_forward_and_gradient(samples, monkeypatch)
     if not cuda_renderer.available():
         pytest.skip("optional CUDA renderer extension is not installed")
     controls = _sixteen_cubic_circle(torch).requires_grad_()
-    native = _fill_batched_windings(
+    native = fill_batched_windings(
         controls, (0, 0, 24, 24), samples=samples, x_offset=0.25, y_offset=0.25
     )
     extension = cuda_renderer._extension
     monkeypatch.setattr(cuda_renderer, "_extension", lambda: None)
-    portable = _fill_batched_windings(
+    portable = fill_batched_windings(
         controls, (0, 0, 24, 24), samples=samples, x_offset=0.25, y_offset=0.25
     )
     upstream = torch.randn_like(native)
@@ -220,7 +220,7 @@ def test_native_even_odd_coverage_stays_cairo_validated():
         for contour in parse_filled_cubics(DONUT_PATH)
     ]
     native = (
-        _fill_path_coverage(contours, (0, 0, size, size), fill_rule="evenodd")
+        fill_path_coverage(contours, (0, 0, size, size), fill_rule="evenodd")
         .cpu()
         .numpy()
     )
@@ -258,7 +258,7 @@ def test_native_analytic_cubic_coverage_stays_cairo_validated():
         device="cuda",
     )
     contour = torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[None]
-    native = _fill_coverages(contour, (0, 0, size, size), subpixels=4).cpu().numpy()
+    native = fill_coverages(contour, (0, 0, size, size), subpixels=4).cpu().numpy()
     head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
     blank = f"{head}</svg>"
     path = "M 12 48 C 12 5 84 5 84 48 C 84 91 12 91 12 48 Z"
@@ -528,9 +528,7 @@ def test_even_odd_filled_renderer_matches_exported_svg_with_a_hole():
         torch.tensor(contour, dtype=torch.float32)
         for contour in parse_filled_cubics(DONUT_PATH)
     ]
-    soft = _fill_path_coverage(
-        contours, (0, 0, size, size), fill_rule="evenodd"
-    ).numpy()
+    soft = fill_path_coverage(contours, (0, 0, size, size), fill_rule="evenodd").numpy()
     head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
     blank = f"{head}</svg>"
     drawn = f'{head}<path d="{DONUT_PATH}" fill="#000" fill-rule="evenodd" /></svg>'
@@ -599,7 +597,7 @@ def test_batched_fill_coverage_matches_each_individual_contour():
     controls = torch.stack((contour, contour + torch.tensor([2.0, 1.0])))
     box = (0, 0, 32, 32)
 
-    batched = _fill_coverages(controls, box)
+    batched = fill_coverages(controls, box)
     separate = torch.stack([_fill_coverage(control, box) for control in controls])
 
     assert torch.allclose(batched, separate, atol=1e-6)
@@ -618,7 +616,7 @@ def test_large_path_tile_candidates_keep_every_possible_ray_crossing():
         .clone(),
     ]
 
-    tiles = _large_path_tile_candidates(contours, 32, 32, tile_size=16, margin=0)
+    tiles = large_path_tile_candidates(contours, 32, 32, tile_size=16, margin=0)
     by_origin = {(left, top): candidates for left, top, _w, _h, candidates in tiles}
 
     assert 0 in by_origin[(0, 0)]
@@ -636,8 +634,8 @@ def test_large_path_boundary_candidates_are_a_local_subset_of_ray_candidates():
         .expand(16, -1, -1)
         .clone(),
     ]
-    tiles = _large_path_tile_candidates(contours, 32, 16, tile_size=16, margin=0)
-    boundary = _large_path_tile_boundary_candidates(contours, tiles, margin=0)
+    tiles = large_path_tile_candidates(contours, 32, 16, tile_size=16, margin=0)
+    boundary = large_path_tile_boundary_candidates(contours, tiles, margin=0)
     by_origin = {
         (left, top): (candidates, nearby)
         for (left, top, _w, _h, candidates), nearby in zip(tiles, boundary, strict=True)
@@ -679,9 +677,9 @@ def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients(size):
         fill_rule="evenodd",
     )
     assert full is not None
-    tiles = _large_path_tile_candidates(list(controls), width, height)
-    boundary_global = _large_path_tile_boundary_candidates(list(controls), tiles)
-    tiled = _tiled_large_path_coverage(
+    tiles = large_path_tile_candidates(list(controls), width, height)
+    boundary_global = large_path_tile_boundary_candidates(list(controls), tiles)
+    tiled = tiled_large_path_coverage(
         list(controls),
         (0, 0, width, height),
         tiles,
@@ -777,10 +775,10 @@ def test_tiled_analytic_large_compound_path_matches_cairo(fill_rule):
     ]
     assert len(contours) == 16
     padded = [_pad_fused_cubics(contour[None])[0] for contour in contours]
-    native = _tiled_large_path_coverage(
+    native = tiled_large_path_coverage(
         padded,
         (0, 0, size, size),
-        _large_path_tile_candidates(padded, size, size),
+        large_path_tile_candidates(padded, size, size),
         fill_rule=fill_rule,
         subpixels=4,
     )
@@ -827,9 +825,7 @@ def test_filled_fit_uses_analytic_tiles_for_large_cuda_paths(monkeypatch):
     def unexpected_sampled_fallback(*_args, **_kwargs):
         raise AssertionError("supported large CUDA path entered sampled winding")
 
-    monkeypatch.setattr(
-        filled_paths, "_fill_path_coverage", unexpected_sampled_fallback
-    )
+    monkeypatch.setattr(filled_paths, "fill_path_coverage", unexpected_sampled_fallback)
     fitted = fit_filled_svg(
         svg,
         Image.new("RGB", (64, 64), "white"),
@@ -932,7 +928,7 @@ def test_tensorised_opaque_compositing_matches_layer_loop():
     for alpha, colour in zip(alphas, colours, strict=True):
         expected = expected * (1 - alpha[..., None]) + colour * alpha[..., None]
 
-    actual = _composite_opaque_fills(alphas, colours)
+    actual = composite_opaque_fills(alphas, colours)
 
     assert torch.allclose(actual, expected)
 
@@ -950,7 +946,7 @@ def test_xing_loss_is_normalized_and_penalizes_reversed_turn(reflection):
     )
     controls[:, :, 1] *= reflection
 
-    loss = _xing_loss(controls)
+    loss = xing_loss(controls)
 
     # The two perpendicular curves each contribute one despite different
     # handle lengths; the collinear curve contributes zero.
@@ -965,7 +961,7 @@ def test_xing_loss_preserves_valid_bends_and_their_gradients(reflection):
     controls[:, :, 1] *= reflection
     controls.requires_grad_()
 
-    loss = _xing_loss(controls)
+    loss = xing_loss(controls)
     loss.backward()
 
     assert loss.item() == 0
@@ -983,9 +979,9 @@ def test_even_odd_uses_winding_parity_for_a_double_wound_contour():
         for contour in parse_filled_cubics(double_loop)
     ]
 
-    even_odd = _fill_path_coverage(contours, (0, 0, 96, 96), fill_rule="evenodd")
-    nonzero = _fill_path_coverage(contours, (0, 0, 96, 96), fill_rule="nonzero")
-    batched_even_odd = _fill_coverages(
+    even_odd = fill_path_coverage(contours, (0, 0, 96, 96), fill_rule="evenodd")
+    nonzero = fill_path_coverage(contours, (0, 0, 96, 96), fill_rule="nonzero")
+    batched_even_odd = fill_coverages(
         torch.stack(contours), (0, 0, 96, 96), fill_rule="evenodd"
     )
     head = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">'

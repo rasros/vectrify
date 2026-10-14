@@ -19,6 +19,7 @@ from cairosvg.colors import color
 
 from vectrify.document import Document, DocumentError, Selection, export_svg, import_svg
 from vectrify.document.join import path_style
+from vectrify.document.paint import hex_colour
 from vectrify.document.topology import inverse_matrix, mapped_point
 from vectrify.document.transforms import root_matrix
 from vectrify.refine.crossings import crossings
@@ -623,7 +624,7 @@ def _polish_group(
     for p in coordinates:
         style = path_style(prepared, prepared.element(p.oid))
         kind = "stroke" if p.stroke_only else "fill"
-        paint = "#" + "".join(f"{round(v * 255):02x}" for v in color(style[kind])[:3])
+        paint = hex_colour(color(style[kind]))
         opacity.append(float(style[kind + "-opacity"]) * float(style["opacity"]))
         ET.SubElement(
             work,

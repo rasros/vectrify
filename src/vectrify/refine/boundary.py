@@ -12,7 +12,8 @@ from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.spatial import KDTree
 
 from vectrify.document import Geometry
-from vectrify.refine.snap import CONTRAST, _Frame
+from vectrify.refine.frame import Frame
+from vectrify.refine.snap import CONTRAST
 
 
 def loops(field: np.ndarray) -> list[np.ndarray]:
@@ -113,7 +114,7 @@ def _correspondence(points, target, arc):
 def reconstructed(
     geometry: Geometry,
     baseline: Geometry,
-    frame: _Frame,
+    frame: Frame,
     contours: list[np.ndarray],
     pixel_scale: float,
     displacement: float,

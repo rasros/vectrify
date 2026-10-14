@@ -268,9 +268,9 @@ def test_detail_scores_no_more_tries_than_it_may(monkeypatch):
     fills = []
     fill = snap_module._fill
 
-    def counted(*args):
-        fills.append(args)
-        return fill(*args)
+    def counted(contours, rule, window):
+        fills.append(window)
+        return fill(contours, rule, window)
 
     monkeypatch.setattr(snap_module, "_fill", counted)
 
@@ -279,14 +279,19 @@ def test_detail_scores_no_more_tries_than_it_may(monkeypatch):
         result = snap(document, start, region, frozen(start), detail=True, **options)
         return len(ids(result.geometries["p"]))
 
+    def scored():
+        # The passes fill the whole crop, as the first does; detail scores
+        # windows of it.
+        return [window for window in fills if window != fills[0]]
+
     assert points() > len(ids(start.geometries["p"]))
-    assert len(fills) > 2
+    assert len(scored()) > 2
     # No tries: detail adds nothing and scores nothing.
     assert points(tries=0) == len(ids(start.geometries["p"]))
-    assert not fills
+    assert not scored()
     # One try: the blob's own score and that try's, at most one split.
     assert points(tries=1) <= len(ids(start.geometries["p"])) + 3
-    assert len(fills) <= 2
+    assert len(scored()) <= 2
 
 
 def test_a_snap_out_of_time_leaves_the_path_as_it_is():

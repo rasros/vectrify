@@ -10,7 +10,7 @@ from vectrify.document.hit_test import _filled
 from vectrify.document.join import path_style
 from vectrify.document.transforms import root_matrix
 from vectrify.refine.crossings import bezier
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 
 
 def _contours(geometry, frame):
@@ -27,7 +27,7 @@ def _contours(geometry, frame):
     return tuple(contours)
 
 
-def protected_pixels(document, oid, geometry, frame: _Frame, size):
+def protected_pixels(document, oid, geometry, frame: Frame, size):
     """Pixels outside a containing earlier sibling fill or on its stroke.
 
     This is a conservative geometric relation, independent of reference blur:
@@ -89,7 +89,7 @@ def protected_pixels(document, oid, geometry, frame: _Frame, size):
         pixels = frame.matrix @ np.linalg.inv(target_linear)
         linear = pixels @ np.array([[a, c], [b, d]])
         offset = frame.offset + pixels @ (np.array([e, f]) - [te, tf])
-        source_frame = _Frame(linear, offset)
+        source_frame = Frame(linear, offset)
         source = _contours(document.geometry_for(sibling.id), source_frame)
         enclosing = _filled(source, style["fill-rule"])
         if enclosing.is_empty or enclosing.area >= smallest:

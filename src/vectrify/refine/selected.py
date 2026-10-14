@@ -34,6 +34,7 @@ from vectrify.document import (
 )
 from vectrify.document.editor import Transaction
 from vectrify.document.join import path_style
+from vectrify.document.paint import hex_colour
 from vectrify.document.transforms import ancestry_matrix, root_matrix
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.svg_render import cached_rendering, render_image
@@ -359,11 +360,7 @@ class FitContext:
 
     def candidate(self, geometry: Geometry, rgb: np.ndarray, options: FitOptions):
         self.path.set("d", geometry.path_data())
-        fill = (
-            "#" + "".join(f"{round(float(v) * 255):02x}" for v in rgb)
-            if options.color
-            else None
-        )
+        fill = hex_colour(rgb.tolist()) if options.color else None
         if fill is not None:
             if not self.stroke_only:
                 self.path.set("fill", fill)

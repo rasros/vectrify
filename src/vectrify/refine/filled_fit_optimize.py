@@ -125,19 +125,19 @@ class FilledFitOptimizer:
             # Sibling layers share clips, group opacity and later artwork.
             # Keep the gradient through their changing overlaps by
             # composing premultiplied paint before the common response.
-            rendered = paths._composite_in_context(
+            rendered = paths.composite_in_context(
                 alpha_stack, self.scene.color_storage, self.scene.context_tensors
             )
         else:
             composite = (
-                paths._compiled_opaque_fill_composite()
+                paths.compiled_opaque_fill_composite()
                 if self.scene.goal.is_cuda
-                else paths._composite_opaque_fills
+                else paths.composite_opaque_fills
             )
             rendered = (
                 composite(alpha_stack, self.scene.color_storage)
                 if self.scene.under is None
-                else paths._composite_opaque_fills(
+                else paths.composite_opaque_fills(
                     alpha_stack, self.scene.color_storage, self.scene.under
                 )
             )
@@ -153,7 +153,7 @@ class FilledFitOptimizer:
             else error.mean()
         )
         if self.options.xing_weight:
-            loss = loss + self.options.xing_weight * paths._xing_loss(all_controls)
+            loss = loss + self.options.xing_weight * paths.xing_loss(all_controls)
         if self.hooks.control_loss is not None:
             loss = loss + self.hooks.control_loss(self.scene.controls)
         loss.backward()
@@ -311,7 +311,7 @@ class FilledFitOptimizer:
                 alpha = self.raster.rasterise_multi(index, path)
                 sparse_layer_loss(index, alpha, 0, 0).backward()
         if self.options.xing_weight:
-            (self.options.xing_weight * paths._xing_loss(all_controls)).backward()
+            (self.options.xing_weight * paths.xing_loss(all_controls)).backward()
 
     def backward_dense(self, all_controls: Any) -> None:
         import torch
@@ -460,4 +460,4 @@ class FilledFitOptimizer:
                     self.raster.rasterise_multi(index, path),
                 ).backward()
         if self.options.xing_weight:
-            (self.options.xing_weight * paths._xing_loss(all_controls)).backward()
+            (self.options.xing_weight * paths.xing_loss(all_controls)).backward()

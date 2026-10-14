@@ -5,7 +5,7 @@ import pytest
 
 from vectrify.document import import_svg
 from vectrify.refine.enclosure import protected_pixels
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 
 
 def mask(*, attributes="", after=False, hole=False, transform=""):
@@ -30,7 +30,7 @@ def mask(*, attributes="", after=False, hole=False, transform=""):
         document,
         "shade",
         document.geometry_for("shade"),
-        _Frame(np.eye(2), np.zeros(2)),
+        Frame(np.eye(2), np.zeros(2)),
         (64, 64),
     )
 

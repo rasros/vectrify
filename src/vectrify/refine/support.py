@@ -22,13 +22,13 @@ from vectrify.document.join import path_style
 from vectrify.document.model import EditKind
 from vectrify.operations.generate import Region
 from vectrify.refine.crossings import bezier, crossings
+from vectrify.refine.frame import Frame, object_frame
 from vectrify.refine.frozen import Frozen, Paths
-from vectrify.refine.snap import _Frame, _frame
 
 SAMPLES = 128
 
 
-def _spans(geometry: Geometry, frame: _Frame):
+def _spans(geometry: Geometry, frame: Frame):
     rows = []
     for subpath in geometry.subpaths:
         row = []
@@ -151,7 +151,7 @@ def supported(
             return paths
         if not _eligible(document, oid, "stroke"):
             continue
-        frame = _frame(document, oid, region, region.image.size)
+        frame = object_frame(document, oid, region, region.image.size)
         if frame is None:
             continue
         strokes[oid] = []
@@ -172,7 +172,7 @@ def supported(
     for index, oid in enumerate(order):
         if not _eligible(document, oid, "fill"):
             continue
-        frame = _frame(document, oid, region, region.image.size)
+        frame = object_frame(document, oid, region, region.image.size)
         if frame is None:
             continue
         # Prefer the topmost selected stroke when several strokes cover an edge.

@@ -21,8 +21,9 @@ import numpy as np
 
 from vectrify.document import Document, Geometry, PathNode
 from vectrify.operations.generate import Region
+from vectrify.refine.crossings import bezier
+from vectrify.refine.frame import Frame, object_frame
 from vectrify.refine.frozen import Frozen, Paths
-from vectrify.refine.snap import _bezier, _Frame, _frame
 
 # Points each segment is drawn with to measure how far the outline moved, and
 # the most a join is measured against.
@@ -50,7 +51,7 @@ def simplify(
     """
     geometries = dict(paths.geometries)
     for oid, geometry in paths.geometries.items():
-        frame = _frame(document, oid, region, region.image.size)
+        frame = object_frame(document, oid, region, region.image.size)
         if frame is None:
             continue
         users = document.geometry_users(geometry.id)
@@ -58,7 +59,7 @@ def simplify(
             # A local simplification must stay within tolerance for every
             # transformed copy, including artwork clipped by this asset.
             frames = [
-                _frame(document, user, region, region.image.size)
+                object_frame(document, user, region, region.image.size)
                 for user in users
                 if document.element(user).tag in {"path", "use"}
             ]
@@ -67,7 +68,7 @@ def simplify(
                 for other in frames
                 if other is not None
             )
-            frame = _Frame(np.eye(2) * scale, np.zeros(2))
+            frame = Frame(np.eye(2) * scale, np.zeros(2))
         # Points go first: a curve drawn as a line joins its neighbours worse.
         geometry = _simplified(
             geometry,
@@ -106,12 +107,12 @@ def curved(geometry: Geometry) -> Geometry:
 
 
 def straightened(
-    geometry: Geometry, tolerance: float, frame: _Frame | None = None
+    geometry: Geometry, tolerance: float, frame: Frame | None = None
 ) -> Geometry:
     """*geometry* with every curve whose handles lie within *tolerance* of the
     line between its ends drawn as that line: the handles do nothing there.
     In pixels through *frame*, else in the path's own units."""
-    frame = frame or _Frame(np.eye(2), np.zeros(2))
+    frame = frame or Frame(np.eye(2), np.zeros(2))
     subpaths = []
     for subpath in geometry.subpaths:
         nodes = list(subpath.nodes)
@@ -145,12 +146,12 @@ def simplified_geometry(
     geometry: Geometry, fixed: Frozen, tolerance: float
 ) -> Geometry:
     """*geometry*, already in pixels, simplified to *tolerance* pixels."""
-    return _simplified(geometry, _Frame(np.eye(2), np.zeros(2)), fixed, tolerance)
+    return _simplified(geometry, Frame(np.eye(2), np.zeros(2)), fixed, tolerance)
 
 
 def _simplified(
     geometry: Geometry,
-    frame: _Frame,
+    frame: Frame,
     fixed: Frozen,
     tolerance: float,
     deadline: float = float("inf"),
@@ -232,17 +233,17 @@ def _simplified(
     return replace(geometry, subpaths=tuple(subpaths))
 
 
-def _spans(nodes: list[PathNode], frame: _Frame) -> list[np.ndarray]:
+def _spans(nodes: list[PathNode], frame: Frame) -> list[np.ndarray]:
     """Points along the segment ending at each node; none before the first."""
     t = np.linspace(0, 1, SAMPLES)
     spans = [np.empty((0, 2))]
     for before, node in pairwise(nodes):
         start = frame.pixels(before.values)[-1]
-        spans.append(_bezier(_controls(start, node, frame), t)[0])
+        spans.append(bezier(_controls(start, node, frame), t)[0])
     return spans
 
 
-def _cost(nodes, spans, i: int, fixed: Frozen, frame: _Frame, bound: float = np.inf):
+def _cost(nodes, spans, i: int, fixed: Frozen, frame: Frame, bound: float = np.inf):
     """(how far removing point *i* moves the outline, the joined node), or
     None where the point has to stay; a move past *bound* is measured only
     as far as it takes to know it is."""
@@ -257,7 +258,7 @@ def _cost(nodes, spans, i: int, fixed: Frozen, frame: _Frame, bound: float = np.
 
 
 def _closing(
-    nodes, closed: bool, fixed: Frozen, frame: _Frame, bound: float = np.inf
+    nodes, closed: bool, fixed: Frozen, frame: Frame, bound: float = np.inf
 ) -> float | None:
     """How far the outline moves if a closed contour's last point goes, the
     closing line then running from the one before it (past *bound*, only as
@@ -272,7 +273,7 @@ def _closing(
         return None
     start = frame.pixels(nodes[-2].values)[-1]
     t = np.linspace(0, 1, SAMPLES)
-    old = np.vstack([_bezier(_controls(start, last, frame), t)[0], first])
+    old = np.vstack([bezier(_controls(start, last, frame), t)[0], first])
     return _apart(old, np.vstack([start, first]), bound)
 
 
@@ -280,7 +281,7 @@ def _stays(node: PathNode, fixed: Frozen) -> bool:
     return node.id in fixed.endpoints
 
 
-def _controls(start: np.ndarray, node: PathNode, frame: _Frame) -> np.ndarray:
+def _controls(start: np.ndarray, node: PathNode, frame: Frame) -> np.ndarray:
     return np.vstack([start, frame.pixels(node.values)])
 
 
@@ -288,7 +289,7 @@ def _join(
     before: PathNode,
     middle: PathNode,
     after: PathNode,
-    frame: _Frame,
+    frame: Frame,
     old,
     bound: float = np.inf,
 ) -> tuple[float, PathNode] | None:
@@ -317,7 +318,7 @@ def _join(
         ):
             control[2] = end
         command = "C"
-    moved = _apart(old, _bezier(control, np.linspace(0, 1, 2 * SAMPLES))[0], bound)
+    moved = _apart(old, bezier(control, np.linspace(0, 1, 2 * SAMPLES))[0], bound)
     values = frame.local(control[1:])
     return moved, replace(after, command=command, values=values)
 

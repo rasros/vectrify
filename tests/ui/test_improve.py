@@ -503,14 +503,14 @@ def test_cpu_coverage_matches_the_native_kernel(curves):
     import torch
 
     from vectrify.refine.cuda_renderer import multi_coverage
-    from vectrify.refine.paths import _fused_chunks, parse_filled_cubics
+    from vectrify.refine.paths import fused_chunks, parse_filled_cubics
     from vectrify.refine.soft_coverage import soft_coverage
 
     d = import_svg(_ring(curves)).geometry_for("a").path_data()
     contours = [torch.tensor(c, dtype=torch.float32) for c in parse_filled_cubics(d)]
     box = (0, 0, 64, 64)
     soft = soft_coverage(contours, box)
-    packed = torch.cat([_fused_chunks(c.cuda()) for c in contours])
+    packed = torch.cat([fused_chunks(c.cuda()) for c in contours])
     native = multi_coverage(
         packed, [0, len(packed)], box, subpixels=2, fill_rule="nonzero"
     )

@@ -6,8 +6,6 @@ import time
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from cairosvg.colors import color
-
 from vectrify.image_utils import on_white
 from vectrify.refine.parameters import ControlMap
 
@@ -102,22 +100,12 @@ class FitControls:
         work = ET.Element(
             "svg", width=str(context.size[0]), height=str(context.size[1])
         )
-        # The low-level fitter reads six-digit colours. Editor paths can also use
-        # CSS names, short hex or rgb(), all already validated as solid paint.
-        working_fill = "#" + "".join(
-            f"{round(channel * 255):02x}"
-            for channel in color(
-                context.style["stroke"]
-                if context.stroke_only
-                else context.style["fill"]
-            )[:3]
-        )
         ET.SubElement(
             work,
             "path",
             {
                 "d": self.path_data(self.original),
-                "fill": working_fill,
+                "fill": context.style["stroke" if context.stroke_only else "fill"],
                 "fill-rule": context.style["fill-rule"],
             },
         )

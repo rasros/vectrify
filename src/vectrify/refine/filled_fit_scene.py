@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 import numpy as np
 from PIL import Image
 
+from vectrify.document.paint import hex_colour
 from vectrify.refine import paths
 
 
@@ -126,10 +127,7 @@ class FilledFitScene:
                 for control in path
             )
             element.set("d", data)
-            red, green, blue = (
-                round(float(v) * 255) for v in colour.detach().clamp(0, 1).cpu()
-            )
-            element.set("fill", f"#{red:02x}{green:02x}{blue:02x}")
+            element.set("fill", hex_colour(colour.detach().cpu().tolist()))
             if self.alpha_values is not None:
                 element.set(
                     "fill-opacity",
@@ -175,7 +173,7 @@ def prepare_scene(
     for element in root.iter():
         if element.tag.split("}")[-1] != "path" or not element.get("d"):
             continue
-        colour = paths._fill_rgb(element.get("fill"))
+        colour = paths.fill_rgb(element.get("fill"))
         if colour is None:
             continue
         try:

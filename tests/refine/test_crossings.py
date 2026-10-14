@@ -53,13 +53,13 @@ def test_a_cubic_tied_into_a_loop_crosses_itself():
 
 def test_a_small_loop_is_detected_before_and_after_exact_subdivision():
     from vectrify.refine.detail import densified
-    from vectrify.refine.snap import _Frame
+    from vectrify.refine.frame import Frame
 
     loop = geometry("M0 0 C5.830528 3.348218 -18.164125 10.666568 10 0")
     # Eight samples miss this loop near the beginning of the cubic.
     assert crossings(loop, samples=8) == 0
     assert crossings(loop) == 1
-    dense = densified(loop, _Frame(np.eye(2), np.zeros(2)), spacing=1)
+    dense = densified(loop, Frame(np.eye(2), np.zeros(2)), spacing=1)
     assert crossings(dense) == 1
 
 

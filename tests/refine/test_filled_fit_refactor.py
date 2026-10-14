@@ -179,7 +179,7 @@ def test_raster_retains_paths_helper_monkeypatches_and_tile_gradients(monkeypatc
         calls.append((box, kwargs))
         return controls.mean(dim=(1, 2, 3))[:, None, None].expand(-1, box[3], box[2])
 
-    monkeypatch.setattr(paths, "_fill_coverages", coverage)
+    monkeypatch.setattr(paths, "fill_coverages", coverage)
     (_shape, rule, width, height), items = next(
         iter(raster.initial_simple_groups.items())
     )

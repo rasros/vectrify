@@ -8,10 +8,10 @@ import pytest
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.boundary import field_loops, loops, reconstructed
 from vectrify.refine.crossings import crossings
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 from vectrify.svg_render import render_image
 
-FRAME = _Frame(np.eye(2), np.zeros(2))
+FRAME = Frame(np.eye(2), np.zeros(2))
 
 
 def shape(noisy=False):
@@ -67,7 +67,7 @@ def test_reconstruction_removes_dense_wiggles_preserves_notch_ids_and_movement(
     geometry = source.geometry_for("p")
     contours = reference_contours(reference)
     frame = (
-        _Frame(np.array([[0, -2], [1, 0]]), np.array([120, -10]))
+        Frame(np.array([[0, -2], [1, 0]]), np.array([120, -10]))
         if transformed
         else FRAME
     )
