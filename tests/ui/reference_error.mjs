@@ -55,7 +55,8 @@ const $ = id => {
 };
 const buttons = ['drawing', 'overlay', 'reference', 'error'].map(view => ({dataset: {view}, setAttribute(name, value) {this[name] = value;}}));
 const updates = [];
-const context = Object.assign(createEditorState(), {$, stage: {classList: {toggle() {}}}, document: {querySelectorAll: () => buttons},
+const classes = new Set();
+const context = Object.assign(createEditorState(), {$, stage: {classList: {toggle(name, enabled) {if (enabled) classes.add(name); else classes.delete(name);}}}, document: {querySelectorAll: () => buttons},
   reportView() {}, scheduleStrip() {}, toast() {}, errorView: () => ({update: (...args) => updates.push(args)})});
 context.reference = {name: 'ref', data_url: 'ref-url', opacity: 0};  context.state = {svg: '<svg/>', bounds: [40,20,320,240]};
 const context_reference = createReferenceController(context, {
@@ -91,7 +92,7 @@ assert.equal($('drawing').style.opacity, '0');
 assert.equal(buttons[3]['aria-pressed'], 'true');
 assert.equal(updates.at(-1)[2], 'ref-url', 'error ignores overlay opacity');
 context.cycleReference(); assert.equal(context.referenceView, 'drawing');
-assert.equal($('drawing').style.visibility, '');
+assert.equal($('drawing').style.opacity, '');
 assert.equal(updates.at(-1)[2], null);
 for (const expected of ['overlay', 'reference', 'error', 'drawing']) {
   context.cycleReference(); assert.equal(context.referenceView, expected);
@@ -99,7 +100,18 @@ for (const expected of ['overlay', 'reference', 'error', 'drawing']) {
 for (const expected of ['error', 'reference', 'overlay', 'drawing']) {
   context.cycleReference(-1); assert.equal(context.referenceView, expected);
 }
+context.setView('reference');
+assert.equal($('drawing').style.opacity, '0', 'hide artwork without hiding its clipping resources');
+assert.equal($('drawing').style.visibility, undefined);
+assert.equal($('drawing').style.pointerEvents, 'none');
+assert.equal($('reference-image').style.opacity, 1);
+assert.ok(classes.has('reference-only-visible'), 'reference-only contours use the faint style');
+for (const view of ['drawing', 'overlay', 'error']) {
+  context.setView(view);
+  assert.ok(!classes.has('reference-only-visible'));
+  assert.equal($('drawing').style.pointerEvents, '');
+}
 context.setView('error'); context.reference = null; context.showReference(); context.cycleReference();
-assert.equal($('drawing').style.visibility, '');
+assert.equal($('drawing').style.opacity, '');
 assert.equal($('reference-toggle').hidden, true);
 assert.equal(updates.at(-1)[2], null);
