@@ -60,16 +60,18 @@ export function createKeysController(editor, {
     return busy;
   }
 
-  // Shift and Alt change a shape being dragged out as they are pressed and
-  // released, without waiting for the pointer to move.
-  function shapeModifiers(event) {
-    if (!['Shift', 'Alt'].includes(event.key) || editor.drag?.kind !== 'shape') return false;
-    event.preventDefault(); gestures.shape.modifiers(editor.drag, event);
+  // Modifiers change a shape being dragged out (Shift and Alt) or a moving
+  // selection (Shift, Alt and Ctrl/⌘) as they are pressed and released,
+  // without waiting for the pointer to move.
+  const GESTURE_MODIFIERS = {shape: ['Shift', 'Alt'], move: ['Shift', 'Alt', 'Control', 'Meta']};
+  function gestureModifiers(event) {
+    if (!GESTURE_MODIFIERS[editor.drag?.kind]?.includes(event.key)) return false;
+    event.preventDefault(); gestures[editor.drag.kind].modifiers(editor.drag, event);
     return true;
   }
 
   function keyDown(event) {
-    if (shapeModifiers(event)) return;
+    if (gestureModifiers(event)) return;
     const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable, dialog=document.querySelector('dialog[open]');
     const mod=event.ctrlKey||event.metaKey, key=event.key.toLowerCase();
     if(mod&&!event.altKey&&key==='s'&&!dialog){event.preventDefault();if(!event.repeat)files.save(event.shiftKey);return;}
@@ -155,13 +157,13 @@ export function createKeysController(editor, {
     // Keys that edit wait for any edit under way, and run in order once it is
     // done; keys that only change the view act at once.
     window.addEventListener('keydown', keyDown);
-    window.addEventListener('keyup',event=>{if(event.code==='Space')editor.space=false;shapeModifiers(event);});
+    window.addEventListener('keyup',event=>{if(event.code==='Space')editor.space=false;gestureModifiers(event);});
 
     window.addEventListener('blur',()=>editor.space=false);
 
     window.addEventListener('beforeunload',event=>{if(editor.dirty||editor.pathDraft.length){event.preventDefault();event.returnValue='';}});
       return api;
   }
-  const api = {TOOL_KEYS, stripKeys, cancelGesture, shapeModifiers, keyDown, wire};
+  const api = {TOOL_KEYS, stripKeys, cancelGesture, gestureModifiers, keyDown, wire};
   return api;
 }

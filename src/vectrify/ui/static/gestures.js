@@ -1,12 +1,25 @@
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, shapes, selection, nodes, resize, knife, region, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, knife, region, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
       if (member.before) member.element.setAttribute('transform', member.before);
       else member.element.removeAttribute('transform');
     }
+  };
+  // One displacement in the overlay's (the document's) frame moves the whole
+  // selection: each object takes it in its parent's frame, as previewed and
+  // as sent, so objects in differently transformed groups move together.
+  const moveSelection = (gesture, event) => {
+    const {dx, dy} = moving.drag(event);
+    for (const member of gesture.members) {
+      // A displacement has no translation: only the frame's linear part maps it.
+      const {a, b, c, d} = member.frame.inverse();
+      member.offset = [a * dx + c * dy, b * dx + d * dy];
+      member.element.setAttribute('transform', `translate(${member.offset.join(' ')}) ${member.before}`.trim());
+    }
+    drawOverlay();
   };
   return {
     pan: {
@@ -106,21 +119,25 @@ export function canvasGestures({view, path, shapes, selection, nodes, resize, kn
         drawOverlay(); await redraw.finish(gesture);
       },
     },
+    // Moving the selection. Shift, Alt and Ctrl/⌘ are read on every move and
+    // as they are pressed, so the preview follows them.
     move: {
+      press(gesture, event) { const p = point(event); gesture.start = {x: p.x, y: p.y}; },
       move(gesture, event) {
-        if (!gesture.moved) return;
-        for (const member of gesture.members) {
-          const matrix = member.screenMatrix ? member.screenMatrix() : member.element.parentElement.getScreenCTM(); if (!matrix) continue;
-          const inverse = matrix.inverse();
-          const start = new DOMPoint(gesture.x, gesture.y).matrixTransform(inverse);
-          const end = new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse);
-          member.offset = [end.x - start.x, end.y - start.y];
-          member.element.setAttribute('transform', `translate(${member.offset.join(' ')}) ${member.before}`);
-        }
-        drawOverlay();
+        gesture.pointer = {clientX: event.clientX, clientY: event.clientY};
+        if (gesture.moved) moveSelection(gesture, event);
+      },
+      modifiers(gesture, event) {
+        if (!gesture.moved || !gesture.pointer) return;
+        const {shiftKey, altKey, ctrlKey, metaKey} = event;
+        moveSelection(gesture, {...gesture.pointer, shiftKey, altKey, ctrlKey, metaKey});
       },
       async release(gesture) {
         if (!gesture.moved) return selection.pick(gesture);
+        // A drag that ends where it started, or snaps back there, edits nothing.
+        if (gesture.members.every(member => !member.offset || (!member.offset[0] && !member.offset[1]))) {
+          restoreTransforms(gesture); selection.renderDrawing(); drawOverlay(); return;
+        }
         await selection.move(Object.fromEntries(gesture.members.map(member => [member.id, member.offset || [0, 0]])));
       },
       cancel: restoreTransforms,

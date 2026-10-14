@@ -28,6 +28,9 @@ const gestures = canvasGestures({
     renderInspector: record('inspector'), renderNodeInspector: record('nodeInspector'),
   },
   resize: {result: () => ({sx: 2, sy: 3, anchor: [0, 0]}), preview: record('resizePreview'), finish: record('resizeFinish')},
+  // The displacement a move gives, as the resizing controller computes it:
+  // here the pointer's offset, or none with Ctrl held.
+  moving: {drag: e => { calls.push(['moveDrag', e]); return e.ctrlKey ? {dx: 0, dy: 0} : {dx: e.clientX - 10, dy: e.clientY - 20}; }},
   knife: {end: event => ({x: event.clientX, y: 100}), finish: record('knife')},
   redraw: {setHover: record('redrawHover'), finish: record('redraw')},
 });
@@ -134,39 +137,52 @@ await gestures.resize.release(resized);
 assert.equal(named('resizeFinish').length, 1);
 assert.equal(named('drawing').length, 2);
 
-// Object movement converts screen offsets into each parent's coordinates.
-globalThis.DOMPoint = class {
-  constructor(x, y) { this.x = x; this.y = y; }
-  matrixTransform(matrix) { return {x: this.x / matrix.scale, y: this.y / matrix.scale}; }
-};
-const member = (id, before, scale) => {
+// Object movement applies one document displacement, each object taking it
+// in its parent's frame: here a group scaled by 2 and one rotated by 90°.
+const linear = (a, b, c, d) => ({inverse() { const det = a * d - b * c; return {a: d / det, b: -b / det, c: -c / det, d: a / det}; }});
+const member = (id, before, frame) => {
   const attributes = new Map(before ? [['transform', before]] : []);
-  return {id, before, element: {
-    parentElement: {getScreenCTM: () => ({inverse: () => ({scale})})},
+  return {id, before, frame, element: {
     setAttribute: (name, value) => attributes.set(name, value),
     removeAttribute: name => attributes.delete(name),
     attributes,
   }};
 };
-const a = member('a', 'rotate(30)', 2), b = member('b', '', 4);
+const a = member('a', 'rotate(30)', linear(2, 0, 0, 2)), b = member('b', '', linear(0, 1, -1, 0));
 const moved = begin('move', {members: [a, b]});
+assert.deepEqual(moved.start, {x: 10, y: 20}, 'the press records where the displacement starts');
+gestures.move.move(moved, event(11, 20));
+assert.equal(named('moveDrag').length, 0, 'nothing moves below the drag threshold');
 moved.moved = true;
 gestures.move.move(moved, event(30, 40));
 assert.deepEqual(a.offset, [10, 10]);
-assert.deepEqual(b.offset, [5, 5]);
+assert.deepEqual(b.offset, [20, -20]);
+// Mapped back through each frame, both offsets are the same page displacement.
+for (const [m, [a_, b_, c_, d_]] of [[a, [2, 0, 0, 2]], [b, [0, 1, -1, 0]]]) {
+  const [ox, oy] = m.offset;
+  assert.deepEqual([a_ * ox + c_ * oy, b_ * ox + d_ * oy], [20, 20]);
+}
 assert.equal(a.element.attributes.get('transform'), 'translate(10 10) rotate(30)');
+assert.equal(b.element.attributes.get('transform'), 'translate(20 -20)');
+// The preview and the move sent are the same offsets.
 await gestures.move.release(moved);
-assert.deepEqual(named('move'), [['move', {a: [10, 10], b: [5, 5]}]]);
-// A clipping contour moves in its consumer's frame, even though its
-// definition's parent has no rendered screen matrix of its own.
-const clipped = member('clip', '', 1);
-clipped.element.parentElement = {};
-clipped.screenMatrix = () => ({inverse: () => ({scale: 10})});
-const clipMove = begin('move', {members: [clipped]}); clipMove.moved = true;
-gestures.move.move(clipMove, event(30, 40));
-assert.deepEqual(clipped.offset, [2, 2]);
-await gestures.move.release(clipMove);
-assert.deepEqual(named('move'), [['move', {clip: [2, 2]}]]);
+assert.deepEqual(named('move'), [['move', {a: [10, 10], b: [20, -20]}]]);
+// A modifier pressed or released mid-drag moves again from the last pointer
+// position, with the new modifiers.
+calls.length = 0;
+gestures.move.modifiers(moved, {key: 'Control', shiftKey: false, altKey: false, ctrlKey: true, metaKey: false});
+assert.deepEqual(named('moveDrag'), [['moveDrag', {clientX: 30, clientY: 40, shiftKey: false, altKey: false, ctrlKey: true, metaKey: false}]]);
+assert.deepEqual(a.offset, [0, 0]);
+// A drag that ends where it started edits nothing and restores the preview.
+await gestures.move.release(moved);
+assert.equal(named('move').length, 0);
+assert.equal(named('drawing').length, 1);
+assert.equal(a.element.attributes.get('transform'), 'rotate(30)');
+assert.equal(b.element.attributes.has('transform'), false);
+// Modifiers before the drag starts change nothing.
+const still = begin('move', {members: [a]});
+gestures.move.modifiers(still, {shiftKey: true});
+assert.equal(named('moveDrag').length, 0);
 // Both transform previews return to their original attributes on cancel.
 for (const kind of ['move', 'resize']) {
   a.element.setAttribute('transform', 'preview'); b.element.setAttribute('transform', 'preview');
@@ -174,6 +190,19 @@ for (const kind of ['move', 'resize']) {
   assert.equal(a.element.attributes.get('transform'), 'rotate(30)');
   assert.equal(b.element.attributes.has('transform'), false);
 }
+
+// A held move replays its press, drag and release once, as dragged.
+const heldMove = new HeldGesture({...event(), type: 'pointerdown', pointerId: 1});
+heldMove.record({...event(30, 40), type: 'pointermove', pointerId: 1});
+heldMove.record({...event(30, 40), type: 'pointerup', pointerId: 1});
+let replayedMove, moveDone;
+heldMove.replay({
+  down: e => { replayedMove = begin('move', {members: [a, b]}, e); },
+  move: e => { replayedMove.moved = true; gestures.move.move(replayedMove, e); },
+  up: () => { moveDone = gestures.move.release(replayedMove); },
+});
+await moveDone;
+assert.deepEqual(named('move'), [['move', {a: [10, 10], b: [20, -20]}]]);
 
 // Held gestures still replay the same lifecycle after queued edits complete.
 const held = new HeldGesture({...event(), type: 'pointerdown', pointerId: 1});
@@ -209,7 +238,7 @@ const dispatch = Object.assign(createEditorState(), {
   $: () => ({getBoundingClientRect: () => ({left: 0, top: 0, right: 100, bottom: 100})}),
   hitStack: () => hits, clickTargets: stack => stack, sameClickSpot: () => false,
   topSelection: () => ['a'], object: () => ({attributes: {}}),
-  svgElement: () => a.element,
+  svgElement: () => ({...a.element, parentElement: {}}), localToOverlay: () => linear(1, 0, 0, 1),
   scope: null, parents: () => new Map(), pickTarget: id => ({id}), selectionContains,
   startGesture: (kind, event, common, details = {}) => {
     dispatch.drag = {...common, kind, ...details};

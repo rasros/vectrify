@@ -22,6 +22,7 @@ export function createCanvasEventsController(editor, {
   knifeEnd,
   later,
   level,
+  moveDrag,
   moveStage,
   object,
   point,
@@ -70,6 +71,7 @@ export function createCanvasEventsController(editor, {
         for (const [id, saved] of gesture.saved) if (editor.geometries.has(id)) restoreValues(editor.geometries.get(id), saved);
       },
     },
+    moving: {drag: moveDrag},
     resize: {
       result: resizeDrag, preview: previewResize,
       refuse: message => toast(message, true),

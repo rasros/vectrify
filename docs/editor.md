@@ -376,6 +376,19 @@ and saved projects restore it.
   corner to resize. A horizontal or vertical line's whole frame moves it.
   Shift adds or removes objects; dragging on empty canvas outside the frame
   box-selects.
+  While moving, the frame's edges and centre snap to the edges and centres of
+  other objects' geometric bounds and of the artboard, within 8 screen pixels
+  at any zoom, and dashed guides show what it lines up with. The selection
+  never snaps to itself, to objects inside it or to the groups holding it.
+  Modifiers count once the drag is under way, since a Shift- or Ctrl-press
+  still adds to the selection, and they take effect as they are pressed or
+  released: **Shift** keeps the move horizontal or vertical, whichever way
+  the pointer has gone further, and the free axis still snaps; **Alt** or
+  **Ctrl/⌘** moves freely, without snapping. These are the modifiers of
+  dragging points, and Ctrl/⌘ also resizes without snapping. The whole
+  selection moves by one distance on the page, which each object takes in its
+  own group's frame, so objects in rotated or scaled groups land where the
+  preview showed them. Escape cancels the move.
 - **Nodes (S)** edits the points of every selected path. Delete/Backspace
   deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points

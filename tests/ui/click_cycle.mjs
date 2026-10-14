@@ -11,7 +11,7 @@ import {HeldGesture} from '../../src/vectrify/ui/static/input.js';
 import {frameHandle, resizeScale} from '../../src/vectrify/ui/static/resize.js';
 import {pickTarget, selectionContains} from '../../src/vectrify/ui/static/selection.js';
 
-const matrix = {inverse() { return this; }};
+const matrix = {a: 1, b: 0, c: 0, d: 1, inverse() { return this; }};
 class Point {
   constructor(x, y) { this.x = x; this.y = y; }
   matrixTransform() { return this; }
@@ -48,7 +48,7 @@ const context = Object.assign(createEditorState(), {
     return true;
   },
 });
-context.state = {root: 'root', selection: {objects: []}}, context.clickCycle = null, context.lastPick = null;
+context.state = {root: 'root', selection: {objects: []}, objects: [], bounds: [0, 0, 400, 400]}, context.clickCycle = null, context.lastPick = null;
    context.drag = null, context.tool = 'select', context.space = false, context.scope = null, context.focusPoint = null;
    context.selectionBox = null;
    context.DOUBLE_CLICK = 400, context.FRAME_REACH = 6;
@@ -90,6 +90,7 @@ const context_resizing = createResizingController(context, {
   hitStack: (...args) => context.hitStack(...args),
   localToOverlay: (...args) => context.localToOverlay(...args),
   object: (...args) => context.object(...args),
+  objectBounds: () => null,
   overlay: context.overlay,
   parents: (...args) => context.parents(...args),
   point: (...args) => context.point(...args),
@@ -101,6 +102,7 @@ const context_resizing = createResizingController(context, {
 });
 context.frameAt = context_resizing.frameAt;
 context.pressFrame = context_resizing.pressFrame;
+context.moveDrag = context_resizing.moveDrag;
 const context_canvas_events = createCanvasEventsController(context, {
   $: (...args) => context.$(...args),
   ResizeObserver: context.ResizeObserver,
@@ -199,6 +201,7 @@ Object.assign(context.gestures, canvasGestures({
     box: () => picked.push(['boxed']),
     move: offsets => edits.push(['move', offsets]),
   },
+  moving: {drag: event => context.moveDrag(event)},
   resize: {
     result: event => resizeScale(frame, (context.drag.handle), {x: event.clientX, y: event.clientY}),
     preview() {}, finish: result => edits.push(['resize', result]),
