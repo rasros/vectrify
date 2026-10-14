@@ -23,24 +23,20 @@ same for a transformed or tiny path. Pinned endpoints stay.
 
 from __future__ import annotations
 
-import io
 import time
 from dataclasses import dataclass, field, replace
 
-import cairosvg
 import numpy as np
-from PIL import Image
 from scipy import ndimage
 from scipy.spatial import KDTree
 
 from vectrify.document import Document, Geometry, PathNode
 from vectrify.document.join import path_style
 from vectrify.document.model import new_id
-from vectrify.document.transforms import object_matrix
 from vectrify.image_utils import resize_long_side
 from vectrify.operations.generate import Region
-from vectrify.refine.crossings import bezier as _bezier
-from vectrify.refine.crossings import contour_line, polyline_crossings
+from vectrify.refine.crossings import bezier, contour_line, polyline_crossings
+from vectrify.refine.frame import object_frame
 from vectrify.refine.frozen import Frozen, Paths
 
 # How far a point looks for the edge either way, in reference pixels, and
@@ -82,32 +78,6 @@ CROSSING_SAMPLES = 8
 # pixels, with at most so many to a curve.
 FILL_CHORD = 2.0
 FILL_SAMPLES = 32
-
-
-@dataclass(frozen=True)
-class _Frame:
-    """Maps a path's local coordinates to the crop's pixels and back."""
-
-    matrix: np.ndarray
-    offset: np.ndarray
-
-    def pixels(self, values: tuple[float, ...]) -> np.ndarray:
-        points = np.asarray(values, dtype=np.float64).reshape(-1, 2)
-        return points @ self.matrix.T + self.offset
-
-    def local(self, points: np.ndarray) -> tuple[float, ...]:
-        inverse = np.linalg.inv(self.matrix)
-        return tuple(float(v) for v in ((points - self.offset) @ inverse.T).ravel())
-
-
-def _frame(document: Document, oid: str, region: Region, size) -> _Frame | None:
-    matrix = object_matrix(document, oid)
-    a, b, c, d, e, f = matrix
-    scale = np.diag([size[0] / region.width, size[1] / region.height])
-    linear = scale @ np.array([[a, c], [b, d]], dtype=np.float64)
-    if abs(np.linalg.det(linear)) < 1e-12:
-        return None
-    return _Frame(linear, scale @ (np.array([e, f]) - [region.x, region.y]))
 
 
 @dataclass
@@ -156,33 +126,6 @@ def _segments(contour: _Contour) -> list[tuple[int, np.ndarray]]:
     return found
 
 
-def _path_data(contours: list[_Contour]) -> str:
-    parts = []
-    for contour in contours:
-        for node in contour.nodes:
-            parts.append(
-                node.command + " ".join(f"{v:.4f}" for v in node.points.ravel())
-            )
-        if contour.closed:
-            parts.append("Z")
-    return " ".join(parts)
-
-
-def _coverage(contours: list[_Contour], size, rule: str, window=None) -> np.ndarray:
-    """Which pixels the contours fill, over the whole crop or a *window* of it."""
-    x0, y0, x1, y1 = window or (0, 0, size[0], size[1])
-    svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{x1 - x0}" '
-        f'height="{y1 - y0}" viewBox="{x0} {y0} {x1 - x0} {y1 - y0}">'
-        f'<path d="{_path_data(contours)}" fill="#000" '
-        f'fill-rule="{rule}"/></svg>'
-    )
-    png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
-    assert png is not None
-    with Image.open(io.BytesIO(png)) as image:
-        return np.asarray(image.convert("L")) < 128
-
-
 def _edges(contours: list[_Contour]) -> np.ndarray:
     """The contours as straight edges (n, 2, 2), curves flattened, each closed
     as a fill closes it."""
@@ -214,9 +157,8 @@ def _edges(contours: list[_Contour]) -> np.ndarray:
 def _fill(contours: list[_Contour], rule: str, window) -> np.ndarray:
     """Which pixels of *window* the contours fill, judged at pixel centres.
 
-    What _coverage gives, without drawing and decoding an image: each row's
-    centre line is crossed with the outline's edges, and the winding counted
-    from the left.
+    Each row's centre line is crossed with the outline's edges, and the
+    winding counted from the left.
     """
     x0, y0, x1, y1 = window
     width, height = x1 - x0, y1 - y0
@@ -253,7 +195,7 @@ def _fill(contours: list[_Contour], rule: str, window) -> np.ndarray:
     return winding % 2 == 1 if rule == "evenodd" else winding != 0
 
 
-def _unit(vector: np.ndarray) -> np.ndarray | None:
+def unit_vector(vector: np.ndarray) -> np.ndarray | None:
     size = float(np.linalg.norm(vector))
     return None if size < 1e-9 else vector / size
 
@@ -322,9 +264,6 @@ class _Snapper:
         return self.tries <= 0 or self._late()
 
     # Reading the reference.
-
-    def _coverage(self, contours) -> np.ndarray:
-        return _coverage(contours, self.size, self.rule)
 
     def _read(self, points: np.ndarray) -> np.ndarray:
         rows = points[..., 1] - 0.5
@@ -423,7 +362,7 @@ class _Snapper:
 
     def _pass(self, contours) -> float:
         """One round of moving points and segment middles; the furthest move."""
-        coverage = self._coverage(contours)
+        coverage = _fill(contours, self.rule, (0, 0, *self.size))
         if not coverage.any():
             return 0.0
         before = [[n.points.copy() for n in c.nodes] for c in contours]
@@ -469,7 +408,7 @@ class _Snapper:
                 continue
             before = nodes[(i - 1) % ring].end
             after = nodes[(i + 1) % ring].end
-            tangent = _unit(after - before)
+            tangent = unit_vector(after - before)
             if tangent is None:
                 continue
             normal = self._outward(
@@ -529,8 +468,8 @@ class _Snapper:
 
     def _middle(self, control, coverage, colour_in):
         """The edge's offset from the segment's middle, along its normal."""
-        point, tangent = _bezier(control, np.array([0.5]))
-        unit = _unit(tangent[0])
+        point, tangent = bezier(control, np.array([0.5]))
+        unit = unit_vector(tangent[0])
         if unit is None:
             return None, None
         normal = self._outward(point[0], np.array([unit[1], -unit[0]]), coverage)
@@ -563,7 +502,7 @@ class _Snapper:
         base points stay on the outline so the rest of the contour keeps its
         shape. A try is kept when each point it adds fixes *split_gain* pixels.
         """
-        coverage = self._coverage(contours)
+        coverage = _fill(contours, self.rule, (0, 0, *self.size))
         colour_in = self._inside_colour(coverage)
         if colour_in is None:
             return False
@@ -627,7 +566,7 @@ class _Snapper:
         rows = []
         for c, contour in enumerate(contours):
             for end, control in _segments(contour):
-                points, _ = _bezier(control, t)
+                points, _ = bezier(control, t)
                 rows.append((c, end, control, t, points))
         return rows
 
@@ -669,14 +608,14 @@ class _Snapper:
                 touching = mine
             at = spots[nearest[touching]]
             tip = float(spots[nearest[aim]])
-            point, _tangent = _bezier(control, np.array([tip]))
+            point, _tangent = bezier(control, np.array([tip]))
             delta = blob[aim] - point[0]
             if tip >= 1 - AT_NODE or tip <= AT_NODE:
                 count = len(contours[c].nodes)
                 node = end if tip >= 1 - AT_NODE else (end - 1) % count
                 yield c, self._extended(contours[c], node, delta)
                 continue
-            normal = _unit(delta)
+            normal = unit_vector(delta)
             if normal is None:
                 continue
             low = max(min(float(at.min()), tip - 0.02), 0.01)
@@ -783,7 +722,7 @@ class _Snapper:
         return replace(geometry, subpaths=tuple(subpaths))
 
 
-def _halves(control: np.ndarray, t: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+def halves(control: np.ndarray, t: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
     """A cubic split at *t*: each part's c1, c2 and end."""
     a, b, c, d = control
     ab, bc, cd = a + (b - a) * t, b + (c - b) * t, c + (d - c) * t
@@ -827,7 +766,7 @@ def _split_segment(
     for t, _delta in at:
         local = (t - done) / (1 - done)
         if len(control) == 4:
-            first, second = _halves(rest, local)
+            first, second = halves(rest, local)
             pieces.append(first)
             rest = np.vstack([first[-1], second])
         else:
@@ -933,7 +872,7 @@ def snap(
         style = path_style(document, document.element(oid))
         if style["fill"] == "none":
             continue
-        frame = _frame(document, oid, region, image.size)
+        frame = object_frame(document, oid, region, image.size)
         if frame is None:
             continue
         snapper = _Snapper(

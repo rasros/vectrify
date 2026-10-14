@@ -16,6 +16,7 @@ from functools import lru_cache
 from typing import Any
 
 import numpy as np
+from cairosvg.colors import COLORS, color
 from PIL import Image
 
 log = logging.getLogger(__name__)
@@ -127,7 +128,7 @@ def to_path_d(segments, *, precision: int = 1) -> str:
     return " ".join(parts)
 
 
-_FUSED_CUBICS = 16
+FUSED_CUBICS = 16
 
 
 def _bounds(segments_list, margin: float, size: int) -> tuple[int, int, int, int]:
@@ -188,7 +189,7 @@ def _fill_winding_chunk(start: Any, end: Any, pixels: Any) -> Any:
 
     Keeping this primitive separate gives ``torch.compile`` one regular,
     side-effect-free GPU expression to fuse.  In eager mode it is deliberately
-    the same arithmetic previously in :func:`_fill_coverages`.
+    the same arithmetic previously in :func:`fill_coverages`.
     """
     import torch
 
@@ -270,15 +271,15 @@ def _pad_fused_cubics(controls: Any) -> Any:
     import torch
 
     count = controls.shape[1]
-    if count >= _FUSED_CUBICS:
+    if count >= FUSED_CUBICS:
         return controls
     # All four points are the contour origin, so every added sampled segment
     # has zero angle at every pixel and cannot change its winding number.
-    point = controls[:, :1, :1].expand(-1, _FUSED_CUBICS - count, 4, -1)
+    point = controls[:, :1, :1].expand(-1, FUSED_CUBICS - count, 4, -1)
     return torch.cat((controls, point), dim=1)
 
 
-def _fused_chunks(control: Any) -> Any:
+def fused_chunks(control: Any) -> Any:
     """One contour's cubics as padded 16-cubic ranges, shape (k, 16, 4, 2).
 
     The analytic kernel sums signed ray crossings per cubic, with no closing
@@ -290,14 +291,14 @@ def _fused_chunks(control: Any) -> Any:
     import torch
 
     count = control.shape[0]
-    chunks = max(1, math.ceil(count / _FUSED_CUBICS))
-    missing = chunks * _FUSED_CUBICS - count
+    chunks = max(1, math.ceil(count / FUSED_CUBICS))
+    missing = chunks * FUSED_CUBICS - count
     if missing:
         control = torch.cat((control, control[:1, :1].expand(missing, 4, -1)))
-    return control.reshape(chunks, _FUSED_CUBICS, 4, 2)
+    return control.reshape(chunks, FUSED_CUBICS, 4, 2)
 
 
-def _fill_batched_windings(
+def fill_batched_windings(
     controls: Any,
     box: tuple[int, int, int, int],
     *,
@@ -310,7 +311,7 @@ def _fill_batched_windings(
 ) -> Any:
     """Return one winding field per equal-sized contour on CUDA.
 
-    Unlike :func:`_fill_coverages`, this stops before applying a fill rule.
+    Unlike :func:`fill_coverages`, this stops before applying a fill rule.
     A multi-contour SVG path needs its contour windings summed before that
     nonlinearity, so this is the reusable GPU building block for holes.
     """
@@ -325,14 +326,14 @@ def _fill_batched_windings(
     if samples in {8, 16, 32}:
         from vectrify.refine.cuda_renderer import winding as cuda_winding
 
-        chunks = math.ceil(controls.shape[1] / _FUSED_CUBICS)
+        chunks = math.ceil(controls.shape[1] / FUSED_CUBICS)
         padded = controls
         if chunks > 1:
-            count = chunks * _FUSED_CUBICS - controls.shape[1]
+            count = chunks * FUSED_CUBICS - controls.shape[1]
             point = controls[:, :1, :1].expand(-1, count, 4, -1)
             padded = torch.cat((controls, point), dim=1)
         native = cuda_winding(
-            padded.reshape(-1, _FUSED_CUBICS, 4, 2),
+            padded.reshape(-1, FUSED_CUBICS, 4, 2),
             box,
             samples=samples,
             x_offset=x_offset,
@@ -366,7 +367,7 @@ def _fill_batched_windings(
     if winding_chunk is None:
         winding_chunk = (
             _compiled_fill_winding_chunk()
-            if controls.shape[1] <= _FUSED_CUBICS
+            if controls.shape[1] <= FUSED_CUBICS
             else _fill_winding_chunk
         )
     output = []
@@ -379,7 +380,7 @@ def _fill_batched_windings(
             control = torch.cat(
                 (control, control[:1].expand(batch_size - count, -1, -1, -1))
             )
-        if control.shape[1] <= _FUSED_CUBICS:
+        if control.shape[1] <= FUSED_CUBICS:
             control = _pad_fused_cubics(control)
         curve = torch.einsum("sk,nqkc->nqsc", basis, control).flatten(1, 2)
         curve = torch.cat((curve, curve[:, :1]), dim=1)
@@ -396,7 +397,7 @@ def _fill_batched_windings(
     return torch.cat(output).reshape(-1, height, width)
 
 
-def _fill_path_coverage(
+def fill_path_coverage(
     contours: list[Any],
     box: tuple[int, int, int, int],
     *,
@@ -415,10 +416,10 @@ def _fill_path_coverage(
         # winding before applying the SVG fill rule, exactly as the eager
         # implementation below does, but keep the pixel/segment loops in the
         # fused CUDA primitive.
-        fused = [contour for contour in contours if contour.shape[0] <= _FUSED_CUBICS]
+        fused = [contour for contour in contours if contour.shape[0] <= FUSED_CUBICS]
         unfused: dict[tuple[int, ...], list[Any]] = defaultdict(list)
         for contour in contours:
-            if contour.shape[0] > _FUSED_CUBICS:
+            if contour.shape[0] > FUSED_CUBICS:
                 unfused[tuple(contour.shape)].append(contour)
         # Most contours have at most 16 cubics.  Pad
         # those contours once and render a whole path in one large GPU batch,
@@ -444,7 +445,7 @@ def _fill_path_coverage(
                     device=contours[0].device,
                 )
                 if fused_controls is not None:
-                    winding = winding + _fill_batched_windings(
+                    winding = winding + fill_batched_windings(
                         fused_controls,
                         box,
                         samples=samples,
@@ -454,7 +455,7 @@ def _fill_path_coverage(
                         winding_chunk=winding_chunk,
                     ).sum(dim=0)
                 for group in unfused.values():
-                    winding = winding + _fill_batched_windings(
+                    winding = winding + fill_batched_windings(
                         torch.stack(group),
                         box,
                         samples=samples,
@@ -520,7 +521,7 @@ def _fill_path_coverage(
     return torch.stack(coverages).mean(dim=0)
 
 
-def _large_path_tile_candidates(
+def large_path_tile_candidates(
     contours: list[Any],
     width: int,
     height: int,
@@ -567,7 +568,7 @@ def _large_path_tile_candidates(
     return tiles
 
 
-def _large_path_tile_boundary_candidates(
+def large_path_tile_boundary_candidates(
     contours: list[Any],
     tiles: list[tuple[int, int, int, int, tuple[int, ...]]],
     *,
@@ -603,7 +604,7 @@ def _large_path_tile_boundary_candidates(
     ]
 
 
-def _tiled_large_path_coverage(
+def tiled_large_path_coverage(
     contours: list[Any],
     box: tuple[int, int, int, int],
     tiles: list[tuple[int, int, int, int, tuple[int, ...]]],
@@ -721,7 +722,7 @@ def _tiled_large_path_coverage(
     return output
 
 
-def _fill_coverages(
+def fill_coverages(
     controls: Any,
     box: tuple[int, int, int, int],
     samples: int = 32,
@@ -746,7 +747,7 @@ def _fill_coverages(
     # Simple closed contours are the common case.  Use the native
     # cubic-intersection renderer here; the sampled winding implementation
     # below remains the portable oracle and handles arbitrary layouts.
-    if controls.is_cuda and controls.shape[1] <= _FUSED_CUBICS:
+    if controls.is_cuda and controls.shape[1] <= FUSED_CUBICS:
         from vectrify.refine.cuda_renderer import coverage as cuda_coverage
 
         native = cuda_coverage(
@@ -768,7 +769,7 @@ def _fill_coverages(
         dim=-1,
     )
     output = []
-    can_fuse = controls.is_cuda and controls.shape[1] <= _FUSED_CUBICS
+    can_fuse = controls.is_cuda and controls.shape[1] <= FUSED_CUBICS
     if fuse and can_fuse:
         winding_chunk = _compiled_fill_winding_chunk()
     elif dynamic_fuse and can_fuse:
@@ -790,7 +791,7 @@ def _fill_coverages(
             control = torch.cat(
                 (control, control[:1].expand(batch_size - count, -1, -1, -1))
             )
-        if controls.is_cuda and control.shape[1] <= _FUSED_CUBICS:
+        if controls.is_cuda and control.shape[1] <= FUSED_CUBICS:
             control = _pad_fused_cubics(control)
         curve = torch.einsum("sk,nqkc->nqsc", basis, control).flatten(1, 2)
         curve = torch.cat((curve, curve[:, :1]), dim=1)
@@ -848,27 +849,28 @@ def _xing_penalties(control: Any) -> Any:
     return torch.where(orientation > 0, torch.relu(-sine), torch.relu(sine))
 
 
-def _xing_loss(control: Any) -> Any:
+def xing_loss(control: Any) -> Any:
     """Return the normalized per-cubic Xing regularizer."""
     return _xing_penalties(control).mean()
 
 
-_HEX_FILL = re.compile(r"^#([0-9a-fA-F]{6})$")
+# Colour spellings cairosvg parses; it reads anything else as black.
+_SOLID = re.compile(r"#[0-9a-f]{3,8}|(rgba?|hsla?)\(.*\)", re.IGNORECASE)
 
 
-def _fill_rgb(value: str | None) -> tuple[float, float, float] | None:
-    match = _HEX_FILL.match((value or "").strip())
-    if not match:
+def fill_rgb(value: str | None) -> tuple[float, float, float] | None:
+    """*value*'s colour when it is an opaque solid colour, else None."""
+    value = (value or "").strip()
+    if value.lower() not in COLORS and not _SOLID.fullmatch(value):
         return None
-    digits = match.group(1)
-    return (
-        int(digits[0:2], 16) / 255,
-        int(digits[2:4], 16) / 255,
-        int(digits[4:6], 16) / 255,
-    )
+    try:
+        red, green, blue, alpha = color(value)
+    except ValueError:
+        return None
+    return (red, green, blue) if alpha == 1 else None
 
 
-def _composite_opaque_fills(
+def composite_opaque_fills(
     alphas: Any, colours: Any, backdrop: Any | None = None
 ) -> Any:
     """Composite opaque SVG fills in document order without a layer loop.
@@ -891,7 +893,7 @@ def _composite_opaque_fills(
     return painted + backdrop * above_inclusive[0][..., None]
 
 
-def _composite_in_context(alphas: Any, colours: Any, context: tuple[Any, ...]) -> Any:
+def composite_in_context(alphas: Any, colours: Any, context: tuple[Any, ...]) -> Any:
     """Apply a common frozen SVG response to a selected painter-order run."""
     import torch
 
@@ -901,30 +903,30 @@ def _composite_in_context(alphas: Any, colours: Any, context: tuple[Any, ...]) -
         paint = torch.cat((rgb, rgb.new_ones(1))) if base.shape[-1] == 4 else rgb
         return base + alphas[0, ..., None] * (delta + transmission * paint)
     opacity = 1 - (1 - alphas).prod(dim=0)
-    paint = _composite_opaque_fills(alphas, colours)
+    paint = composite_opaque_fills(alphas, colours)
     if base.shape[-1] == 4:
         paint = torch.cat((paint, opacity[..., None]), dim=-1)
     return base + opacity[..., None] * delta + transmission * paint
 
 
 @lru_cache(maxsize=1)
-def _compiled_opaque_fill_composite() -> Any:
+def compiled_opaque_fill_composite() -> Any:
     """Return the CUDA-fused painter's-order compositing kernel when possible."""
     import torch
 
     compile_fn = getattr(torch, "compile", None)
     if compile_fn is None:
-        return _composite_opaque_fills
+        return composite_opaque_fills
     try:
         return compile_fn(
-            _composite_opaque_fills,
+            composite_opaque_fills,
             fullgraph=True,
             dynamic=False,
             options={"triton.cudagraphs": False},
         )
     except (RuntimeError, TypeError):
         log.warning("CUDA fill compositing fusion is unavailable; using eager torch.")
-        return _composite_opaque_fills
+        return composite_opaque_fills
 
 
 def fit_filled_svg(

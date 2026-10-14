@@ -60,7 +60,7 @@ class FilledFitRaster:
             if len(path) != 1 and len(path) < 16
         }
         self.initial_large_multi_tiles = {
-            index: paths._large_path_tile_candidates(
+            index: paths.large_path_tile_candidates(
                 path, self.scene.work_width, self.scene.work_height
             )
             for index, path in enumerate(self.scene.controls)
@@ -82,7 +82,7 @@ class FilledFitRaster:
                 )
                 for (_left, _top, _width, _height, ray_candidates), candidates in zip(
                     tiles,
-                    paths._large_path_tile_boundary_candidates(
+                    paths.large_path_tile_boundary_candidates(
                         self.scene.controls[index], tiles
                     ),
                     strict=True,
@@ -211,11 +211,11 @@ class FilledFitRaster:
         # primitive.  Route those through the chunked native winding path;
         # packing them into the old batched coverage call would force eager
         # Torch broadcasting over every cubic and pixel.
-        if self.scene.controls[items[0][0]][0].shape[0] > paths._FUSED_CUBICS:
+        if self.scene.controls[items[0][0]][0].shape[0] > paths.FUSED_CUBICS:
             from vectrify.refine.cuda_renderer import multi_coverage
 
             chunked = [
-                paths._fused_chunks(
+                paths.fused_chunks(
                     self.scene.controls[index][0]
                     - self.scene.controls[index][0].new_tensor((left, top))
                 )
@@ -239,7 +239,7 @@ class FilledFitRaster:
             output = []
             for index, left, top in items:
                 offset = self.scene.controls[index][0].new_tensor((left, top))
-                alpha = paths._fill_path_coverage(
+                alpha = paths.fill_path_coverage(
                     [self.scene.controls[index][0] - offset],
                     (0, 0, tile_width, tile_height),
                     fill_rule=fill_rule,
@@ -256,7 +256,7 @@ class FilledFitRaster:
                 for index, left, top in items
             ]
         )
-        rasterised = paths._fill_coverages(
+        rasterised = paths.fill_coverages(
             translated,
             (0, 0, tile_width, tile_height),
             fill_rule=fill_rule,
@@ -331,7 +331,7 @@ class FilledFitRaster:
             )
             if movement > 1.0:
                 self.initial_large_multi_tiles[index] = (
-                    paths._large_path_tile_candidates(
+                    paths.large_path_tile_candidates(
                         path, self.scene.work_width, self.scene.work_height
                     )
                 )
@@ -355,7 +355,7 @@ class FilledFitRaster:
                         ray_candidates,
                     ), candidates in zip(
                         self.initial_large_multi_tiles[index],
-                        paths._large_path_tile_boundary_candidates(
+                        paths.large_path_tile_boundary_candidates(
                             path, self.initial_large_multi_tiles[index]
                         ),
                         strict=True,
@@ -365,7 +365,7 @@ class FilledFitRaster:
                     control.detach().clone() for control in path
                 )
                 self.large_multi_topology_workspaces[index].clear()
-            tiled_alpha = paths._tiled_large_path_coverage(
+            tiled_alpha = paths.tiled_large_path_coverage(
                 path,
                 (0, 0, self.scene.work_width, self.scene.work_height),
                 self.initial_large_multi_tiles[index],
@@ -380,7 +380,7 @@ class FilledFitRaster:
             )
             if tiled_alpha is not None:
                 return tiled_alpha
-            return paths._fill_path_coverage(
+            return paths.fill_path_coverage(
                 path,
                 (0, 0, self.scene.work_width, self.scene.work_height),
                 fill_rule=self.scene.entries[index][3],
@@ -391,7 +391,7 @@ class FilledFitRaster:
         offset = path[0].new_tensor((left, top))
         from vectrify.refine.cuda_renderer import multi_coverage
 
-        packed = torch.cat([paths._fused_chunks(control - offset) for control in path])
+        packed = torch.cat([paths.fused_chunks(control - offset) for control in path])
         analytic = multi_coverage(
             packed,
             [0, len(packed)],
@@ -401,7 +401,7 @@ class FilledFitRaster:
         )
         if analytic is not None:
             return self.restore_tile(analytic[0], left, top)
-        alpha = paths._fill_path_coverage(
+        alpha = paths.fill_path_coverage(
             [control - offset for control in path],
             (0, 0, tile_width, tile_height),
             fill_rule=self.scene.entries[index][3],
@@ -432,7 +432,7 @@ class FilledFitRaster:
             offset = self.scene.controls[index][0].new_tensor((left, top))
             start = sum(len(c) for c in chunks)
             chunks.extend(
-                paths._fused_chunks(control - offset)
+                paths.fused_chunks(control - offset)
                 for control in self.scene.controls[index]
             )
             spans.append((start, sum(len(c) for c in chunks)))
@@ -481,7 +481,7 @@ class FilledFitRaster:
         coverage_sum = None
         for y in range(self.options.subpixels):
             for x in range(self.options.subpixels):
-                winding = paths._fill_batched_windings(
+                winding = paths.fill_batched_windings(
                     packed,
                     (0, 0, tile_width, tile_height),
                     samples=self.samples_for(tile_width, tile_height),

@@ -9,10 +9,10 @@ from vectrify.document import export_svg, import_svg
 from vectrify.refine.cleanup import cleaned
 from vectrify.refine.crossings import bezier, crossings
 from vectrify.refine.edge_profiles import EdgeProfiles
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 from vectrify.svg_render import render_image
 
-FRAME = _Frame(np.eye(2), np.zeros(2))
+FRAME = Frame(np.eye(2), np.zeros(2))
 
 
 def drawing(path):

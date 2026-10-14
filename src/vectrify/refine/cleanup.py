@@ -10,10 +10,10 @@ import numpy as np
 
 from vectrify.document import Geometry, PathNode
 from vectrify.refine.crossings import bezier
-from vectrify.refine.snap import _Frame
+from vectrify.refine.frame import Frame
 
 
-def _sample(nodes: tuple[PathNode, ...] | list[PathNode], frame: _Frame):
+def _sample(nodes: tuple[PathNode, ...] | list[PathNode], frame: Frame):
     """Sample each segment at quarters, with arc distances in reference pixels."""
     points, tangents = [], []
     for previous, node in pairwise(nodes):
@@ -48,7 +48,7 @@ def _fitted(points: np.ndarray, target: np.ndarray, arc: np.ndarray):
 def cleaned(
     geometry: Geometry,
     baseline: Geometry,
-    frame: _Frame,
+    frame: Frame,
     displacement: float,
     held: frozenset[str],
     accept: Callable[[Geometry], bool],

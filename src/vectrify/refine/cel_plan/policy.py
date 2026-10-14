@@ -35,6 +35,7 @@ from vectrify.refine.cel_plan.score import (
     render,
     svg_metrics,
 )
+from vectrify.refine.colour_regions import LUMINANCE
 
 if TYPE_CHECKING:
     from vectrify.document import Document
@@ -184,7 +185,7 @@ def _ink(rgba: np.ndarray) -> np.ndarray:
     # Opacity boundaries alone are not ink. Unassociated color supplies its
     # contrast; opacity reduces confidence in a barely visible dark mark.
     visible = rgba[..., 3] > VISIBLE
-    luminance = rgba[..., :3] @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    luminance = rgba[..., :3] @ LUMINANCE
     support = gaussian_filter(visible.astype(np.float32), 2)
     neighborhood = gaussian_filter(luminance * visible, 2) / np.maximum(support, 1e-6)
     contrast = (neighborhood - luminance) * rgba[..., 3]

@@ -13,7 +13,7 @@ from vectrify.document.join import path_style
 from vectrify.document.transforms import root_matrix
 from vectrify.refine.crossings import crossings
 from vectrify.refine.joint import _context, _groups, polish
-from vectrify.refine.paths import _composite_in_context
+from vectrify.refine.paths import composite_in_context
 from vectrify.refine.selected import FitOptions
 from vectrify.refine.simplify import curved
 from vectrify.svg_render import render_image
@@ -78,7 +78,7 @@ def test_joint_compositing_matches_cairo_with_clipping_group_opacity_and_front_p
             color(style["stroke"] if style["fill"] == "none" else style["fill"])[:3]
         )
     alphas = torch.tensor(np.array(alphas), dtype=torch.float32, requires_grad=True)
-    reconstructed = _composite_in_context(
+    reconstructed = composite_in_context(
         alphas,
         torch.tensor(colours, dtype=torch.float32),
         tuple(

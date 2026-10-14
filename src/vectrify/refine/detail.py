@@ -9,12 +9,13 @@ import numpy as np
 
 from vectrify.document import Geometry, PathNode
 from vectrify.document.model import new_id
-from vectrify.refine.snap import _Frame, _halves
+from vectrify.refine.frame import Frame
+from vectrify.refine.snap import halves
 
 
 def densified(
     geometry: Geometry,
-    frame: _Frame,
+    frame: Frame,
     held: frozenset[str] = frozenset(),
     spacing: float = 4.0,
 ) -> Geometry:
@@ -71,7 +72,7 @@ def densified(
     while queue and budget:
         _, _, key, interval = heapq.heappop(queue)
         controls = pieces[key].pop(interval)
-        first, second = _halves(controls, 0.5)
+        first, second = halves(controls, 0.5)
         left, right = interval
         middle = (left + right) / 2
         enqueue(key, (left, middle), np.vstack((controls[0], first)))

@@ -671,10 +671,10 @@ def fit(task: Task, stop, progress) -> tuple[Document, dict[str, str]]:
     Straight segments are fitted as curves, so the fit can bend one where
     the reference needs; those it leaves straight go back to lines.
     """
+    from vectrify.refine.frame import object_frame
     from vectrify.refine.parameters import line_knots
     from vectrify.refine.selected import FitOptions, fit_selected_path
     from vectrify.refine.simplify import curved, straightened
-    from vectrify.refine.snap import _frame
 
     document, settings = task.document, task.settings
     reference = task.reference
@@ -721,7 +721,7 @@ def fit(task: Task, stop, progress) -> tuple[Document, dict[str, str]]:
         if settings["detail"] and not is_line(document, oid):
             from vectrify.refine.detail import densified
 
-            frame = _frame(document, oid, task.region, task.region.image.size)
+            frame = object_frame(document, oid, task.region, task.region.image.size)
             if frame is not None:
                 prepared = densified(prepared, frame, task.held)
                 movable |= frozenset(
@@ -790,7 +790,7 @@ def fit(task: Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # can introduce crossings or lose useful subpixel curvature; fall back
         # to the raw fit if the straightened result is rejected.
         raw = document.replace_geometry(fitted)
-        frame = _frame(document, oid, task.region, task.region.image.size)
+        frame = object_frame(document, oid, task.region, task.region.image.size)
         if frame is not None and not settings["detail"]:
             fitted = straightened(fitted, STRAIGHT, frame)
         document = document.replace_geometry(fitted)
@@ -830,7 +830,7 @@ def fit(task: Task, stop, progress) -> tuple[Document, dict[str, str]]:
             geometry = raw.geometry_for(oid)
             if geometry == before.geometry_for(oid):
                 continue
-            frame = _frame(raw, oid, task.region, task.region.image.size)
+            frame = object_frame(raw, oid, task.region, task.region.image.size)
             if frame is not None and not settings["detail"]:
                 candidate = candidate.replace_geometry(
                     straightened(geometry, STRAIGHT, frame)

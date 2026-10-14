@@ -33,8 +33,10 @@ from scipy.ndimage import grey_closing, map_coordinates
 from vectrify.document import Document, Geometry
 from vectrify.document.join import path_style
 from vectrify.operations.generate import Region
+from vectrify.refine.crossings import bezier
+from vectrify.refine.frame import Frame, object_frame
 from vectrify.refine.frozen import Frozen
-from vectrify.refine.snap import _bezier, _Frame, _frame, _unit
+from vectrify.refine.snap import unit_vector
 
 # The most a point or segment middle moves, in reference pixels.
 SHIFT = 1.5
@@ -81,7 +83,7 @@ def fit_lines(
         style = path_style(document, element)
         if "url(" in style["stroke"]:
             continue
-        frame = _frame(document, oid, region, region.image.size)
+        frame = object_frame(document, oid, region, region.image.size)
         if frame is None:
             continue
         scale = math.sqrt(abs(np.linalg.det(frame.matrix)))
@@ -231,7 +233,7 @@ def _normal(tangent: np.ndarray | None) -> np.ndarray | None:
 
 def _fitted(
     geometry: Geometry,
-    frame: _Frame,
+    frame: Frame,
     reader: Reader,
     fixed: Frozen,
     *,
@@ -264,7 +266,7 @@ def _fitted(
                 continue
             ahead = after if after is not None else anchors[i]
             behind = before if before is not None else anchors[i]
-            tangents.append(_unit(ahead - behind))
+            tangents.append(unit_vector(ahead - behind))
         normals = [_normal(t) for t in tangents]
         movable = [
             i
@@ -317,9 +319,9 @@ def _fitted(
 def _curve_shift(cubic: np.ndarray, reader: Reader, *, span: bool):
     """Least-squares handle motion from the ink at several points on a curve."""
     if not span:
-        point, tangent = _bezier(cubic, np.array([0.5]))
+        point, tangent = bezier(cubic, np.array([0.5]))
         assert tangent is not None
-        normal = _normal(_unit(tangent[0]))
+        normal = _normal(unit_vector(tangent[0]))
         if normal is None:
             return np.zeros((2, 2)), []
         shift, widths = reader.across(point, np.array([normal]))
@@ -329,7 +331,7 @@ def _curve_shift(cubic: np.ndarray, reader: Reader, *, span: bool):
     count = min(MAX_SAMPLES, max(MIN_SAMPLES, math.ceil(hull / SAMPLE_SPACING)))
     # Leave the end caps out: the anchors already followed their own readings.
     t = np.linspace(0.125, 0.875, count)
-    points, tangents = _bezier(cubic, t)
+    points, tangents = bezier(cubic, t)
     assert tangents is not None
     length = np.linalg.norm(tangents, axis=1)
     usable = length > 1e-9

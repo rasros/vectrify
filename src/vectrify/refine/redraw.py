@@ -28,9 +28,9 @@ from vectrify.document import Document, Geometry, PathNode, Subpath
 from vectrify.document.model import new_id
 from vectrify.document.transforms import root_matrix
 from vectrify.image_utils import on_white
+from vectrify.refine.frame import Frame
 from vectrify.refine.frozen import Frozen
 from vectrify.refine.simplify import simplified_geometry, straightened
-from vectrify.refine.snap import _Frame
 
 # How far from the stroke the edge may be, in screen pixels, and never less
 # than this many reference pixels.
@@ -97,7 +97,7 @@ def redraw_stretch(
         if edge is not None:
             scale, origin, traced = to_pixels, np.array([vx, vy]), edge
             tolerance, sigma = TOLERANCE, SMOOTH
-    frame = _Frame(scale @ linear, scale @ (offset - origin))
+    frame = Frame(scale @ linear, scale @ (offset - origin))
     geometry = _fitted(traced, tolerance, sigma)
     return tuple(
         (node.command, frame.local(np.asarray(node.values).reshape(-1, 2)))

@@ -70,6 +70,7 @@ from vectrify.document.lines import End, contour_ends, end_pairs, joined
 from vectrify.document.model import Geometry, PathNode, Subpath
 from vectrify.document.paint import hex_colour
 from vectrify.refine.colour_regions import (
+    LUMINANCE,
     boundary_chains,
     colour,
     distance_transform_edt,
@@ -88,7 +89,6 @@ from vectrify.refine.tracing import _fit_cubic, _simplified_data, mask_path
 if TYPE_CHECKING:
     from vectrify.operations.methods.colours import Ramp
 
-LUMINANCE = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 # A line is darker than the surface either side by this much at its core, in
 # 0-255 of the brightest channel, and its antialiased edge by a third of it.
 LINE_CONTRAST = 12
