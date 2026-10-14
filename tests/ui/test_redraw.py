@@ -13,6 +13,7 @@ from tests.ui.helpers import PIXEL, SPIKED, SQUARE, STROKE, send, session
 from vectrify.document import DocumentError, import_svg
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.topology import mapped_point
+from vectrify.refine.redraw import redraw_stretch
 from vectrify.ui.session import Session
 
 
@@ -171,3 +172,18 @@ def test_redrawing_one_of_several_selected_paths_keeps_them_selected():
     send(s, "redraw_outline", object="p", points=[(20, 30), (5, 50), (20, 70)], pixel=1)
     assert s.state()["selection"]["objects"] == ["g"]
     assert min(n.endpoint[0] for n in nodes(s)) == pytest.approx(5, abs=1)
+
+
+@pytest.mark.parametrize("length", [9, 10, 17])
+def test_a_freehand_stroke_ending_just_past_a_segment_boundary_is_redrawn(length):
+    # Its second-to-last point starts a segment, whose arriving tangent looks
+    # past the end of the stroke.
+    document = import_svg(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<path id="a" d="M 0 0 L 40 0"/></svg>'
+    )
+    xs = np.linspace(0, length, length + 1)
+    stroke = list(zip(xs, 4 * np.sin(xs * 3 / length), strict=True))
+    segments = redraw_stretch(document, "a", stroke, None, 1.0)
+    assert segments
+    assert np.allclose(segments[-1][1][-2:], stroke[-1])
