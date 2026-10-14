@@ -44,8 +44,7 @@ def test_proposed_closing_handle_keeps_ids_and_requires_structure_authorization(
 @pytest.mark.parametrize("constraint", ["lock", "node selection", "shared consumer"])
 def test_proposed_handles_cannot_bypass_transaction_constraints(constraint):
     document = import_svg(
-        '<svg><path id="p" d="M0 0 L10 0 L20 10"/>'
-        '<use id="q" href="#p"/></svg>'
+        '<svg><path id="p" d="M0 0 L10 0 L20 10"/><use id="q" href="#p"/></svg>'
     )
     geometry = document.geometry_for("p")
     target = geometry.subpaths[0].nodes[1]

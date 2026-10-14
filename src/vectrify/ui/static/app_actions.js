@@ -21,7 +21,7 @@ export function createActionsController(editor, {
       $('busy-label').textContent = label;
       try {
         const ids = command === 'undo' ? editor.state.undo_ids?.slice(-1) : command === 'redo' ? editor.state.redo_ids?.slice(0, 1) : undefined;
-        const payload = {command, ...data, ...(ids ? {ids} : {}), selection: editor.state.selection, epoch: editor.state.epoch, revision: editor.state.revision};
+        const payload = {command, ...data, ...(ids?.length ? {ids} : {}), selection: editor.state.selection, epoch: editor.state.epoch, revision: editor.state.revision};
         let result = await request('/api/action', payload);
         if (command === 'delete' && result.confirmation === 'delete_pinned') {
           if (!window.confirm(result.message)) return false;

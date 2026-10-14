@@ -51,7 +51,9 @@ jobs:
         run: uv sync --extra dev --extra vision
 
       - name: Lint
-        run: uv run ruff check src/ tests/ scripts/
+        run: |
+          uv run ruff check src/ tests/ scripts/
+          uv run ruff format --check src/ tests/ scripts/
 
       - name: Type check
         run: uv run pyrefly check

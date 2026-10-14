@@ -50,3 +50,20 @@ document.activeElement = {tagName:'INPUT'};
 assert.ok(press('s').prevented, 'Save works while editing a field');
 assert.ok(press('s', {repeat:true}).prevented);
 assert.equal(saves.length, 5, 'held Save must not open repeated dialogs');
+
+// Ctrl/⌘ Z with nothing to undo or redo does nothing, rather than asking the
+// backend for an empty set of history entries; the stack is read when the
+// queued key runs, so an edit that lands meanwhile can still be undone.
+const sent = [];
+const history = Object.assign(createEditorState(), {pending: 0, tool: 'select', treeDrag: null, state: {undo: [], redo: []}});
+const undoKeys = createKeysController(history, {document: {activeElement: {tagName: 'BODY'}, querySelector: () => null}, window: {addEventListener() {}}, later: fn => queued.push(fn), action: command => sent.push(command), input: {waiting: 0}}).keyDown;
+const undoKey = (extra = {}) => { const event = {key: 'z', code: 'KeyZ', ctrlKey: true, preventDefault() { this.prevented = true; }, ...extra}; undoKeys(event); return event; };
+queued.length = 0;
+assert.ok(undoKey().prevented, 'the browser must not undo in the page');
+assert.ok(undoKey({shiftKey: true, key: 'Z'}).prevented);
+queued.splice(0).forEach(fn => fn());
+assert.deepEqual(sent, [], 'an empty history sends nothing');
+undoKey();
+history.state = {undo: ['Change paint'], redo: []};
+queued.splice(0).forEach(fn => fn());
+assert.deepEqual(sent, ['undo'], 'an edit that lands before the key runs is undone');
