@@ -8,6 +8,7 @@ export function createOverlayController(editor, {
   $,
   CSS = globalThis.CSS,
   DOMPoint = globalThis.DOMPoint,
+  drawBooleanRoles = () => {},
   drawFlash,
   drawGradient = () => {},
   drawKeyObject,
@@ -129,6 +130,7 @@ export function createOverlayController(editor, {
       } catch { /* Resource elements may have no display bounds. */ }
     }
     drawClippingBoundaries();
+    drawBooleanRoles();
     drawFrame();
     drawKeyObject();
     drawRotation();

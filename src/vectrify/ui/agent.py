@@ -122,6 +122,7 @@ EDITS: dict[str, tuple[str, ...]] = {
     "combine": ("combine_paths",),
     "split_parts": ("split_disconnected",),
     "cut_hole": ("cut_hole",),
+    "boolean": ("union", "subtract", "intersect", "exclude"),
     "holes": ("fill_holes", "holes_to_shapes"),
     "convert": ("fill_to_line", "line_to_fill", "convert_lines", "detach"),
     "delete": ("delete", "delete_node", "delete_contour", "extract", "detach"),
@@ -2010,6 +2011,13 @@ class Agent:
 
     def tool_cut_hole(self, seen: Any, ids: Any) -> Reply:
         return self._simple("cut_hole", seen, ids)
+
+    def tool_boolean(self, seen: Any, ids: Any, operation: Any) -> Reply:
+        """As the editor's Union, Subtract, Intersect and Exclude: the
+        backmost path is the target, keeping its id and paint."""
+        if operation not in {"union", "subtract", "intersect", "exclude"}:
+            raise DocumentError("operation is union, subtract, intersect or exclude")
+        return self._simple(operation, seen, ids)
 
     def tool_holes(
         self,

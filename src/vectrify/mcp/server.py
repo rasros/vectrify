@@ -809,6 +809,21 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("cut_hole", {"ids": ids})
 
     @tool(structured_output=False)
+    def boolean(
+        ids: Ids,
+        operation: Literal["union", "subtract", "intersect", "exclude"],
+    ) -> CallToolResult:
+        """Combine the filled areas of two or more paths, as the editor's
+        Path commands do. The backmost path (in stacking order, whatever the
+        order of ids) is the target: it keeps its id, paint and place and
+        takes the result; the paths in front are deleted. union: inside any;
+        subtract: the target minus every path in front; intersect: inside
+        all; exclude: inside an odd number. Curves are kept; the result is
+        in the target's frame, its own clip cut in. Basic shapes need
+        convert(to="path") first; an empty result is refused."""
+        return state.call("boolean", {"ids": ids, "operation": operation})
+
+    @tool(structured_output=False)
     def holes(
         contours: Points,
         action: Literal["fill", "shape"] = "fill",

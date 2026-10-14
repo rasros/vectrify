@@ -362,7 +362,12 @@ preserving holes and paint; `joined` says which), `combine(ids, paint_source?)`
 (collect unchanged contours into one compound path, using the frontmost path's
 entire style or `paint_source`'s; compound fill rules still apply; transforms
 are resolved and the result takes the source's clipping), `split_parts(ids)`,
-`cut_hole(ids)`, `holes(contours, action?, delete_enclosed?)` (`fill` or
+`cut_hole(ids)`, `boolean(ids, operation)` (`union`, `subtract`,
+`intersect` or `exclude` of two or more filled paths, as the editor's Path
+commands: the backmost path, whatever the order of `ids`, is the target and
+keeps its id, paint and place; the paths in front are deleted; curves are
+kept and an empty result is refused; basic shapes need `convert(to="path")`
+first), `holes(contours, action?, delete_enclosed?)` (`fill` or
 `shape`, of the holes `points()` marks), `convert(ids, to?)` (line, fill,
 either, or `path`: an instance, a basic shape or shared geometry made an
 editable path of its own, keeping its id and paint; nothing else detaches

@@ -80,7 +80,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
     and **Distribute** horizontally or vertically with equal gaps or equal
     centres (see Align and distribute below).
   - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
-    Stroke to path, Fill to centerline, Split parts, Convert to path,
+    Union, Subtract, Intersect, Exclude, Stroke to path, Fill to centerline, Split parts, Convert to path,
     Detach, Extract region and Delete region.
   - **Clipping**: Set clip…, Remove clip and Show (or Hide) clipping
     boundaries.
@@ -659,6 +659,47 @@ and saved projects restore it.
   outer outline is recomputed as a curved boolean difference, which renumbers
   its points and so is refused for pinned points.
   Locks, shared geometry and instances of the outer path are refused.
+- **Union**, **Subtract**, **Intersect** and **Exclude** (Path, right-click
+  menu or command palette) combine the filled areas of two or more selected
+  paths. The backmost selected path, in stacking order and whatever the order
+  they were selected in, is the **target**; the paths in front of it are the
+  **cutters**. Each command's tooltip names them (for example "Subtract Patch
+  from Shape. Shape, the backmost, keeps its paint and place"), and while the
+  pointer or keyboard focus is on the command the canvas outlines the target
+  solid and the cutters dashed, before anything changes.
+  - **Union** keeps the area inside any of them; **Subtract** the target's
+    area outside every cutter (back minus front); **Intersect** the area
+    inside all of them; **Exclude** the area inside an odd number of them, so
+    where two overlap opens up.
+  - The target keeps its ID, name, paint (fill, stroke, opacity, markers),
+    locks, group and place in the stacking order, and takes the result as its
+    outline; the cutters are deleted. Its fill rule becomes nonzero, the
+    winding the result is written in, and its points are new. The result is
+    selected, and the edit is one undoable step.
+  - Each path's area follows its own fill rule, so holes stay holes. A cutter
+    inside the target subtracts as a hole; a target inside a cutter subtracts
+    to nothing. Disjoint paths unite (or exclude) into one compound path of
+    separate parts. Curves stay curves.
+  - An edit that would leave nothing is refused and changes nothing:
+    subtracting a target covered by the cutters, intersecting paths that do
+    not all overlap, or excluding identical shapes. Subtract also refuses when
+    no cutter overlaps the target, since only the cutters would go.
+  - Transforms and clipping: the area is worked out in the paths' nearest
+    common group and written in the target's own frame, so its transform and
+    group stay as they are. The visible part of each path counts: its own
+    clip, and the clips of groups it does not share with the target, are cut
+    into its area, and the target's own clip is cut in and removed. The
+    clipping of the target's group still applies to the result, so a Union
+    with a path outside that group's clip shows only the part inside it.
+  - Rectangles, circles, ellipses and lines are refused with a pointer to
+    **Convert to path**, which keeps the conversion its own explicit edit, as
+    are groups, instances, definitions and paths without a fill. As with
+    Merge shapes, a geometry or structure lock on any of the paths, pinned
+    points, shared geometry and paths other objects reference (instances or
+    clips) are refused with the reason.
+  - **Merge shapes** differs in mixing paint by area and taking groups;
+    **Combine paths** keeps every contour unchanged; **Cut out as hole** picks
+    the cutter by containment and keeps the outer path's own points.
 - The **Knife** tool (`C`) cuts the paths it crosses along a straight line:
   drag across them and release. With nothing selected it cuts every drawing
   path the line crosses whose geometry and structure are unlocked, inside the

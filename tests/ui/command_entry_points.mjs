@@ -9,6 +9,7 @@ import {createJoinController} from '../../src/vectrify/ui/static/app_join.js';
 import {createClippingController} from '../../src/vectrify/ui/static/app_clipping.js';
 import {createRegionController} from '../../src/vectrify/ui/static/app_region.js';
 import {createAlignController} from '../../src/vectrify/ui/static/app_align.js';
+import {createBooleansController} from '../../src/vectrify/ui/static/app_booleans.js';
 
 // Just enough DOM: elements with attributes, children and simple selectors
 // (a tag, an id, classes and [attribute] or [attribute=value] tests).
@@ -68,7 +69,7 @@ globalThis.innerWidth = 1000; globalThis.innerHeight = 800;
 
 // The inspector's Path list and a Nodes strip as index.html has them.
 const path = Object.assign(new Node('div'), {className: 'command-list'});
-path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole convert-to-path detach extract-region delete-region';
+path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole subtract convert-to-path detach extract-region delete-region';
 const clipping = Object.assign(new Node('div'), {className: 'command-list'});
 clipping.dataset.commands = 'set-clip remove-clip show-clips';
 const arrange = Object.assign(new Node('div'), {className: 'command-list'});
@@ -117,6 +118,8 @@ const registry = createCommandRegistryController(editor, {
   alignDescription: alignment => context.align.alignDescription(alignment),
   distribute: (axis, spacing) => context.align.distribute(axis, spacing), distributeRefusal: (axis, spacing) => context.align.distributeRefusal(axis, spacing),
   distributeDescription: (axis, spacing) => context.align.distributeDescription(axis, spacing),
+  booleanDescription: operation => context.booleans.description(operation), booleanRefusal: () => context.booleans.refusal(),
+  runBoolean: operation => context.booleans.run(operation),
   setTool: async tool => { editor.tool = tool; },
 });
 context.commands = createCommandsController(editor, {
@@ -158,6 +161,10 @@ context.align = createAlignController(editor, {
   renderCommands: () => context.commands.renderCommands(), toast: (message, error) => toasts.push({message, error: !!error}),
   topSelection: () => editor.state.selection.objects, xmlElement: tag => new Node(tag),
 });
+context.booleans = createBooleansController(editor, {
+  action: (...args) => { actions.push(args); return true; }, document, drawOverlay() {},
+  filledPath: id => context.commands.filledPath(id), noSelection: () => context.commands.noSelection(), toast() {},
+});
 const {commandById, commandName, commandRefusal, commandTitle} = registry;
 const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPaletteRow} = context.commands;
 
@@ -165,7 +172,7 @@ const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPal
 buildCommandLists();
 renderCommands();
 const button = (list, id) => list.querySelector(`button[data-command=${id}]`);
-assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes', 'Join line ends', 'Stroke to path', 'Fill to centerline', 'Cut out as hole', 'Convert to path', 'Detach shared geometry', 'Extract region', 'Delete region']);
+assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes', 'Join line ends', 'Stroke to path', 'Fill to centerline', 'Cut out as hole', 'Subtract', 'Convert to path', 'Detach shared geometry', 'Extract region', 'Delete region']);
 assert.deepEqual(points.children.map(child => child.textContent), ['Break', 'Join points', 'Delete points']);
 assert.equal(stripJoin.textContent, 'Join points', 'a strip button takes the registry name');
 
@@ -229,6 +236,7 @@ agrees('stroke-to-path', path, '');
 agrees('merge-shapes', path, 'Select two or more paths, or groups that contain them, or one filled path');
 agrees('fill-to-centerline', path, 'Select thin filled shapes');
 agrees('cut-hole', path, 'Select two visible paths, one inside or overlapping the other');
+agrees('subtract', path, 'Select two or more filled paths');
 agrees('convert-to-path', path, 'Select rectangles, circles, ellipses or lines');
 agrees('detach', path, 'Select one instance, or a path that shares its geometry');
 agrees('join-points', points, 'Select points in Nodes (S) first');
@@ -367,6 +375,23 @@ agrees('fill-to-centerline', path, '');
 agrees('cut-hole', path, '');
 press(button(path, 'merge-shapes'));
 assert.deepEqual(actions.at(-1), ['dialog']);
+// The line has no fill to subtract from; the shape behind a rectangle points
+// to Convert to path. Two filled paths name the target before running.
+agrees('subtract', path, 'Line has no fill: these operations combine filled areas');
+editor.state.selection.objects = ['shape', 'box'];
+renderCommands();
+agrees('subtract', path, 'Rect 1 is a basic shape: use Convert to path first');
+objects.push({id: 'patch', tag: 'path', label: 'Patch', paint: {fill: '#f00', stroke: 'none'}, locks: [], inherited_locks: []});
+editor.state.selection.objects = ['patch', 'shape'];
+renderCommands();
+agrees('subtract', path, '');
+assert.equal(button(path, 'subtract').title, 'Subtract Patch from Shape. Shape, the backmost, keeps its paint and place');
+press(button(path, 'subtract'));
+await new Promise(resolve => setTimeout(resolve));
+assert.deepEqual(actions.at(-1), ['subtract', {}, 'Subtracting…']);
+objects.pop();
+editor.state.selection.objects = ['line', 'shape'];
+renderCommands();
 
 // In a point tool the menu offers the Nodes commands only; two points join.
 pointLevel = true; selectedPoints = ['line a', 'shape b'];

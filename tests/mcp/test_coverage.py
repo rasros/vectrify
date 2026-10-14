@@ -123,6 +123,25 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("convert", ids=["ring"], to="line")
             await call("convert", ids=["ring"], to="either")
             await call("add_path", d="M0 0 L20 0 L20 20 Z", fill="#000")
+
+            async def square(x: float, side: float) -> str:
+                d = f"M{x} 100 h{side} v30 h{-side} Z"
+                added = data(await call("add_path", d=d, fill="#000"))
+                return added["result"]["objects"][0]
+
+            # Each boolean combines a new front square with the back one.
+            back = await square(0, 30)
+            for operation, x in (
+                ("union", 10),
+                ("subtract", 20),
+                ("intersect", 0),
+                ("exclude", 10),
+            ):
+                front = await square(x, 20)
+                done = data(
+                    await call("boolean", ids=[front, back], operation=operation)
+                )
+                assert done["result"]["objects"] == [back]
             await call("set_points", changes={"ring": {ring[1]: [180, 100]}})
             await call(
                 "point_style", points=[["ring", ring[1]]], handles=2, pinned=True
