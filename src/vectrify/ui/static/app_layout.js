@@ -1,5 +1,6 @@
 import {overflowLayout} from './strip.js';
 import {scopeChain, selectionStatus} from './selection.js';
+import {shapeStatus} from './shapes.js';
 
 // Layout owns its controls; editor contains the live state shared with other controllers.
 export function createLayoutController(editor, {
@@ -132,6 +133,7 @@ export function createLayoutController(editor, {
     $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
     // Show the selection's size, and the new size while resizing in Move.
     if (editor.drag?.kind === 'resize' && editor.drag.result) $('selection-level').textContent = `Resize · ${frameSize(editor.drag.result.box)}`;
+    else if (editor.drag?.kind === 'shape' && editor.drag.moved && editor.drag.shape) $('selection-level').textContent = shapeStatus(editor.drag.shape);
     else if (editor.selectionBox) $('selection-level').textContent += ` · ${frameSize(editor.selectionBox)}`;
     const trail = $('scope-trail');
     trail.replaceChildren();

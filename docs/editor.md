@@ -34,8 +34,9 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`A`),
   **Move** (`V`) and **Knife** (`C`), the point tools **Nodes** (`S`) and
-  **Redraw outline** (`R`), **Draw path** (`D`), which creates and ignores the
-  selection, and **Pan** (hold Space). The Reference panel holds the reference
+  **Redraw outline** (`R`), the drawing tools **Draw path** (`D`),
+  **Rectangle** (`M`), **Ellipse** (`E`) and **Line** (`L`), which create and
+  ignore the selection, and **Pan** (hold Space). The Reference panel holds the reference
   image and the tools that match the drawing to it (see Operations); its heading folds it
   away, and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
@@ -46,8 +47,10 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   One / Two), **Break**, **Join points**, **Add node**, **Straighten**,
   **Delete points**, X / Y for a single point, and **Fill hole** / **Hole to
   shape**, which run when the points are on holes. Numbered controls show their digit, and the keys 1-9 press them (see
-  Keyboard shortcuts). Draw path has Finish, Close shape and Cancel. Knife,
-  Redraw outline, Draw path and Pan show a one-line hint. The strip keeps to
+  Keyboard shortcuts). Draw path has Finish, Close shape and Cancel; Rectangle
+  and Ellipse have W and H, Line has Length and Angle, and Rectangle has
+  Corners; all four drawing tools end with the drawing paint (Fill, Stroke and
+  Width). Knife, Redraw outline, the drawing tools and Pan show a one-line hint. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
   important of them (Add node, the coordinates and the hole commands first, and so on) move
   into a **⋯** menu at the end of the controls, which holds them until there
@@ -385,6 +388,34 @@ and saved projects restore it.
   **Finish** for an open stroked path. Backspace removes the last point; Escape
   or **Cancel** discards the draft. Creation is one undoable edit and selects the
   new path for paint and point editing. Middle mouse panning works while drawing.
+- **Rectangle (M)**, **Ellipse (E)** and **Line (L)**: drag to draw, with a
+  preview painted as the shape will be and a dashed outline; the status line
+  shows its size ("Rectangle · 120 × 80", "Line · 100 at 45°") and so do the
+  strip's fields. The modifiers are the same in all three: Shift makes a
+  square, a circle or a line at 45° steps, and Alt (Option) draws from the
+  centre, around where the drag started. Both take effect as they are pressed
+  or released, mid-drag. A click places a shape at the size in the strip, from
+  its top-left corner (a line from its start), or with Alt around the click:
+  W and H, or a line's Length and Angle (degrees counterclockwise from
+  rightwards). The fields show, and keep, the size of the last shape dragged
+  out, so a click repeats it; type in them for an exact size, or set it after
+  drawing with X / Y / W / H under Transform. **Corners** rounds new
+  rectangles, at most to half their shorter side. Escape cancels a drag. Each
+  shape is one undoable edit, selected afterwards, and the tool stays on for
+  the next. Shapes are native `rect`, `circle` (an ellipse with Shift),
+  `ellipse` and `line` elements: they save and export as such and stay shapes
+  until **Convert to path** (Path) gives them points to edit.
+- **Drawing paint**: the strip's **Fill**, **Stroke** and **Width** in all four
+  drawing tools, remembered in this browser. Closed shapes and paths take the
+  fill and the stroke (each can be off, never both); lines and open paths take
+  the stroke colour, or the fill colour when the stroke is off. Width is in
+  document units. Picking a colour turns that paint on.
+- **Drawing container**: the drawing tools draw into the entered group (see
+  Selecting), else the top level, on top of what is there. In a group that is
+  moved, scaled evenly or mirrored, a shape's own numbers are converted into
+  the group's frame, stroke width included, so it shows exactly where and as
+  wide as it was drawn; in a rotated or skewed group it keeps the numbers as
+  drawn under a transform that undoes the group's.
 - Group/ungroup, stacking order, delete and detach shared geometry.
   **Group** gathers selected objects, even across groups or with other objects
   between them, at the frontmost selected branch in their common container.
@@ -586,7 +617,8 @@ and saved projects restore it.
 
 Keyboard shortcuts are available from the `?` button. They come in three
 layers that never collide. Tool and view keys: `A`
-Select, `V` Move, `S` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
+Select, `V` Move, `S` Nodes, `D` Draw path, `M` Rectangle, `E` Ellipse, `L` Line,
+`C` Knife and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip

@@ -160,6 +160,8 @@ LEFT_OUT = {
     "clipping operation on explicit targets.",
     "convert_to_path": "The UI's basic-shape conversion; convert(to='path') "
     "sends detach, which converts basic shapes and instances alike.",
+    "add_shape": "The UI's Rectangle, Ellipse and Line tools; agents draw any "
+    "outline, a basic one included, with add_path.",
     "to_front": "Internal: arrange(to='front') arrives as reorder and is "
     "renamed to this inside the session.",
     "to_back": "Internal: arrange(to='back') arrives as reorder and is "

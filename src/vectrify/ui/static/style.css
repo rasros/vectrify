@@ -191,6 +191,11 @@
 .strip-coordinates label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .strip-coordinates input { width: 66px; padding: 4px 6px; font-size: 10px; }
 #strip-hole { display: flex; gap: 5px; }
+.drawing-paint { display: flex; align-items: center; gap: 6px; }
+.drawing-paint label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.drawing-paint input[type=color] { width: 24px; height: 22px; padding: 2px; border-radius: 4px; cursor: pointer; }
+.shape-size input { width: 58px; }
+#draw-width { width: 44px; padding: 4px 6px; font-size: 10px; }
 .command-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .command-list button { font-size: 10px; padding: 7px 8px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #point-section .command-list { margin-top: 2px; }

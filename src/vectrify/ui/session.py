@@ -42,9 +42,9 @@ from vectrify.document.model import EditKind, new_id, paint_server
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import attachment
 from vectrify.document.regions import SHAPES, region_polygon
-from vectrify.document.svg import parse_path
+from vectrify.document.svg import SOLID, parse_path
 from vectrify.document.topology import inverse_matrix
-from vectrify.document.transforms import ancestry_matrix
+from vectrify.document.transforms import ancestry_matrix, multiply, object_matrix
 from vectrify.operations import (
     Budget,
     Job,
@@ -63,6 +63,26 @@ ASPECT_SLACK = 0.005
 # outline, else to the outline itself.
 NODE_REACH = 6
 REACH = 10
+
+
+# What Draw path and the shape tools paint with unless told otherwise.
+DRAWING_PAINT = "#83b899"
+# The basic shapes the shape tools draw, with their attributes (a rectangle's
+# corner radius optional, last), and what their undo entries call them.
+SHAPE_ATTRIBUTES = {
+    "rect": ("x", "y", "width", "height", "rx"),
+    "circle": ("cx", "cy", "r"),
+    "ellipse": ("cx", "cy", "rx", "ry"),
+    "line": ("x1", "y1", "x2", "y2"),
+}
+SHAPE_NAMES = {
+    "rect": "rectangle",
+    "circle": "circle",
+    "ellipse": "ellipse",
+    "line": "line",
+}
+# The sizes that must be positive for a shape to show.
+SHAPE_SIZES = {"rect": ("width", "height"), "circle": ("r",), "ellipse": ("rx", "ry")}
 
 
 # The edits the knife makes to a path it cuts: with nothing selected, it
@@ -110,6 +130,7 @@ ACTION_COMMANDS = {
         for name, label in POINT_COMMANDS.items()
     },
     "add_path": Command("_command_add_path", "Draw path"),
+    "add_shape": Command("_command_add_shape", "Draw shape"),
     "copy": Command("_command_copy", needs_selection=True),
     "paste": Command("_command_paste", "Paste objects"),
     "move_objects": Command("_command_move_objects"),
@@ -172,6 +193,44 @@ def number(value: Any) -> float:
     if not math.isfinite(result):
         raise DocumentError("Enter a finite number")
     return result
+
+
+def length_text(value: float) -> str:
+    """A coordinate or length as an attribute, without float noise."""
+    return f"{round(value, 9) + 0.0:.12g}"
+
+
+def drawing_frame(document: Document, parent: str) -> tuple[float, ...]:
+    """The matrix from root user space into the frame of *parent*'s children:
+    what is drawn into a transformed group lands where it was drawn."""
+    return multiply(
+        inverse_matrix(object_matrix(document, parent)),
+        object_matrix(document, document.root.id),
+    )
+
+
+def drawing_paint(
+    payload: dict, fill: str, stroke: str, scale: float = 1.0
+) -> dict[str, str]:
+    """The fill, stroke and stroke width a drawing tool asks for: by default
+    *fill* and *stroke*, two units wide. The width is in root user space and
+    is drawn *scale* times as wide in the frame it goes into."""
+    paint = {}
+    for name, default in (("fill", fill), ("stroke", stroke)):
+        value = str(payload.get(name) or default)
+        if not SOLID.fullmatch(value):
+            raise DocumentError(f"The drawing {name} must be a colour or none")
+        paint[name] = value
+    width = number(payload.get("stroke_width", 2))
+    if width <= 0:
+        raise DocumentError("Stroke width must be positive")
+    paint["stroke-width"] = length_text(width * scale)
+    return paint
+
+
+def matrix_text(matrix: tuple[float, ...]) -> str:
+    # Full precision: a transform undoing a group's must undo it exactly.
+    return "matrix(" + " ".join(repr(v + 0.0) for v in matrix) + ")"
 
 
 class Session:
@@ -1067,35 +1126,23 @@ class Session:
         if not geometry.subpaths or any(len(s.nodes) < 2 for s in geometry.subpaths):
             raise DocumentError("Draw at least two path points")
         closed = all(s.closed for s in geometry.subpaths)
-        width = number(payload.get("stroke_width", 2))
-        if width <= 0:
-            raise DocumentError("Stroke width must be positive")
-        element = Element(
-            new_id("object"),
-            "path",
-            (
-                ("fill", "#83b899" if closed else "none"),
-                ("stroke", "none" if closed else "#83b899"),
-                ("stroke-width", str(width)),
-            ),
-            geometry_id=geometry.id,
+        paint = drawing_paint(
+            payload,
+            DRAWING_PAINT if closed else "none",
+            "none" if closed else DRAWING_PAINT,
         )
-        parent = str(payload.get("parent", document.root.id))
+        element = Element(
+            new_id("object"), "path", tuple(paint.items()), geometry_id=geometry.id
+        )
+        parent = str(payload.get("parent") or document.root.id)
         if parent != document.root.id:
-            from vectrify.document.hit_test import multiply
-            from vectrify.document.regions import object_matrix
-
             # Creation inside a group intentionally adopts its clipping/opacity.
             # Preserve the same root-space coordinates as drawing at the top level.
-            matrix = multiply(
-                inverse_matrix(object_matrix(document, parent)),
-                object_matrix(document, document.root.id),
-            )
             element = replace(
                 element,
                 attributes=(
                     *element.attributes,
-                    ("transform", "matrix(" + " ".join(str(v) for v in matrix) + ")"),
+                    ("transform", matrix_text(drawing_frame(document, parent))),
                 ),
             )
         # Creation explicitly targets its container, independently of selection.
@@ -1103,6 +1150,95 @@ class Session:
             tx.insert_object(
                 parent, element, index=payload.get("index"), geometries=(geometry,)
             )
+        self.editor.select(Selection(object_ids=frozenset({element.id})))
+
+    def _command_add_shape(self, payload: dict) -> None:
+        """Draw a native rect, circle, ellipse or line, given in root user
+        space, into the container *parent*: the shape stays one until
+        converted to a path."""
+        document = self.editor.snapshot.document
+        tag = str(payload.get("shape", ""))
+        if tag not in SHAPE_ATTRIBUTES:
+            raise DocumentError("Draw a rect, circle, ellipse or line")
+        values: dict[str, float] = {}
+        for name in SHAPE_ATTRIBUTES[tag]:
+            if payload.get(name) is None:
+                if (tag, name) == ("rect", "rx"):
+                    continue
+                raise DocumentError(f"A {SHAPE_NAMES[tag]} needs {name}")
+            try:
+                values[name] = number(payload[name])
+            except (TypeError, ValueError):
+                raise DocumentError(f"{name} must be a number") from None
+        if tag == "line":
+            if (values["x1"], values["y1"]) == (values["x2"], values["y2"]):
+                raise DocumentError("Drag out a line with some length")
+        elif any(values[n] <= 0 for n in SHAPE_SIZES[tag]):
+            raise DocumentError(
+                f"Drag out a {SHAPE_NAMES[tag]} with some width and height"
+            )
+        if tag == "rect" and "rx" in values:
+            # Corners round at most to a half side, as SVG draws them.
+            values["rx"] = min(
+                max(values["rx"], 0.0), values["width"] / 2, values["height"] / 2
+            )
+            if not values["rx"]:
+                del values["rx"]
+        parent = str(payload.get("parent") or document.root.id)
+        a, b, c, d, e, f = drawing_frame(document, parent)
+        scale = math.sqrt(abs(a * d - b * c))
+        transform = None
+        if abs(b) + abs(c) <= 1e-9 * scale and abs(abs(a) - abs(d)) <= 1e-9 * scale:
+            # Moved, evenly scaled or mirrored: the group's frame takes the
+            # shape's own attributes, so its numbers read as drawn.
+            def at(x: float, y: float) -> tuple[float, float]:
+                return a * x + e, d * y + f
+
+            if tag == "line":
+                values["x1"], values["y1"] = at(values["x1"], values["y1"])
+                values["x2"], values["y2"] = at(values["x2"], values["y2"])
+            elif tag == "rect":
+                x1, y1 = at(values["x"], values["y"])
+                x2, y2 = at(
+                    values["x"] + values["width"], values["y"] + values["height"]
+                )
+                values.update(
+                    x=min(x1, x2),
+                    y=min(y1, y2),
+                    width=abs(x2 - x1),
+                    height=abs(y2 - y1),
+                )
+                if "rx" in values:
+                    values["rx"] *= scale
+            else:
+                values["cx"], values["cy"] = at(values["cx"], values["cy"])
+                for name in ("r", "rx", "ry"):
+                    if name in values:
+                        values[name] *= scale
+        else:
+            # Rotated or skewed: the shape keeps root coordinates under a
+            # transform undoing the group's.
+            transform = matrix_text((a, b, c, d, e, f))
+            scale = 1.0
+        if tag == "line":
+            paint = drawing_paint(payload, "none", DRAWING_PAINT, scale)
+            paint["fill"] = "none"
+            if paint["stroke"] == "none":
+                raise DocumentError("A line needs a stroke colour")
+        else:
+            paint = drawing_paint(payload, DRAWING_PAINT, "none", scale)
+            if paint["fill"] == paint["stroke"] == "none":
+                raise DocumentError("Give the shape a fill or a stroke colour")
+        attributes = (
+            *((name, length_text(value)) for name, value in values.items()),
+            *paint.items(),
+            *((("transform", transform),) if transform else ()),
+        )
+        element = Element(new_id("object"), tag, attributes)
+        label = f"Draw {SHAPE_NAMES[tag]}"
+        # Creation explicitly targets its container, independently of selection.
+        with self.editor.transaction(label, selection=Selection.all()) as tx:
+            tx.insert_object(parent, element, index=payload.get("index"))
         self.editor.select(Selection(object_ids=frozenset({element.id})))
 
     def _command_copy(self, _payload: dict) -> None:
