@@ -33,6 +33,7 @@ from vectrify.document import (
 )
 from vectrify.document.arrows import ARROWS, is_open
 from vectrify.document.clipboard import copy_objects, paste_objects
+from vectrify.document.clipping import apply_clip
 from vectrify.document.editor import Transaction
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.join import path_style
@@ -133,6 +134,8 @@ ACTION_COMMANDS = {
     "to_back": Command("_command_restack", "Send to back", True),
     "detach": Command("_command_detach", "Detach geometry", True),
     "convert_to_path": Command("_command_convert_to_path", "Convert to path", True),
+    "set_clip": Command("_command_set_clip", "Set clip", True),
+    "remove_clip": Command("_command_remove_clip", "Remove clip", True),
     "split_disconnected": Command(
         "_command_split_disconnected", "Split disconnected parts", True
     ),
@@ -1418,6 +1421,63 @@ class Session:
         with self._object_transaction(payload["command"]) as tx:
             for oid in sorted(selected):
                 tx.detach_geometry(oid)
+
+    def _command_set_clip(self, payload: dict) -> None:
+        # The person names each selected object's role, so which is clipped
+        # and which is the boundary is never guessed here.
+        selected = self._object_selection().object_ids
+        targets, boundaries = (
+            self._clip_role(payload, "targets"),
+            self._clip_role(payload, "boundaries"),
+        )
+        if set(targets) & set(boundaries):
+            raise DocumentError("An object is either clipped or a boundary, not both")
+        if set(targets) | set(boundaries) != selected:
+            raise DocumentError(
+                "Give each selected object one role: clipped or boundary"
+            )
+        linked = payload.get("linked", True)
+        if not isinstance(linked, bool):
+            raise DocumentError("Choose linked or copied boundary geometry")
+        apply_clip(
+            self.editor,
+            sorted(targets),
+            boundaries,
+            linked=linked,
+            label=ACTION_COMMANDS[payload["command"]].label,
+        )
+
+    @staticmethod
+    def _clip_role(payload: dict, role: str) -> list[str]:
+        ids = payload.get(role)
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or not all(isinstance(i, str) for i in ids)
+        ):
+            name = "objects to clip" if role == "targets" else "boundary paths"
+            raise DocumentError(f"Choose the {name}")
+        return ids
+
+    def _command_remove_clip(self, payload: dict) -> None:
+        # Only the clipped objects change: an unclipped one in the selection
+        # neither blocks the edit with its locks nor leaves the selection.
+        selection = self._object_selection()
+        document = self.editor.snapshot.document
+        clipped = sorted(
+            i
+            for i in selection.object_ids
+            if document.element(i).get("clip-path", "none") != "none"
+        )
+        if not clipped:
+            raise DocumentError("None of the selected objects is clipped")
+        apply_clip(
+            self.editor,
+            clipped,
+            action="remove",
+            label=ACTION_COMMANDS[payload["command"]].label,
+        )
+        self.editor.select(selection)
 
     def _command_split_disconnected(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

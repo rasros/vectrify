@@ -40,6 +40,26 @@
 .join-actions .primary { margin: 0; }
 #join-error { color: #f0b7a7; font-size: 12px; }
 
+/* Set clip names each selected object's role before anything changes. */
+#clip-dialog { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow: auto; }
+#clip-roles { max-height: 260px; overflow: auto; }
+.clip-role { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid transparent; border-radius: 6px; }
+.clip-role[data-role=boundary] { background: #2b3a4a; border-color: #66d9ff; }
+.clip-role > span:nth-child(2) { flex: 1; min-width: 0; }
+.clip-role strong, .clip-role small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-role strong { font-size: 12px; font-weight: 500; }
+.clip-role small { font-size: 11px; color: #aec2b6; margin-top: 4px; }
+.clip-role .swatch { width: 24px; height: 24px; flex-shrink: 0; border: 1px solid #8ca996; border-radius: 4px; }
+.clip-role-choices { display: flex; gap: 4px; flex-shrink: 0; }
+.clip-role-choice { display: flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid #3b4740; border-radius: 5px; font-size: 11px; cursor: pointer; }
+.clip-role-choice:has(input:checked) { background: #344c3d; border-color: #70907c; color: #e0f0e5; }
+.clip-role-choice:has(input:disabled) { opacity: .45; cursor: default; }
+.clip-geometry { display: inline-flex; align-items: center; gap: 7px; margin-right: 22px; cursor: pointer; }
+.clip-geometry strong { font-weight: 500; }
+#clip-geometry-detail { margin-bottom: 0; }
+#clip-summary { color: #d5e6db; }
+#clip-error { color: #f0b7a7; font-size: 12px; }
+
 #stage.panning, #stage.panning * { cursor: grabbing !important; }
 
 #reference-toggle { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 5px 8px; font-size: 10px; color: #a7b5ad; background: #242d28; }

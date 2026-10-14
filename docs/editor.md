@@ -71,7 +71,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
     Stroke to path, Fill to centerline, Split parts, Convert to path and
     Detach.
-  - **Clipping**: Show (or Hide) clipping boundaries.
+  - **Clipping**: Set clip…, Remove clip and Show (or Hide) clipping
+    boundaries.
   - **Repair**: Tidy…, Clean up… and Snap edges….
   - **Locks**, and **Object**: Copy objects, Paste objects and Delete objects.
 
@@ -879,7 +880,7 @@ needs CUDA and PyTorch (the `vision` extra).
 ## Limits
 
 Point tools edit `path` elements, selected or inside a selected group; basic
-shapes are converted to paths first. Local
+shapes are converted to paths first, as they are to be clipping boundaries. Local
 `use` instances can be selected, styled, moved and detached; editing a referenced source still
 requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without
@@ -925,6 +926,52 @@ paint and stacking remain intact.
 Projects saved while the editor linked shared boundaries (version 2) still
 open; the links are dropped and the contours they joined are kept as they
 are.
+
+### Setting and removing clips
+
+A clip hides whatever lies outside a closed path, the boundary. The boundary
+path itself stays in the drawing, painted and where it was.
+
+1. Select the objects to clip (paths, shapes, groups or instances) and the
+   closed path or paths to clip them to, for example a shading group and the
+   body shape it should stay inside.
+2. Run **Set clip…** (Clipping, in the right panel, the right-click menu or
+   the command palette). Its dialog lists every selected object with two
+   roles, **Clipped** and **Boundary**. It starts with the frontmost closed
+   path as the boundary and everything else clipped; change any row, and the
+   sentence under the list says what will be clipped to what. Nothing changes
+   until you press **Set clip**.
+3. Choose the **boundary geometry**:
+   - **Linked** (the default): the clip shares the boundary path's points.
+     Reshaping the path in Nodes reshapes the clip too, so a body and the
+     shading clipped to it stay in step.
+   - **Copied**: the clip takes a copy of the outline the boundary has now.
+     Later edits to the path, or deleting it, leave the clip as it is.
+
+   Either way the clip is placed where the boundary is now: moving, resizing
+   or regrouping the boundary path later does not move the clip. Set the clip
+   again to follow it.
+
+Several boundaries clip to their combined area, and holes in a boundary (by
+its fill rule) stay hidden. A boundary may be inside the group it clips. Each
+clipped object gets its own clip in its own coordinates, so objects inside
+rotated or scaled groups are clipped where the boundary appears on the page.
+Setting a clip on an object that already has one replaces it.
+
+Boundaries must be closed paths. A rectangle, circle, ellipse or line cannot
+be one until **Convert to path** (Path) makes it a path; Set clip says so, as
+it does for open paths. A group cannot be both clipped and contain another
+clipped object in the same edit. A clipped object whose structure is locked
+is refused; locks on the boundary do not matter, since it is only read.
+
+**Remove clip** stops clipping the selected objects that are clipped; the
+others are left alone. The boundary paths stay in the drawing. A clip that
+was imported and is shared with other objects stays for them.
+
+Setting and removing a clip are each one undoable step. Saved projects keep
+the clip and its link to the boundary; exported SVGs contain an ordinary
+`clipPath`, and reopening one in Vectrify keeps a linked clip linked. Agents
+set and remove clips with the same operation, through the MCP `clip` tool.
 
 ### Clipping boundaries
 

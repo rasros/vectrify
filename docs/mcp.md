@@ -656,7 +656,9 @@ Calling `clip` again replaces the target's existing clip. To remove it, use
 `clip(ids, action="remove")` without `boundary`. Imported/shared definitions
 are preserved; unreferenced definitions created for that target are collected.
 The operation respects structure locks and is one undo step. It also works
-inside `edit_batch`, so inspect a staged preview before applying it.
+inside `edit_batch`, so inspect a staged preview before applying it. The
+editor's **Set clip…** and **Remove clip** run the same operation, so a clip
+set either way behaves the same.
 
 Use `add_path(parent=clipped_group, ...)` to create further paint inside the
 boundary. Path coordinates retain the usual root-space convention, and the

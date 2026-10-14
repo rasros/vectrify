@@ -33,6 +33,7 @@ import {createReferenceController} from './app_reference.js';
 import {createReferenceDataController} from './app_reference_data.js';
 import {createKeysController} from './app_keys.js';
 import {createTransformController} from './app_transform.js';
+import {createClippingController} from './app_clipping.js';
 
 // Compose controllers with explicit live state and named collaborators.
 export function createApplication({document = globalThis.document, window = globalThis.window, location = globalThis.location} = {}) {
@@ -174,16 +175,20 @@ export function createApplication({document = globalThis.document, window = glob
     openColours,
     openGenerate,
     openPalette: (...args) => commandsController.openPalette(...args),
+    openSetClip: (...args) => clippingController.openSetClip(...args),
     openSnapEdges,
     openTidy,
     pointHandles: (...args) => commandsController.pointHandles(...args),
     pointHolesToShapes: (...args) => selectionController.pointHolesToShapes(...args),
     pointPairs: (...args) => selectionController.pointPairs(...args),
+    removeClip: (...args) => clippingController.removeClip(...args),
+    removeClipRefusal: (...args) => clippingController.removeRefusal(...args),
     removeReference: (...args) => referenceController.removeReference(...args),
     renameObject: (...args) => commandsController.renameObject(...args),
     segmentPicked: (...args) => commandsController.segmentPicked(...args),
     selectedHandle: (...args) => selectionController.selectedHandle(...args),
     selectedPoints: (...args) => geometryController.selectedPoints(...args),
+    setClipRefusal: (...args) => clippingController.setRefusal(...args),
     setTool: (...args) => viewController.setTool(...args),
     setView: (...args) => referenceController.setView(...args),
     splitParts: (...args) => commandsController.splitParts(...args),
@@ -504,6 +509,17 @@ export function createApplication({document = globalThis.document, window = glob
     toast: (...args) => transportController.toast(...args),
   });
 
+  const clippingController = createClippingController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    document,
+    noSelection: (...args) => commandsController.noSelection(...args),
+    object: (...args) => sessionController.object(...args),
+    paintSwatch: (...args) => paintController.paintSwatch(...args),
+    plural: (...args) => selectionController.plural(...args),
+    toast: (...args) => transportController.toast(...args),
+  });
+
   const joinController = createJoinController(editor, {
     action: (...args) => actionsController.action(...args),
     fillPaths: (...args) => commandsController.fillPaths(...args),
@@ -629,6 +645,7 @@ export function createApplication({document = globalThis.document, window = glob
       toolsController.wire();
       canvasController.wire();
       canvas_eventsController.wire();
+      clippingController.wire();
       joinController.wire();
       referenceController.wire();
       reference_dataController.wire();
@@ -665,6 +682,7 @@ export function createApplication({document = globalThis.document, window = glob
     tools: toolsController,
     canvas: canvasController,
     canvas_events: canvas_eventsController,
+    clipping: clippingController,
     join: joinController,
     reference: referenceController,
     reference_data: reference_dataController,

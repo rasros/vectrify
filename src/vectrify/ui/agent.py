@@ -154,6 +154,10 @@ LEFT_OUT = {
     "replaces the drawing in the person's window.",
     "node": "The one-point drag; set_points sends move_nodes, which moves one "
     "point or many.",
+    "set_clip": "The UI's Set clip; clip(action='set') runs the same clipping "
+    "operation on explicit targets and boundaries.",
+    "remove_clip": "The UI's Remove clip; clip(action='remove') runs the same "
+    "clipping operation on explicit targets.",
     "convert_to_path": "The UI's basic-shape conversion; convert(to='path') "
     "sends detach, which converts basic shapes and instances alike.",
     "to_front": "Internal: arrange(to='front') arrives as reorder and is "
@@ -1620,27 +1624,25 @@ class Agent:
         linked: bool = True,
         inset: float = 0.0,
     ) -> Reply:
-        from vectrify.ui.agent_clipping import apply
+        from vectrify.document.clipping import apply_clip
 
         targets = _targets(ids)
-        if action not in {"set", "remove"}:
-            raise DocumentError("Clip action is set or remove")
-        if not isinstance(linked, bool):
-            raise DocumentError("linked must be true or false")
         inset = _finite(inset, "inset")
-        if inset < 0:
-            raise DocumentError("Clipping inset cannot be negative")
         sources = _targets(boundary) if boundary is not None else []
-        if action == "set" and not sources:
-            raise DocumentError("Give boundary paths to clip to")
-        if action == "remove" and sources:
-            raise DocumentError("Remove clipping without a boundary")
-        if action == "remove" and inset:
-            raise DocumentError("Remove clipping without an inset")
         relationships = []
 
+        # The editor's Set clip and Remove clip run the same operation.
         def edit() -> None:
-            relationships.extend(apply(self, targets, sources, action, linked, inset))
+            relationships.extend(
+                apply_clip(
+                    self.session.editor,
+                    targets,
+                    sources,
+                    action=action,
+                    linked=linked,
+                    inset=inset,
+                )
+            )
 
         reply = self._edit(
             seen, [edit], "Set clipping" if sources else "Remove clipping"

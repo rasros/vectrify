@@ -6,6 +6,7 @@ import {createEditorState} from '../../src/vectrify/ui/static/app_state.js';
 import {createCommandRegistryController} from '../../src/vectrify/ui/static/app_command_registry.js';
 import {createCommandsController} from '../../src/vectrify/ui/static/app_commands.js';
 import {createJoinController} from '../../src/vectrify/ui/static/app_join.js';
+import {createClippingController} from '../../src/vectrify/ui/static/app_clipping.js';
 
 // Just enough DOM: elements with attributes, children and simple selectors
 // (a tag, an id, classes and [attribute] or [attribute=value] tests).
@@ -66,13 +67,15 @@ globalThis.innerWidth = 1000; globalThis.innerHeight = 800;
 // The inspector's Path list and a Nodes strip as index.html has them.
 const path = Object.assign(new Node('div'), {className: 'command-list'});
 path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole convert-to-path detach';
+const clipping = Object.assign(new Node('div'), {className: 'command-list'});
+clipping.dataset.commands = 'set-clip remove-clip show-clips';
 const points = Object.assign(new Node('div'), {className: 'command-list'});
 points.dataset.commands = 'break-points join-points delete-points';
 const strip = new Node('div');
 const stripJoin = Object.assign(new Node('button'), {title: 'Join the two selected points into one line, however far apart'});
 Object.assign(stripJoin.dataset, {command: 'join-points', key: '5', label: 'command'}); stripJoin.append(new Text('Join'));
 strip.append(stripJoin);
-document.append(path, points, strip, $('context-menu'), $('palette'), $('palette-input'), $('palette-list'));
+document.append(path, clipping, points, strip, $('context-menu'), $('palette'), $('palette-input'), $('palette-list'));
 
 // A line and a filled shape, a rectangle and an instance; the line is selected.
 const objects = [
@@ -80,6 +83,7 @@ const objects = [
   {id: 'shape', tag: 'path', label: 'Shape', paint: {fill: '#456', stroke: 'none'}},
   {id: 'box', tag: 'rect', label: 'Rect 1', paint: {fill: '#789', stroke: 'none'}},
   {id: 'stamp', tag: 'use', label: 'Use 1', paint: {fill: '#abc', stroke: 'none'}},
+  {id: 'clipped', tag: 'g', label: 'Group 1', paint: {}, attributes: {'clip-path': 'url(#c)'}},
 ];
 let selectedPoints = [], pointLevel = false;
 const actions = [], toasts = [];
@@ -99,6 +103,8 @@ const registry = createCommandRegistryController(editor, {
   ...Object.fromEntries(['noSelection', 'noPoints', 'noReference', 'visiblePaths', 'linePaths', 'fillPaths', 'joinCandidates', 'twoEnds', 'deleteSelection', 'breakPoints', 'cutHole', 'splitParts', 'openPalette']
     .map(name => [name, (...args) => context.commands[name](...args)])),
   ...Object.fromEntries(['joinEnds', 'mergeShapes', 'joinOpensDialog'].map(name => [name, (...args) => context.join[name](...args)])),
+  openSetClip: () => context.clipping.openSetClip(), removeClip: () => context.clipping.removeClip(),
+  setClipRefusal: () => context.clipping.setRefusal(), removeClipRefusal: () => context.clipping.removeRefusal(),
 });
 context.commands = createCommandsController(editor, {
   $, COMMANDS: registry.COMMANDS, commandById: registry.commandById, commandName: registry.commandName,
@@ -113,6 +119,10 @@ context.join = createJoinController(editor, {
   action: (...args) => { actions.push(args); return true; }, plural: (n, one) => `${n} ${one}`, toast() {},
   fillPaths: context.commands.fillPaths, joinCandidates: context.commands.joinCandidates, linePaths: context.commands.linePaths,
   openJoin: () => actions.push(['dialog']),
+});
+context.clipping = createClippingController(editor, {
+  $, action: (...args) => { actions.push(args); return true; }, document, object, noSelection: () => context.commands.noSelection(),
+  paintSwatch() {}, plural: (n, one) => `${n} ${one}`, toast() {},
 });
 const {commandById, commandName, commandRefusal, commandTitle} = registry;
 const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPaletteRow} = context.commands;
@@ -130,7 +140,7 @@ assert.equal(stripJoin.textContent, 'Join points', 'a strip button takes the reg
 const menuItem = id => $('context-menu').querySelector(`.menu-item[data-command=${id}]`);
 openContextMenu(10, 10);
 const headings = $('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent);
-assert.deepEqual(headings, ['Select', 'Object', 'Arrange', 'Path', 'Repair']);
+assert.deepEqual(headings, ['Select', 'Object', 'Arrange', 'Path', 'Clipping', 'Repair']);
 assert.ok(!menuItem('join'), 'the Ctrl/⌘ J shortcut is not a menu entry of its own');
 assert.ok(!menuItem('join-points'), 'point operations stay with Nodes');
 
@@ -235,6 +245,28 @@ agrees('convert-to-path', path, 'Select rectangles, circles, ellipses or lines')
 press(button(path, 'convert-to-path'));
 assert.deepEqual(actions, []);
 
+// Set clip needs a closed path among the selection, and says a basic shape
+// becomes one with Convert to path; Remove clip needs a clipped object.
+editor.state.selection.objects = ['shape'];
+renderCommands();
+agrees('set-clip', clipping, 'Select the objects to clip and a closed path to clip them to');
+agrees('remove-clip', clipping, 'None of the selected objects is clipped');
+editor.state.selection.objects = ['box', 'stamp'];
+renderCommands();
+agrees('set-clip', clipping, 'A rectangle must be a path to be a boundary: use Convert to path, under Path');
+editor.state.selection.objects = ['clipped', 'shape'];
+renderCommands();
+agrees('set-clip', clipping, '');
+agrees('remove-clip', clipping, '');
+assert.equal(button(clipping, 'set-clip').textContent, 'Set clip…');
+press(button(clipping, 'remove-clip'));
+openContextMenu(10, 10);
+menuItem('remove-clip').onclick();
+paletteRow('remove-clip');
+runPaletteRow(0);
+assert.deepEqual(actions.map(([command]) => command), ['remove_clip', 'remove_clip', 'remove_clip']);
+actions.length = 0;
+
 // Both paths selected: they merge, through the colour dialog, and the labels
 // say so.
 editor.state.selection.objects = ['line', 'shape'];
@@ -268,6 +300,7 @@ const html = readFileSync(new URL('../../src/vectrify/ui/static/index.html', imp
 for (const [, id] of html.matchAll(/data-command="([^"]+)"/g)) assert.ok(commandById.has(id), `index.html names unknown command ${id}`);
 const lists = [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3><div class="command-list" data-commands="([^"]+)"/g)].map(([, heading, list]) => [heading, list.split(' ')]);
 assert.deepEqual(lists.map(([heading]) => heading), ['Arrange', 'Path', 'Clipping', 'Repair', 'Object']);
+assert.deepEqual(lists.find(([heading]) => heading === 'Clipping')[1], ['set-clip', 'remove-clip', 'show-clips']);
 for (const [heading, list] of lists) for (const id of list) assert.equal(commandById.get(id)?.group, heading, `${id} under ${heading}`);
 const pointList = html.match(/<div class="command-list" data-commands="([^"]+)" role="group" aria-label="Point operations">/)[1].split(' ');
 for (const id of pointList) assert.equal(commandById.get(id)?.group, 'Nodes', `${id} beside the points`);
