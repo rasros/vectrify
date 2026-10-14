@@ -33,7 +33,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`A`),
-  **Move** (`V`) and **Knife** (`C`), the point tools **Nodes** (`S`) and
+  **Move** (`V`), **Knife** (`C`) and **Region** (`X`), the point tools **Nodes** (`S`) and
   **Redraw outline** (`R`), the drawing tools **Draw path** (`D`),
   **Rectangle** (`M`), **Ellipse** (`E`) and **Line** (`L`), which create and
   ignore the selection, and **Pan** (hold Space). The Reference panel holds the reference
@@ -50,7 +50,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel; Rectangle
   and Ellipse have W and H, Line has Length and Angle, and Rectangle has
   Corners; all four drawing tools end with the drawing paint (Fill, Stroke and
-  Width). Knife, Redraw outline, the drawing tools and Pan show a one-line hint. The strip keeps to
+  Width). Knife, Region, Redraw outline, the drawing tools and Pan show a
+  one-line hint; Region's choices are in its own panel over the canvas. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
   important of them (Add node, the coordinates and the hole commands first, and so on) move
   into a **⋯** menu at the end of the controls, which holds them until there
@@ -72,8 +73,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
     Group and Ungroup.
   - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
-    Stroke to path, Fill to centerline, Split parts, Convert to path and
-    Detach.
+    Stroke to path, Fill to centerline, Split parts, Convert to path,
+    Detach, Extract region and Delete region.
   - **Clipping**: Set clip…, Remove clip and Show (or Hide) clipping
     boundaries.
   - **Repair**: Tidy…, Clean up… and Snap edges….
@@ -589,6 +590,10 @@ and saved projects restore it.
   remove one is refused. Shared geometry, instances and locks are refused.
   The pieces are selected afterwards, and the cut is one undoable edit. A line that crosses
   nothing the knife can cut says so; a plain click selects.
+- The **Region** tool (`X`) extracts or deletes the part of the drawing inside
+  a region (see Extracting and deleting regions below). Drag a rectangle, or
+  choose **Polygon** in its panel and click the corners; a click in
+  Rectangle still selects.
 - The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
   one gesture, like a magnetic lasso: a missing spike, a notch or a grass
   blade. Press on a path's outline (or on one of its points), draw roughly
@@ -618,7 +623,7 @@ and saved projects restore it.
 Keyboard shortcuts are available from the `?` button. They come in three
 layers that never collide. Tool and view keys: `A`
 Select, `V` Move, `S` Nodes, `D` Draw path, `M` Rectangle, `E` Ellipse, `L` Line,
-`C` Knife and `R` Redraw outline switch
+`C` Knife, `X` Region and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
@@ -1004,6 +1009,57 @@ Setting and removing a clip are each one undoable step. Saved projects keep
 the clip and its link to the boundary; exported SVGs contain an ordinary
 `clipPath`, and reopening one in Vectrify keeps a linked clip linked. Agents
 set and remove clips with the same operation, through the MCP `clip` tool.
+
+### Extracting and deleting regions
+
+**Extract region** takes the part of the paths inside a region into paths of
+their own, one per path, just above it with its paint; **Delete region**
+deletes that part. Both are drawn with the **Region** tool (`X`), and
+running either from the Path list, the right-click menu or the command
+palette picks up the tool with that operation chosen.
+
+1. Choose **Extract** or **Delete** in the Region panel, at the top right of
+   the canvas.
+2. Draw the region: drag a **Rectangle**, or with **Polygon** click its
+   corners and then click the first corner again or press Enter. Backspace
+   takes back the last corner. A click in Rectangle selects, as in Select,
+   so the objects to act on can be picked without changing tools.
+3. Choose what it acts on: **The selected objects** (paths and basic shapes,
+   and those inside selected groups), or **Every unlocked path or shape
+   here**: those whose geometry and structure are not locked, inside the
+   entered group if one is entered, as the knife does with nothing selected.
+4. Choose whether to **Cut objects crossing the edge** (on by default).
+
+Nothing changes yet. The region is outlined on the canvas, and the objects it
+would change are highlighted by what happens to each: amber for contours
+taken whole, orange for an object cut along the edge, red for one deleted
+whole, and grey dashed for one the region reaches but leaves as it is. The
+panel says the same in words, object by object, with a sentence such as
+"Extracts from 2 objects, cutting 1 along the edge." or the reason the
+operation is refused. The preview is the edit itself, made and dropped, so it
+cannot disagree with what applying does. It follows the drawing: a change to
+the selection, the options or the drawing previews again.
+
+Press the panel's button (Extract region or Delete region), Enter, or run the
+command again to apply it as one undoable edit; Escape or **Cancel** drops
+the region and leaves the drawing as it was. Extracted pieces are selected
+afterwards.
+
+A contour wholly inside the region goes as it is, keeping its points. With
+cutting on, a stroke crossing the edge comes apart where it crosses, and a
+filled shape whose outline crosses it is split along it, as the knife splits
+shapes; with cutting off, those stay whole and only contours wholly inside
+are taken. A filled shape's holes stay with the shape around them, so a
+region holding a hole but not its shape takes nothing. A fill merely around
+the region is left alone, and a path wholly inside is left as it is by
+Extract (it is a path of its own already) and deleted by Delete. A rectangle,
+circle, ellipse or line the region cuts becomes the path of what is left of
+it, keeping its id and paint. An instance draws shared geometry, so one in
+the selection, or painting inside the region with every unlocked path
+chosen, is refused: use **Detach** first. Pinned points refuse deleting,
+shared geometry needs Detach, and locks refuse the edit, as elsewhere.
+Agents make the same edit with the MCP `extract` and `delete(region=...)`
+tools.
 
 ### Clipping boundaries
 

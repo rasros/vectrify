@@ -401,7 +401,8 @@ fill that merely surrounds the region is left alone, as is a shape and its
 holes unless all of them are inside. A path lying wholly inside is left as
 it is. `delete(region=..., ids?, cut?, detach?)` deletes them instead
 (whole contours unless `cut=true`). Both are one undo step: the session
-command `extract` (`Transaction.extract_region`, `document/regions.py`).
+command `extract` (`Transaction.extract_region`, `document/regions.py`),
+which the editor's Region tool applies too.
 
 **Points**: `set_points({object: {node: values}}, coords?)` (document
 coordinates unless `coords="local"`), `point_style(points, handles?,

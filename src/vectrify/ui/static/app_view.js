@@ -90,7 +90,7 @@ export function createViewController(editor, {
     const from = editor.tool;
     const switched = switchTool({objects: editor.state.selection.objects, points: selectedPoints(), memory: editor.pointMemory}, from, value);
     editor.activeHandle = null;
-    editor.clickCycle = null; editor.lastPick = null; editor.pathDraft=[]; editor.pathHover=null; editor.redrawHover=null; editor.hoverPath = null; editor.tool=value; editor.pointMemory = switched.memory;
+    editor.clickCycle = null; editor.lastPick = null; editor.pathDraft=[]; editor.pathHover=null; editor.region=null; editor.regionHover=null; editor.redrawHover=null; editor.hoverPath = null; editor.tool=value; editor.pointMemory = switched.memory;
     reportView();
     document.querySelectorAll('.tool[data-tool]').forEach(button => {
       const active = button.dataset.tool === editor.tool;
@@ -99,10 +99,10 @@ export function createViewController(editor, {
     });
     $('active-tool').dataset.tool = editor.tool;
     $('tool-strip').dataset.tool = editor.tool;
-    $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', knife: 'C', redraw: 'R', hand: 'Space'}[editor.tool];
+    $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', knife: 'C', region: 'X', redraw: 'R', hand: 'Space'}[editor.tool];
     $('tool-name').textContent = editor.tool === 'select' ? 'Select objects' : editor.tool === 'nodes' ? 'Edit points' : names[editor.tool];
     $('canvas-hint').textContent=hints[editor.tool];
-    stage.style.cursor = editor.tool === 'hand' ? 'grab' : ['path','knife','redraw',...SHAPE_TOOLS].includes(editor.tool) ? 'crosshair' : 'default';
+    stage.style.cursor = editor.tool === 'hand' ? 'grab' : ['path','knife','region','redraw',...SHAPE_TOOLS].includes(editor.tool) ? 'crosshair' : 'default';
     renderInspector();
     const nodes = [...new Set(switched.points.map(key => splitKey(key)[1]))];
     if (level() === 'points') {

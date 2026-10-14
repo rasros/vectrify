@@ -359,3 +359,38 @@ button[data-command="straighten-handles"][aria-pressed=mixed] { border-color: #6
 #clipping-toggle[aria-pressed=true]{border-color:#e6b879;color:#e6b879}
 
 .two-fields select{display:block;width:100%;margin-top:7px;padding:7px;font-size:11px}#path-end-controls>select{width:100%}
+
+/* The Region tool's panel floats over the canvas, and the overlay colours each
+   object the region changes by what happens to it: amber taken whole, orange
+   cut along the edge, red deleted whole, grey dashed left as it is. */
+.region-panel { position: absolute; top: 12px; right: 12px; z-index: 4; width: 272px; max-height: calc(100% - 24px); overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px; background: #1e2522f2; border: 1px solid #3d4b42; border-radius: 9px; box-shadow: 0 8px 30px #0006; font-size: 11px; color: #c3d3c8; cursor: default; user-select: none; }
+.region-panel h2 { font-size: 12px; font-weight: 600; margin: 0 0 2px; color: #dce8df; }
+.region-scope { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.region-scope legend { padding: 0; margin-bottom: 6px; color: #97b0a0; font-size: 10px; }
+.region-scope label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.region-panel .toggle { margin: 2px 0; }
+#region-summary { margin: 2px 0 0; line-height: 1.6; color: #d5e6db; }
+#region-summary.refused { color: #f0b7a7; }
+#region-targets { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+.region-row { display: flex; gap: 8px; align-items: flex-start; }
+.region-row strong, .region-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.region-row strong { font-weight: 500; }
+.region-row small { color: #aec2b6; white-space: normal; }
+.region-mark { width: 10px; height: 10px; margin-top: 3px; flex-shrink: 0; border-radius: 2px; border: 2px solid #f2c94c; }
+.region-row.cut .region-mark { border-color: #ff8a5c; }
+.region-row.whole .region-mark { border-color: #ff6b6b; }
+.region-row.inside .region-mark, .region-row.uncut .region-mark { border-color: #9aa8a0; border-style: dashed; }
+.region-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 2px; }
+.region-actions button { font-size: 11px; padding: 6px 11px; }
+#overlay .region-area { fill: #f2c94c12; stroke: #f2c94c; stroke-width: calc(1.5px * var(--selection-scale,1)); vector-effect: non-scaling-stroke; stroke-dasharray: calc(6px * var(--selection-scale,1)) calc(4px * var(--selection-scale,1)); }
+#overlay polyline.region-area { fill: none; }
+#overlay .region-area.delete { stroke: #ff6b6b; fill: #ff6b6b12; }
+#overlay .region-corner { fill: #f2c94c; stroke: #052b3a; stroke-width: calc(1.5px * var(--selection-scale,1)); vector-effect: non-scaling-stroke; }
+#overlay .region-target .selection-contour { stroke: #f2c94c; stroke-width: calc(2.25px * var(--selection-scale,1)); }
+#overlay .region-target .selection-filled { fill: #f2c94c; fill-opacity: .22; }
+#overlay .region-target.cut .selection-contour { stroke: #ff8a5c; }
+#overlay .region-target.cut .selection-filled { fill: #ff8a5c; }
+#overlay .region-target.whole .selection-contour { stroke: #ff6b6b; }
+#overlay .region-target.whole .selection-filled { fill: #ff6b6b; }
+#overlay .region-target.inside .selection-contour, #overlay .region-target.uncut .selection-contour { stroke: #9aa8a0; stroke-dasharray: calc(4px * var(--selection-scale,1)) calc(3px * var(--selection-scale,1)); }
+#overlay .region-target.inside .selection-filled, #overlay .region-target.uncut .selection-filled { fill: none; }

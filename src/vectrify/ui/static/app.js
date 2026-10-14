@@ -35,6 +35,7 @@ import {createReferenceDataController} from './app_reference_data.js';
 import {createKeysController} from './app_keys.js';
 import {createTransformController} from './app_transform.js';
 import {createClippingController} from './app_clipping.js';
+import {createRegionController} from './app_region.js';
 
 // Compose controllers with explicit live state and named collaborators.
 export function createApplication({document = globalThis.document, window = globalThis.window, location = globalThis.location} = {}) {
@@ -182,6 +183,8 @@ export function createApplication({document = globalThis.document, window = glob
     pointHandles: (...args) => commandsController.pointHandles(...args),
     pointHolesToShapes: (...args) => selectionController.pointHolesToShapes(...args),
     pointPairs: (...args) => selectionController.pointPairs(...args),
+    regionCommand: (...args) => regionController.command(...args),
+    regionRefusal: (...args) => regionController.refusal(...args),
     removeClip: (...args) => clippingController.removeClip(...args),
     removeClipRefusal: (...args) => clippingController.removeRefusal(...args),
     removeReference: (...args) => referenceController.removeReference(...args),
@@ -360,6 +363,7 @@ export function createApplication({document = globalThis.document, window = glob
     drawPathDraft: (...args) => toolsController.drawPathDraft(...args),
     drawPoints: (...args) => markersController.drawPoints(...args),
     drawRedraw: (...args) => toolsController.drawRedraw(...args),
+    drawRegion: (...args) => regionController.drawRegion(...args),
     drawShape: (...args) => shapesController.drawShape(...args),
     drawSnap: (...args) => toolsController.drawSnap(...args),
     drawing,
@@ -463,6 +467,8 @@ export function createApplication({document = globalThis.document, window = glob
     previewResize: (...args) => resizingController.previewResize(...args),
     previewShape: (...args) => shapesController.preview(...args),
     redrawOutline: (...args) => toolsController.redrawOutline(...args),
+    regionCorner: (...args) => regionController.corner(...args),
+    regionRectangle: (...args) => regionController.rectangle(...args),
     releaseStage: (...args) => canvasController.releaseStage(...args),
     renderDrawing: (...args) => drawingController.renderDrawing(...args),
     renderInspector: (...args) => paintController.renderInspector(...args),
@@ -506,6 +512,7 @@ export function createApplication({document = globalThis.document, window = glob
     pointPaths: (...args) => geometryController.pointPaths(...args),
     pressFrame: (...args) => resizingController.pressFrame(...args),
     redrawLines: (...args) => toolsController.redrawLines(...args),
+    regionShape: () => regionController.options.shape,
     renderDrawing: (...args) => drawingController.renderDrawing(...args),
     renderInspector: (...args) => paintController.renderInspector(...args),
     renderNodeInspector: (...args) => selectionController.renderNodeInspector(...args),
@@ -532,6 +539,26 @@ export function createApplication({document = globalThis.document, window = glob
     paintSwatch: (...args) => paintController.paintSwatch(...args),
     plural: (...args) => selectionController.plural(...args),
     toast: (...args) => transportController.toast(...args),
+  });
+
+  const regionController = createRegionController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    document,
+    drawOverlay: (...args) => framesController.drawOverlay(...args),
+    later: (...args) => transportController.later(...args),
+    localToOverlay: (...args) => framesController.localToOverlay(...args),
+    object: (...args) => sessionController.object(...args),
+    plural: (...args) => selectionController.plural(...args),
+    renderCommands: (...args) => commandsController.renderCommands(...args),
+    request: (...args) => transportController.request(...args),
+    runCommand: (...args) => commandsController.runCommand(...args),
+    selectionContour: (...args) => overlayController.selectionContour(...args),
+    setTool: (...args) => viewController.setTool(...args),
+    stage,
+    svgElement: (...args) => sessionController.svgElement(...args),
+    toast: (...args) => transportController.toast(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
   });
 
   const joinController = createJoinController(editor, {
@@ -578,6 +605,8 @@ export function createApplication({document = globalThis.document, window = glob
     level: (...args) => geometryController.level(...args),
     oneObject: (...args) => sessionController.oneObject(...args),
     openPalette: (...args) => commandsController.openPalette(...args),
+    regionBack: (...args) => regionController.back(...args),
+    regionEnter: (...args) => regionController.enter(...args),
     renameObject: (...args) => commandsController.renameObject(...args),
     renderDrawing: (...args) => drawingController.renderDrawing(...args),
     renderInspector: (...args) => paintController.renderInspector(...args),
@@ -661,6 +690,7 @@ export function createApplication({document = globalThis.document, window = glob
       canvasController.wire();
       canvas_eventsController.wire();
       clippingController.wire();
+      regionController.wire();
       joinController.wire();
       referenceController.wire();
       reference_dataController.wire();
@@ -699,6 +729,7 @@ export function createApplication({document = globalThis.document, window = glob
     canvas: canvasController,
     canvas_events: canvas_eventsController,
     clipping: clippingController,
+    region: regionController,
     join: joinController,
     reference: referenceController,
     reference_data: reference_dataController,

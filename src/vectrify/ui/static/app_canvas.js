@@ -31,6 +31,7 @@ export function createCanvasController(editor, {
   pointPaths,
   pressFrame,
   redrawLines,
+  regionShape,
   renderDrawing,
   renderInspector,
   renderNodeInspector,
@@ -262,6 +263,11 @@ export function createCanvasController(editor, {
     if (editor.tool === 'redraw') {
       startGesture('redraw', event, common, {id}); return;
     }
+    if (editor.tool === 'region') {
+      // A polygon's corners may lie off the artboard.
+      if (regionShape() === 'polygon') { common.deselectOutside = false; startGesture('regionCorner', event, common, {id}); return; }
+      startGesture('region', event, common, {id}); return;
+    }
     // Move drags a selected object or the frame interior. Select always starts
     // a selection gesture, even on selected objects and their frame.
     if (editor.tool === 'move' && (id || handle === 'inside')) {
@@ -311,6 +317,7 @@ export function createCanvasController(editor, {
     if (!editor.drag) {
       if (editor.tool==='path' && editor.pathDraft.length) {editor.pathHover=point(event);drawOverlay();}
       if (editor.tool==='redraw' && redrawLines()) {const p=point(event);editor.redrawHover=[p.x,p.y];drawOverlay();}
+      if (editor.tool==='region' && editor.region && !editor.region.closed) {const p=point(event);editor.regionHover={x:p.x,y:p.y};drawOverlay();}
       if (['nodes', 'redraw'].includes(editor.tool) && editor.state) hoverPoints(event);
       if (editor.tool === 'move' && editor.state) hoverResize(event);
       return;

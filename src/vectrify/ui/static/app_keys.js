@@ -18,6 +18,8 @@ export function createKeysController(editor, {
   level,
   oneObject,
   openPalette,
+  regionBack,
+  regionEnter,
   renameObject,
   renderDrawing,
   renderInspector,
@@ -30,7 +32,7 @@ export function createKeysController(editor, {
 } = {}) {
 
   // Tool shortcuts; Space held pans.
-  const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', c: 'knife', r: 'redraw'};
+  const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', c: 'knife', x: 'region', r: 'redraw'};
 
   // A tool strip's numbered controls, by digit.
   function stripKeys(name) {
@@ -43,16 +45,16 @@ export function createKeysController(editor, {
     return keys;
   }
 
-  // Cancel the gesture under way: a drag (put back as it was), a path being
-  // drawn or a held gesture. Whether there was one.
+  // Cancel the gesture under way: a drag (put back as it was), a path or a
+  // region being drawn or a held gesture. Whether there was one.
   function cancelGesture() {
-    const busy = !!(editor.drag || editor.pathDraft.length || (editor.holding && !editor.holding.released));
+    const busy = !!(editor.drag || editor.pathDraft.length || editor.region || (editor.holding && !editor.holding.released));
     if (editor.holding && !editor.holding.released) { editor.holding.cancel(); editor.holding = null; }
     if (editor.drag) {
       gestures[editor.drag.kind].cancel?.(editor.drag);
       editor.drag = null; if (editor.state) renderDrawing();
     }
-    editor.pathDraft=[];editor.pathHover=null;stage.classList.remove('panning');
+    editor.pathDraft=[];editor.pathHover=null;editor.region=null;editor.regionHover=null;stage.classList.remove('panning');
     if (editor.state) renderInspector();
     drawOverlay();
     return busy;
@@ -90,6 +92,12 @@ export function createKeysController(editor, {
       if (event.key==='Backspace' || event.key==='Delete' || (mod&&key==='z')) {
         event.preventDefault();if(!editor.drag){editor.pathDraft.pop();editor.pathHover=null;drawOverlay();}return;
       }
+    }
+    // In Region, Enter closes the polygon being drawn or applies the region;
+    // Backspace takes back the polygon's last corner.
+    if (editor.tool==='region' && editor.region && !mod) {
+      if (event.key==='Enter') {event.preventDefault();later(regionEnter);return;}
+      if ((event.key==='Backspace' || event.key==='Delete') && !editor.region.closed) {event.preventDefault();if(!editor.drag)regionBack();return;}
     }
     if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
     if(mod&&!event.altKey&&!event.shiftKey&&['c','v'].includes(key)){
