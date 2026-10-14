@@ -550,8 +550,50 @@ class Session:
         image = heat_map(np.sqrt((difference**2).mean(axis=2)))
         with self.lock:
             if self._reference_error_key() == key:
+                # A browser frame may have arrived while Cairo was rendering.
+                # Keep that exact displayed image as the shared comparison.
+                if self._reference_error and self._reference_error[0] == key:
+                    return self._reference_error[1]
                 self._reference_error = (key, image)
         return image
+
+    def cache_reference_error(self, data: dict) -> dict:
+        """Share a completed browser comparison with MCP, if still current."""
+        from vectrify.ui.agent import _size
+
+        def current() -> bool:
+            return (
+                data.get("epoch") == self.epoch
+                and data.get("revision") == self.editor.snapshot.revision
+                and data.get("reference_revision") == self.reference_revision
+            )
+
+        with self.lock:
+            key = self._reference_error_key()
+            if key is None or not current():
+                return {"cached": False}
+            bounds = self.editor.snapshot.document.artboard()
+        source = data.get("image")
+        prefix = "data:image/png;base64,"
+        if not isinstance(source, str) or not source.startswith(prefix):
+            raise DocumentError("Expected a PNG comparison image")
+        if len(source) > MAX_SOURCE:
+            raise DocumentError("Comparison image is too large")
+        with Image.open(
+            io.BytesIO(base64.b64decode(source[len(prefix) :], validate=True))
+        ) as pixels:
+            if (
+                pixels.format != "PNG"
+                or max(pixels.size) > 2048
+                or pixels.size != _size(bounds, max(pixels.size))
+            ):
+                raise DocumentError("Invalid comparison image size")
+            image = pixels.convert("RGB")
+        with self.lock:
+            if not current() or self._reference_error_key() != key:
+                return {"cached": False}
+            self._reference_error = (key, image)
+        return {"cached": True}
 
     def sample(self, payload: dict) -> dict:
         """The Eyedropper's colour at *payload*'s point: the artwork's or

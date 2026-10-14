@@ -1,4 +1,5 @@
 import {errorView as createErrorView, loadErrorImage} from './reference_error.js';
+import {createErrorRenderer} from './reference_render.js';
 
 // Reference owns its controls; editor contains the live state shared with other controllers.
 export function createReferenceController(editor, {
@@ -26,12 +27,38 @@ export function createReferenceController(editor, {
 
   const errorStatus = {loading: 'Reference error · loading…', ready: 'Reference error · black matches; red → white differs', failed: 'Reference error · unavailable'};
 
+  const renderError = createErrorRenderer({document});
+  const versions = new WeakMap();
+
+  async function shareErrorImage(pixels) {
+    const version = versions.get(pixels);
+    if (!version) return;
+    versions.delete(pixels);
+    try {
+      // Encode and transfer only after displaying the finished frame. MCP
+      // then reuses the browser's exact pixels for its current-view render.
+      const blob = await new Promise(resolve => pixels.toBlob(resolve, 'image/png'));
+      if (!blob) return;
+      const image = await new Promise((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob);
+      });
+      await request('/api/reference-error-cache', {...version, image});
+    } catch { /* The server can render its own comparison if sharing fails. */ }
+  }
+
   const referenceError = errorView($('reference-error'), phase => {
     $('reference-status').textContent = errorStatus[phase];
-  }, error => toast(error.message, true), async () => {
-    const {image} = await request('/api/reference-error', {epoch: editor.state.epoch, revision: editor.state.revision, view: viewReport()});
-    return loadErrorImage(image);
-  });
+  }, error => toast(error.message, true), async (svg, bounds, reference) => {
+    const version = {epoch: editor.state.epoch, revision: editor.state.revision, reference_revision: editor.state.reference_revision};
+    try {
+      const pixels = await renderError(svg, bounds, reference);
+      versions.set(pixels, version);
+      return pixels;
+    } catch {
+      const {image} = await request('/api/reference-error', {...version, view: viewReport()});
+      return loadErrorImage(image);
+    }
+  }, shareErrorImage);
 
   function refreshErrorView() {
     const reference = editor.reference && editor.referenceView === 'error' ? {data_url: editor.reference.data_url, box: editor.reference.box} : null;
@@ -82,6 +109,7 @@ export function createReferenceController(editor, {
     stage.classList.toggle('reference-visible', visible);
     if(editor.reference){$('reference-image').src=editor.reference.data_url;$('reference-thumb').src=editor.reference.data_url;$('reference-image').style.opacity=only ? 1 : editor.reference.opacity;$('reference-opacity').value=Math.round(editor.reference.opacity*100);$('reference-percent').textContent=`${Math.round(editor.reference.opacity*100)}%`;}
     else{$('reference-image').removeAttribute('src');$('reference-thumb').removeAttribute('src');}
+    if (editor.reference && editor.state?.bounds && !error) renderError.prepare(editor.state.bounds, editor.reference).catch(() => {});
     refreshErrorView();
     scheduleStrip();
   }

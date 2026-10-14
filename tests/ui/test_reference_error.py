@@ -19,13 +19,31 @@ from vectrify.ui.shared import png
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_reference_error_frontend():
+@pytest.mark.parametrize("script", ["reference_error.mjs", "reference_render.mjs"])
+def test_reference_error_frontend(script):
     result = subprocess.run(
-        ["node", str(Path(__file__).with_name("reference_error.mjs"))],
+        ["node", str(Path(__file__).with_name(script))],
         capture_output=True,
         text=True,
         check=False,
     )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_reference_error_in_browser():
+    node = shutil.which("node")
+    chrome = shutil.which("google-chrome") or shutil.which("chromium")
+    if not node or not chrome:
+        pytest.skip("needs Node.js and Chrome/Chromium")
+    result = subprocess.run(
+        [node, str(Path(__file__).with_name("reference_render_browser.mjs")), chrome],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode == 77:
+        pytest.skip("needs Node.js with native WebSocket support")
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -185,3 +203,108 @@ def test_reference_error_invalidates_when_reference_placement_changes():
     assert before is not after
     assert np.asarray(before).min() == 255
     assert np.asarray(after).max() == 0
+
+
+@pytest.fixture
+def browser_comparison():
+    backend = Backend(
+        '<svg width="24" height="24"/>',
+        reference={
+            "name": "white.png",
+            "opacity": 0.5,
+            "data_url": "data:image/png;base64,"
+            + base64.b64encode(png(Image.new("RGB", (24, 24), "white"))).decode(),
+        },
+    )
+    _, state = backend.handle("/api/session", {}, None)
+    session = backend.sessions[state["session"]]
+    return backend, state, session
+
+
+def test_browser_pixels_are_shared_with_mcp_and_reject_stale_uploads(
+    browser_comparison,
+):
+    backend, state, session = browser_comparison
+    image = Image.new("RGB", (24, 24), (42, 0, 0))
+    data = {
+        **state,
+        "image": "data:image/png;base64," + base64.b64encode(png(image)).decode(),
+    }
+    status, result = backend.handle(
+        "/api/reference-error-cache", data, state["session"]
+    )
+    assert status == 200
+    assert result == {"cached": True}
+    assert np.array_equal(np.asarray(session.reference_error()), np.asarray(image))
+    session.set_view(
+        {
+            "region": [0, 0, 24, 24],
+            "pixels": [24, 24],
+            "zoom": 1,
+            "reference_view": "error",
+        }
+    )
+    rendered = Agent(session).tool_render(None, region="view", max_side=24)
+    assert np.array_equal(
+        np.asarray(Image.open(io.BytesIO(rendered.images[0][1]))), np.asarray(image)
+    )
+    for change in (
+        {"epoch": "obsolete"},
+        {"revision": -1},
+        {"reference_revision": -1},
+    ):
+        status, result = backend.handle(
+            "/api/reference-error-cache", {**data, **change}, state["session"]
+        )
+        assert status == 200
+        assert result == {"cached": False}
+        assert np.array_equal(np.asarray(session.reference_error()), np.asarray(image))
+
+
+@pytest.mark.parametrize("size", [(2049, 2049), (24, 12)])
+def test_browser_comparison_rejects_wrong_size(browser_comparison, size):
+    backend, state, _ = browser_comparison
+    image = (
+        "data:image/png;base64,"
+        + base64.b64encode(png(Image.new("RGB", size))).decode()
+    )
+    status, result = backend.handle(
+        "/api/reference-error-cache", {**state, "image": image}, state["session"]
+    )
+    assert status == 400
+    assert "size" in result["error"]
+
+
+def test_browser_cache_wins_over_a_render_in_progress(browser_comparison, monkeypatch):
+    from vectrify.svg_render import render_image
+
+    backend, state, session = browser_comparison
+    started, release = Event(), Event()
+
+    def slow_render(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return render_image(*args, **kwargs)
+
+    monkeypatch.setattr("vectrify.svg_render.render_image", slow_render)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        rendering = executor.submit(session.reference_error)
+        try:
+            assert started.wait(5)
+            status, result = backend.handle(
+                "/api/reference-error-cache",
+                {
+                    **state,
+                    "image": "data:image/png;base64,"
+                    + base64.b64encode(
+                        png(Image.new("RGB", (24, 24), (42, 0, 0)))
+                    ).decode(),
+                },
+                state["session"],
+            )
+            assert status == 200
+            assert result == {"cached": True}
+        finally:
+            release.set()
+        assert rendering.result(timeout=5).getpixel((0, 0)) == (42, 0, 0)
+    assert session.reference_error().getpixel((0, 0)) == (42, 0, 0)
