@@ -344,8 +344,9 @@ fill_opacity?, stroke_opacity?, stroke_linecap?, stroke_linejoin?,
 stroke_miterlimit?, start_arrow?, end_arrow?, name?, locks?)` (paint; a name, with one id
 only; locks, an empty list unlocking; unlocking runs before the other
 changes and locking after them, all one step), `transform(ids, dx?, dy?,
-scale?, anchor?, box?)` (move and/or scale about an anchor, or fit the
-painted bounds to `box`), `arrange(ids, to)` (front, back, forward,
+scale?, anchor?, box?)` (move by `dx`, `dy` in document coordinates, also
+for objects inside transformed groups, and/or scale about an anchor, or fit
+the painted bounds to `box`), `arrange(ids, to)` (front, back, forward,
 backward) or `arrange(ids, parent, index?)` (into a group, the front unless
 `index` says otherwise), `group(ids, action?)` (`create`, the default, groups
 two or more objects; `dissolve` removes groups, keeping their children),

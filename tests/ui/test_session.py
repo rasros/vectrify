@@ -1176,6 +1176,70 @@ def test_resize_scales_the_selection_about_the_anchor_as_one_edit():
         send(session, "resize", anchor=[0, 0], scale=[0, 1])
 
 
+NESTED = """<svg width="200" height="200">
+<g id="turned" transform="translate(100 20) rotate(90) scale(2)">
+<rect id="inner" width="10" height="5" stroke="black" stroke-width="2"/>
+<rect id="other" x="20" width="5" height="5"/>
+</g>
+<rect id="plain" x="10" y="150" width="20" height="10"/>
+</svg>"""
+
+
+def page_box(session, *ids):
+    from vectrify.document.hit_test import HitIndex
+
+    box = HitIndex(session.editor.snapshot.document).bounds(frozenset(ids))
+    assert box is not None
+    return box
+
+
+def test_numeric_move_is_in_document_units_inside_transformed_groups():
+    session = Session(import_svg(NESTED))
+    before = {oid: page_box(session, oid) for oid in ("inner", "plain")}
+    send(session, "select", objects=["inner", "plain"])
+    result = send(session, "move", dx=7, dy=-3)
+    assert result["undo"] == ["Move selection"]
+    # Both move as far on the page, so they keep their relative placement.
+    for oid, (left, top, right, bottom) in before.items():
+        assert page_box(session, oid) == pytest.approx(
+            (left + 7, top - 3, right + 7, bottom - 3)
+        )
+    # The child takes the move in its rotated, scaled group's frame.
+    assert session.editor.snapshot.document.element("inner").get("transform") == (
+        "translate(-1.5 -3.5)"
+    )
+    send(session, "undo")
+    assert page_box(session, "inner") == pytest.approx(before["inner"])
+
+
+def test_numeric_move_and_resize_change_a_selected_group_and_child_once():
+    session = Session(import_svg(NESTED))
+    group = page_box(session, "turned")
+    send(session, "select", objects=["turned", "other"])
+    send(session, "move", dx=10, dy=0)
+    assert session.editor.snapshot.document.element("other").get("transform") is None
+    assert page_box(session, "turned") == pytest.approx(
+        (group[0] + 10, group[1], group[2] + 10, group[3])
+    )
+    left, top = group[0] + 10, group[1]
+    send(session, "resize", anchor=[left, top], scale=[2, 2])
+    assert session.editor.snapshot.document.element("other").get("transform") is None
+    assert session.editor.undo_labels[-2:] == ("Move selection", "Resize")
+
+
+def test_numeric_move_keeps_the_position_lock():
+    session = Session(import_svg(NESTED))
+    send(session, "select", objects=["turned"])
+    send(session, "locks", object="turned", locks=["transform"])
+    send(session, "select", objects=["inner"])
+    before = session.editor.snapshot.document
+    with pytest.raises(DocumentError, match="locked"):
+        send(session, "move", dx=1, dy=0)
+    with pytest.raises(DocumentError, match="position is locked"):
+        send(session, "resize", anchor=[0, 0], scale=[2, 1])
+    assert session.editor.snapshot.document == before
+
+
 def test_a_new_group_is_labelled_by_kind_and_number_not_by_its_id():
     session = Session(import_svg(SVG))
     send(session, "select", objects=["a", "b"])

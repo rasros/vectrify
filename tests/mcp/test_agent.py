@@ -489,6 +489,25 @@ def test_transform_moves_and_scales_in_one_step():
         call("transform", ids=["a"], dx=1, box=[0, 0, 5, 5])
 
 
+def test_transform_moves_in_document_units_inside_a_transformed_group():
+    agent = Agent(
+        Session(
+            import_svg(
+                """<svg width="200" height="200">
+<g id="turned" transform="translate(150 10) rotate(90) scale(2)">
+<rect id="r" width="20" height="10" fill="red"/></g></svg>"""
+            )
+        )
+    )
+    hello = agent.call("hello").data
+    seen = [hello["epoch"], hello["revision"]]
+    agent.call("transform", {"seen": seen, "ids": ["r"], "box": [10, 20, 40, 30]})
+    bounds = next(
+        o["bounds"] for o in agent.call("describe").data["objects"] if o["id"] == "r"
+    )
+    assert bounds == pytest.approx([10, 20, 40, 30], abs=1e-6)
+
+
 def test_arrange_restacks_or_moves_into_a_group_in_front():
     call = Calls()
     call("arrange", ids=["a"], to="front")

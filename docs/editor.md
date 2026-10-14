@@ -63,7 +63,9 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   by what they change:
   - **Paint**: fill (solid, linear gradient or none), stroke, stroke width,
     opacity, and the stroke's corners, ends and arrows.
-  - **Transform**: **Move by** an offset.
+  - **Transform**: the selection frame's **X**, **Y**, **W** and **H**, with
+    a proportion lock, and **Move by** an offset (see Position and size
+    below).
   - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
     Group and Ungroup.
   - **Path**: Merge shapes, Join line ends, Combine paths, Cut out as hole,
@@ -203,6 +205,33 @@ all of them as one undoable edit.
   `vector-effect`, which exporters and renderers do not all support. Locked
   position or geometry refuses the resize, and the cursor over the frame says
   so before you drag.
+- **Position and size** in the right panel's Transform section type the
+  selection frame. Its bounds are *geometric*: each selected object's own
+  outline box (without stroke width, arrowheads, markers or clipping), mapped
+  through its transforms and those of its groups into document coordinates,
+  the root SVG's user units, and joined for several objects. A rotated object
+  measures by its rotated box's corners. These are the frame Move shows, in
+  any tool, and differ from the *painted* bounds the agent's `transform` box
+  fits, which include strokes and clipping. **X** and **Y** are the frame's
+  top-left corner, the anchor: W and H resize from it, so changing a size
+  keeps X and Y. A committed field (Enter, or leaving it) is one undoable
+  edit, and Escape puts the field back. X and Y send the same **Move
+  selection** a drag does, by the difference in document units: each object
+  moves in its parent group's frame by what that difference is there, so
+  objects inside rotated or scaled groups move as far on the page as the rest,
+  and a selected group takes its selected children along once. W and H send
+  the same **Resize** as dragging the frame, about the top-left corner, with
+  its stroke-width and lock policy: strokes keep their width, and a locked
+  position or geometry disables the fields and says why. The proportion lock
+  beside W and H scales both by the same factor; off, the other side keeps
+  its size. Several objects move and scale together, so they keep their
+  relative placement. A side shorter than 0.001 units has no size: a
+  horizontal line's H, or a vertical line's W, shows 0 and cannot be edited,
+  and the proportion lock leaves it at 0. A size must be at least 0.001,
+  and an edit that would make the other, locked side smaller is refused, so
+  no edit makes a dimension zero, negative or invalid. Values show to three
+  decimals; committing a field unchanged does nothing. **Move by** offsets
+  the selection in document units too.
 - In a point tool, the points of every selected path show, and those of
   every path inside a selected group, however deep; box select and the point
   commands span all of them. Selected instances (`use`) have no points of
@@ -290,8 +319,9 @@ and saved projects restore it.
   panel identifies whether changes apply to one shape or a shared gradient.
   Locks on the gradient, its stops and its users still apply, and edits undo
   and redo together.
-- Fill/stroke/opacity, dragging and resizing the selected objects, and
-  numeric offsets (**Move by**).
+- Fill/stroke/opacity, dragging and resizing the selected objects, their
+  numeric position and size (**X**, **Y**, **W**, **H**), and numeric offsets
+  (**Move by**).
 - **Select (A)** only picks and box-selects objects. Dragging on a selected
   object or its frame also box-selects, without moving or resizing anything.
 - **Move (V)** selects, moves and resizes objects. Click to select, then drag

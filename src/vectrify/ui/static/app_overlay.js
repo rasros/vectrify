@@ -174,7 +174,16 @@ export function createOverlayController(editor, {
   // Both object tools show the selection bounds. Move adds resize handles;
   // Select keeps the frame passive so every drag can box-select.
   function selectionFrame() {
-    if (!['select', 'move'].includes(editor.tool) || !editor.state?.selection.objects.length) return null;
+    return ['select', 'move'].includes(editor.tool) ? selectionBounds() : null;
+  }
+
+  // The selection's geometric bounds in document coordinates, whatever the
+  // tool: each top selected object's own box (its outline, without stroke,
+  // markers or clipping) mapped through its transforms. The frame shows it,
+  // and the Transform fields edit it. Objects with no size add nothing;
+  // definitions and clipping boundaries have no bounds here.
+  function selectionBounds() {
+    if (!editor.state?.selection.objects.length) return null;
     const ids = topSelection();
     if (ids.some(id => !object(id) || object(id).resource || ['defs', 'clipPath', 'svg'].includes(object(id).tag))) return null;
     const xs = [], ys = [];
@@ -235,6 +244,6 @@ export function createOverlayController(editor, {
     $('clipping-toggle').onclick = () => later(toggleClipping);
       return api;
   }
-  const api = {selectionContour, selectionTargets, clipSelection, drawOverlayContent, toggleClipping, drawClippingBoundaries, selectionFrame, drawFrame, drawHandles, drawBox, wire};
+  const api = {selectionContour, selectionTargets, clipSelection, drawOverlayContent, toggleClipping, drawClippingBoundaries, selectionFrame, selectionBounds, drawFrame, drawHandles, drawBox, wire};
   return api;
 }

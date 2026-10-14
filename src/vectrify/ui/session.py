@@ -42,6 +42,8 @@ from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import attachment
 from vectrify.document.regions import SHAPES, region_polygon
 from vectrify.document.svg import parse_path
+from vectrify.document.topology import inverse_matrix
+from vectrify.document.transforms import ancestry_matrix
 from vectrify.operations import (
     Budget,
     Job,
@@ -1079,7 +1081,6 @@ class Session:
         if parent != document.root.id:
             from vectrify.document.hit_test import multiply
             from vectrify.document.regions import object_matrix
-            from vectrify.document.topology import inverse_matrix
 
             # Creation inside a group intentionally adopts its clipping/opacity.
             # Preserve the same root-space coordinates as drawing at the top level.
@@ -1305,16 +1306,28 @@ class Session:
             tx.set_gradient(gradient_id, attributes, stops)
 
     def _command_move(self, payload: dict) -> None:
+        """Move the selection by *dx*, *dy* in document coordinates.
+
+        Each object takes the move in its parent's frame, so objects inside
+        transformed groups move as far on the page as the others. A drag gives
+        *offsets* instead: each object's own, already in its parent's frame.
+        """
         selected = self._object_selection().object_ids
         document = self.editor.snapshot.document
         with self._object_transaction(payload["command"]) as tx:
             dx, dy = number(payload["dx"]), number(payload["dy"])
+            offsets = payload.get("offsets", {})
             # Avoid translating a selected child twice if its group is selected.
             for oid in selected:
-                if any(a.id in selected for a in document.ancestry(oid)[:-1]):
+                ancestry = document.ancestry(oid)
+                if any(a.id in selected for a in ancestry[:-1]):
                     continue
-                offset = payload.get("offsets", {}).get(oid, (dx, dy))
-                move_x, move_y = (number(v) for v in offset)
+                if oid in offsets:
+                    move_x, move_y = (number(v) for v in offsets[oid])
+                else:
+                    a, b, c, d, _, _ = inverse_matrix(ancestry_matrix(ancestry[:-1]))
+                    move_x = round(a * dx + c * dy, 12) + 0.0
+                    move_y = round(b * dx + d * dy, 12) + 0.0
                 previous = document.element(oid).get("transform", "") or ""
                 transform = f"translate({move_x} {move_y}) {previous}".strip()
                 tx.set_attributes(oid, {"transform": transform})

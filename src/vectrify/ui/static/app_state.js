@@ -24,6 +24,7 @@ export function createEditorState() {
       pathHover: null,
       redrawHover: null,
       selectionBox: null,
+      keepRatio: false,
       pending: 0,
       queue: Promise.resolve(),
       dirty: false,
