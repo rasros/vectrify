@@ -264,7 +264,7 @@ def _fitted(line: np.ndarray, tolerance: float, sigma: float) -> Geometry:
     breaks = sorted({*range(0, last, SPACING), *sharp, last})
 
     def direction(i: int, j: int) -> np.ndarray | None:
-        step = line[max(0, min(last, j))] - line[i]
+        step = line[max(0, min(last, j))] - line[max(0, min(last, i))]
         size = float(np.linalg.norm(step))
         return step / size if size > 1e-9 else None
 
