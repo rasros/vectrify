@@ -273,26 +273,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/events":
             self.events(parse_qs(parsed.query).get("session", [""])[0])
             return
+        # Every module in static/ is servable by name, so new controllers load
+        # without a route of their own; only plain top-level names qualify.
         files = {
             "/": "index.html",
-            "/app.js": "app.js",
-            "/app_files.js": "app_files.js",
-            "/app_jobs.js": "app_jobs.js",
-            "/gestures.js": "gestures.js",
-            "/snap.js": "snap.js",
-            "/tree.js": "tree.js",
-            "/redraw.js": "redraw.js",
-            "/selection.js": "selection.js",
-            "/palette.js": "palette.js",
-            "/input.js": "input.js",
-            "/strip.js": "strip.js",
-            "/resize.js": "resize.js",
-            "/lines.js": "lines.js",
-            "/clipping.js": "clipping.js",
-            "/reference_error.js": "reference_error.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
-        }
+        } | {f"/{file.name}": file.name for file in STATIC.glob("*.js")}
         if path not in files:
             self.json(404, {"error": "Not found"})
             return

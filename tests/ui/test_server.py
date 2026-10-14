@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+import vectrify.ui.server
 from vectrify.project_file import decode_source
 from vectrify.ui.server import Backend, EditorServer
 
@@ -104,21 +105,11 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
     status, html = call(server, "/")
     assert status == 200
     assert b"Drawing canvas" in html
-    assert call(server, "/app.js")[0] == 200
-    assert call(server, "/app_files.js")[0] == 200
-    assert call(server, "/app_jobs.js")[0] == 200
-    assert call(server, "/gestures.js")[0] == 200
-    assert call(server, "/snap.js")[0] == 200
-    assert call(server, "/tree.js")[0] == 200
-    assert call(server, "/redraw.js")[0] == 200
-    assert call(server, "/selection.js")[0] == 200
-    assert call(server, "/palette.js")[0] == 200
-    assert call(server, "/input.js")[0] == 200
-    assert call(server, "/strip.js")[0] == 200
-    assert call(server, "/resize.js")[0] == 200
-    assert call(server, "/lines.js")[0] == 200
-    assert call(server, "/clipping.js")[0] == 200
-    assert call(server, "/reference_error.js")[0] == 200
+    # Every module the editor imports must be servable, not just a listed few.
+    static = Path(vectrify.ui.server.__file__).with_name("static")
+    for module in static.glob("*.js"):
+        assert call(server, f"/{module.name}")[0] == 200, module.name
+    assert call(server, "/../server.py")[0] == 404
     assert call(server, "/style.css")[0] == 200
     status, state = call(server, "/api/session", {})
     assert status == 200
