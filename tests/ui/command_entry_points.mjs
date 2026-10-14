@@ -7,6 +7,7 @@ import {createCommandRegistryController} from '../../src/vectrify/ui/static/app_
 import {createCommandsController} from '../../src/vectrify/ui/static/app_commands.js';
 import {createJoinController} from '../../src/vectrify/ui/static/app_join.js';
 import {createClippingController} from '../../src/vectrify/ui/static/app_clipping.js';
+import {createRegionController} from '../../src/vectrify/ui/static/app_region.js';
 
 // Just enough DOM: elements with attributes, children and simple selectors
 // (a tag, an id, classes and [attribute] or [attribute=value] tests).
@@ -66,7 +67,7 @@ globalThis.innerWidth = 1000; globalThis.innerHeight = 800;
 
 // The inspector's Path list and a Nodes strip as index.html has them.
 const path = Object.assign(new Node('div'), {className: 'command-list'});
-path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole convert-to-path detach';
+path.dataset.commands = 'merge-shapes join-line-ends stroke-to-path fill-to-centerline cut-hole convert-to-path detach extract-region delete-region';
 const clipping = Object.assign(new Node('div'), {className: 'command-list'});
 clipping.dataset.commands = 'set-clip remove-clip show-clips';
 const points = Object.assign(new Node('div'), {className: 'command-list'});
@@ -105,6 +106,8 @@ const registry = createCommandRegistryController(editor, {
   ...Object.fromEntries(['joinEnds', 'mergeShapes', 'joinOpensDialog'].map(name => [name, (...args) => context.join[name](...args)])),
   openSetClip: () => context.clipping.openSetClip(), removeClip: () => context.clipping.removeClip(),
   setClipRefusal: () => context.clipping.setRefusal(), removeClipRefusal: () => context.clipping.removeRefusal(),
+  regionCommand: mode => context.region.command(mode), regionRefusal: mode => context.region.refusal(mode),
+  setTool: async tool => { editor.tool = tool; },
 });
 context.commands = createCommandsController(editor, {
   $, COMMANDS: registry.COMMANDS, commandById: registry.commandById, commandName: registry.commandName,
@@ -124,6 +127,21 @@ context.clipping = createClippingController(editor, {
   $, action: (...args) => { actions.push(args); return true; }, document, object, noSelection: () => context.commands.noSelection(),
   paintSwatch() {}, plural: (n, one) => `${n} ${one}`, toast() {},
 });
+// The region's preview, as the session answers it: Delete is refused.
+const previews = [];
+context.region = createRegionController(editor, {
+  $, action: (...args) => { actions.push(args); return true; }, document, object, later: run => run(),
+  drawOverlay: () => context.region.drawRegion(), renderCommands: () => context.commands.renderCommands(),
+  plural: (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`, runCommand: id => context.commands.runCommand(id),
+  request: async (path, body) => {
+    previews.push({path, body});
+    return {epoch: 'e', revision: editor.state.revision, crossing: ['shape'], extract: {targets: [{id: 'shape', outcome: 'cut'}], error: null},
+      delete: {targets: [], error: 'Unpin the points before deleting them'}};
+  },
+  localToOverlay: () => null, selectionContour: () => null, svgElement: () => null, stage: new Node('div'),
+  setTool: async tool => { editor.tool = tool; }, toast: (message, error) => toasts.push({message, error: !!error}),
+  xmlElement: tag => new Node(tag),
+});
 const {commandById, commandName, commandRefusal, commandTitle} = registry;
 const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPaletteRow} = context.commands;
 
@@ -131,7 +149,7 @@ const {buildCommandLists, renderCommands, openContextMenu, renderPalette, runPal
 buildCommandLists();
 renderCommands();
 const button = (list, id) => list.querySelector(`button[data-command=${id}]`);
-assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes', 'Join line ends', 'Stroke to path', 'Fill to centerline', 'Cut out as hole', 'Convert to path', 'Detach shared geometry']);
+assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes', 'Join line ends', 'Stroke to path', 'Fill to centerline', 'Cut out as hole', 'Convert to path', 'Detach shared geometry', 'Extract region', 'Delete region']);
 assert.deepEqual(points.children.map(child => child.textContent), ['Break', 'Join points', 'Delete points']);
 assert.equal(stripJoin.textContent, 'Join points', 'a strip button takes the registry name');
 
@@ -266,6 +284,38 @@ paletteRow('remove-clip');
 runPaletteRow(0);
 assert.deepEqual(actions.map(([command]) => command), ['remove_clip', 'remove_clip', 'remove_clip']);
 actions.length = 0;
+
+// Without a region, Extract region and Delete region pick up the Region
+// tool; the region applies only once its preview is shown, and a refused
+// preview's reason is the command's everywhere.
+editor.state.selection.objects = ['shape'];
+renderCommands();
+agrees('extract-region', path, '');
+agrees('delete-region', path, '');
+paletteRow('delete-region');
+await runPaletteRow(0);
+assert.equal(editor.tool, 'region');
+assert.equal(context.region.options.mode, 'delete');
+assert.deepEqual(actions, []);
+editor.overlayFrame = {content: new Node('g')};
+editor.region = {points: [[0, 0], [10, 0], [10, 10]], closed: true};
+assert.equal(commandRefusal(commandById.get('delete-region')), 'Previewing the region…');
+context.region.drawRegion();
+await new Promise(resolve => setTimeout(resolve));
+assert.deepEqual(previews.at(-1), {path: '/api/region', body: {epoch: 'e', revision: 0, region: [[0, 0], [10, 0], [10, 10]], scope: 'selection', cut: true, within: null}});
+agrees('delete-region', path, 'Unpin the points before deleting them');
+agrees('extract-region', path, '');
+press(button(path, 'delete-region'));
+assert.deepEqual(actions, [], 'a refused region edits nothing');
+// The other operation shows its preview first, and applies when run again.
+press(button(path, 'extract-region'));
+assert.equal(context.region.options.mode, 'extract');
+assert.deepEqual(actions, []);
+paletteRow('extract-region');
+await runPaletteRow(0);
+assert.deepEqual(actions.at(-1).slice(0, 2), ['extract', {region: [[0, 0], [10, 0], [10, 10]], scope: 'selection', cut: true, within: null, delete: false}]);
+actions.length = 0;
+editor.tool = 'select'; editor.region = null;
 
 // Both paths selected: they merge, through the colour dialog, and the labels
 // say so.

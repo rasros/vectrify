@@ -22,6 +22,8 @@ export function createEditorState() {
       lastPick: null,
       pathDraft: [],
       pathHover: null,
+      region: null,
+      regionHover: null,
       redrawHover: null,
       selectionBox: null,
       keepRatio: false,

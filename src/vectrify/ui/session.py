@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 from PIL import Image
+from shapely.geometry import Polygon
 
 from vectrify.document import (
     Document,
@@ -35,6 +36,7 @@ from vectrify.document.arrows import ARROWS, is_open
 from vectrify.document.clipboard import copy_objects, paste_objects
 from vectrify.document.clipping import apply_clip
 from vectrify.document.editor import Transaction
+from vectrify.document.hit_test import HitIndex
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.join import path_style
 from vectrify.document.lines import stroke_outline
@@ -88,6 +90,8 @@ SHAPE_SIZES = {"rect": ("width", "height"), "circle": ("r",), "ellipse": ("rx", 
 # The edits the knife makes to a path it cuts: with nothing selected, it
 # leaves paths locked against them alone.
 KNIFE_EDITS = frozenset({EditKind.GEOMETRY, EditKind.STRUCTURE})
+# Why a region edit takes nothing (Transaction.extract_region).
+NO_CONTOUR = "No contour of these paths lies inside the region"
 
 
 # Commands on points, possibly in several selected paths, and their undo labels.
@@ -140,7 +144,7 @@ ACTION_COMMANDS = {
     "fill_to_line": Command("_command_lines", "Fill to centerline", True),
     "line_to_fill": Command("_command_lines", "Stroke to path", True),
     "convert_lines": Command("_command_lines", "Convert line/fill", True),
-    "extract": Command("_command_extract", needs_selection=True),
+    "extract": Command("_command_extract"),
     "fill_holes": Command("_command_fill_holes", "Fill holes", True),
     "holes_to_shapes": Command("_command_holes_to_shapes", "Holes to shapes", True),
     "cut_hole": Command("_command_cut_hole", "Cut out as hole", True),
@@ -1288,24 +1292,200 @@ class Session:
         self.editor.select(Selection(object_ids=moving))
 
     def _command_extract(self, payload: dict) -> None:
-        selection = self._object_selection()
-        # The selected paths' contours inside a region, taken into paths
-        # of their own, or deleted.
-        region = payload.get("region")
-        if not isinstance(region, list | tuple):
-            raise DocumentError("Give the region as [x, y, w, h] or a polygon")
+        # The contours inside a region, taken into paths of their own, or
+        # deleted: the selected paths', or with scope "region" those of
+        # every unlocked path and shape there.
+        polygon = self._region_polygon(payload)
+        selection = self._region_scope(payload, polygon)
         delete = bool(payload.get("delete"))
         with self.editor.transaction(
             "Delete in region" if delete else "Extract region", selection=selection
         ) as tx:
-            pairs = tx.extract_region(
-                region_polygon(region),
-                cut=bool(payload.get("cut", True)),
-                delete=delete,
-            )
+            pairs = self._extract_region(tx, payload, polygon, delete=delete)
         existing = {e.id for e in self.editor.snapshot.document.elements()}
         result = {new or old for old, new in pairs} & existing
         self.editor.select(Selection(object_ids=frozenset(result)))
+
+    @staticmethod
+    def _region_polygon(payload: dict) -> list[tuple[float, float]]:
+        region = payload.get("region")
+        if not isinstance(region, list | tuple):
+            raise DocumentError("Give the region as [x, y, w, h] or a polygon")
+        return region_polygon(region)
+
+    def _region_scope(
+        self, payload: dict, polygon: list[tuple[float, float]]
+    ) -> Selection:
+        """What a region edit acts on: the selected objects (scope
+        "selection", the default), or every path and basic shape inside the
+        entered group *within* whose geometry and structure are unlocked
+        (scope "region"), as the MCP extract tool chooses without ids.
+
+        An instance draws shared geometry, so, as in the MCP tool, one the
+        edit would reach is refused rather than left out: a selected one, or
+        with scope "region" one painting inside the region.
+        """
+        document = self.editor.snapshot.document
+        scope = payload.get("scope", "selection")
+        if scope == "selection":
+            selection = self._object_selection()
+            if not selection.object_ids:
+                raise DocumentError("Select an object first")
+            instances = sorted(
+                i for i in selection.object_ids if document.element(i).tag == "use"
+            )
+        elif scope == "region":
+            within = payload.get("within") or document.root.id
+            inside = {e.id for e in Document(document.element(str(within))).elements()}
+            found = [
+                e
+                for e in document.elements()
+                if e.id in inside
+                and e.tag in SHAPES | {"path", "use"}
+                and not any(
+                    a.tag in {"defs", "clipPath"} or a.locks & KNIFE_EDITS
+                    for a in document.ancestry(e.id)
+                )
+            ]
+            area = Polygon(polygon).buffer(0)
+            hits = HitIndex(document) if any(e.tag == "use" for e in found) else None
+            instances = [
+                e.id
+                for e in found
+                if e.tag == "use"
+                and hits is not None
+                and (painted := hits.area(e.id)) is not None
+                and painted.intersects(area)
+            ]
+            selection = Selection(
+                object_ids=frozenset(e.id for e in found if e.tag != "use")
+            )
+        else:
+            raise DocumentError('The scope is "selection" or "region"')
+        if instances:
+            labels = {o["id"]: o["label"] for o in self._object_state(document)}
+            names = ", ".join(labels.get(i, i) for i in instances[:5])
+            one = len(instances) == 1
+            raise DocumentError(
+                f"{names} {'is an instance' if one else 'are instances'} of shared"
+                f" geometry: detach {'it' if one else 'them'} to editable paths first"
+            )
+        return selection
+
+    @staticmethod
+    def _extract_region(
+        tx: Transaction,
+        payload: dict,
+        polygon: list[tuple[float, float]],
+        *,
+        cut: bool | None = None,
+        delete: bool,
+    ) -> tuple[tuple[str, str | None], ...]:
+        if cut is None:
+            cut = bool(payload.get("cut", True))
+        try:
+            return tx.extract_region(polygon, cut=cut, delete=delete)
+        except EditRejectedError as exc:
+            if payload.get("scope") != "region" or not str(exc).startswith(NO_CONTOUR):
+                raise
+            raise EditRejectedError(
+                "No unlocked path or shape here has a contour inside the region"
+                + ("" if cut else ", and cutting is off")
+            ) from exc
+
+    def region(self, payload: dict) -> dict:
+        """What Extract region and Delete region would do with *payload*'s
+        region, scope and cut, found by making each edit and dropping it.
+
+        Each operation gives its targets, the paths it changes, each with
+        *outcome* "cut" (pieces cut along the region's edge), "contours"
+        (whole contours taken) or "whole" (the object goes), or the reason
+        it is refused. *crossing* lists the objects the edge crosses, which
+        are cut only with cut on (None when cutting would be refused).
+        """
+        self.check_revision(payload)
+        polygon = self._region_polygon(payload)
+        cut = payload.get("cut", True)
+        if not isinstance(cut, bool):
+            raise DocumentError("Choose whether to cut crossing objects")
+        result: dict[str, Any] = {
+            "epoch": self.epoch,
+            "revision": self.editor.snapshot.revision,
+        }
+        try:
+            selection = self._region_scope(payload, polygon)
+        except DocumentError as exc:
+            refused = {"targets": [], "error": str(exc)}
+            return {**result, "extract": refused, "delete": refused, "crossing": None}
+        # Cutting finds what the edge crosses, whether or not this edit cuts.
+        probe = self._region_trial(selection, payload, polygon, cut=True, delete=False)
+        result["extract"] = (
+            probe
+            if cut
+            else self._region_trial(
+                selection, payload, polygon, cut=False, delete=False
+            )
+        )
+        result["delete"] = self._region_trial(
+            selection, payload, polygon, cut=cut, delete=True
+        )
+        result["crossing"] = (
+            None
+            if probe["error"]
+            else [t["id"] for t in probe["targets"] if t["outcome"] == "cut"]
+        )
+        return result
+
+    def _region_trial(
+        self,
+        selection: Selection,
+        payload: dict,
+        polygon: list[tuple[float, float]],
+        *,
+        cut: bool,
+        delete: bool,
+    ) -> dict:
+        """One region edit made and dropped: its targets, or why it is refused."""
+        from vectrify.document.features import require_preserved
+
+        tx = self.editor.transaction("Region preview", selection=selection)
+        try:
+            pairs = self._extract_region(tx, payload, polygon, cut=cut, delete=delete)
+            require_preserved(tx.base_document, tx.preview)
+        except DocumentError as exc:
+            error = str(exc)
+            if not cut and error.startswith(NO_CONTOUR):
+                # Said with the Region panel's choice, not the MCP argument.
+                error = (
+                    f"{NO_CONTOUR}: turn on Cut objects crossing the edge to "
+                    "take the parts inside"
+                )
+            return {"targets": [], "error": error}
+        finally:
+            tx.abort()
+        before, after = tx.base_document, tx.preview
+        present = {e.id for e in after.elements()}
+        targets = []
+        for old, new in pairs:
+            if old not in present:
+                outcome = "whole"
+            else:
+                # Contours taken whole keep their IDs; pieces cut along the
+                # edge are new. A basic shape had no contours of its own.
+                element = before.element(old)
+                kept = (
+                    set()
+                    if element.tag in SHAPES
+                    else {s.id for s in before.geometry_for(old).subpaths}
+                )
+                changed = after.geometry_for(old).subpaths + (
+                    after.geometry_for(new).subpaths if new else ()
+                )
+                outcome = (
+                    "cut" if any(s.id not in kept for s in changed) else "contours"
+                )
+            targets.append({"id": old, "outcome": outcome})
+        return {"targets": targets, "error": None}
 
     def _command_fill_holes(self, payload: dict) -> None:
         selection = self._object_selection()

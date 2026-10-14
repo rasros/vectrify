@@ -288,6 +288,58 @@ def test_hole_inspection_fill_and_cleanup_follow_session_revision(server):
     assert {obj["id"] for obj in state["objects"]} >= {"p", "inside"}
 
 
+def test_region_preview_changes_nothing_and_matches_the_extract(server):
+    _, state = call(server, "/api/session", {})
+    headers = {"X-Vectrify-Session": state["session"]}
+
+    def action(command, **fields):
+        nonlocal state
+        status, state = call(
+            server,
+            "/api/action",
+            dict(
+                command=command,
+                epoch=state["epoch"],
+                revision=state["revision"],
+                **fields,
+            ),
+            headers,
+        )
+        assert status == 200
+        return state
+
+    action(
+        "open",
+        name="region.svg",
+        source='<svg width="100" height="100"><path id="p" fill="none" '
+        'stroke="black" d="M0 50H100"/></svg>',
+    )
+    action("select", objects=["p"])
+    request = {
+        "epoch": state["epoch"],
+        "revision": state["revision"],
+        "region": [20, 20, 40, 60],
+        "scope": "selection",
+        "cut": True,
+    }
+    status, result = call(server, "/api/region", request, headers)
+    assert status == 200
+    assert result["extract"]["targets"] == [{"id": "p", "outcome": "cut"}]
+    assert result["crossing"] == ["p"]
+    assert result["revision"] == state["revision"]
+    _, current = call(
+        server, "/api/session", {"session": headers["X-Vectrify-Session"]}
+    )
+    assert current["undo"] == []
+    assert current["revision"] == state["revision"]
+    action("extract", region=request["region"], scope="selection", cut=True)
+    assert state["undo"] == ["Extract region"]
+    status, _ = call(
+        server, "/api/region", dict(request, epoch="another drawing"), headers
+    )
+    assert status == 409
+
+
 def test_operation_endpoint_previews_applies_and_rejects_unknown(server):
     _, state = call(server, "/api/session", {})
     headers = {"X-Vectrify-Session": state["session"]}

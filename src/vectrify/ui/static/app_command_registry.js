@@ -47,6 +47,8 @@ export function createCommandRegistryController(editor, {
   pointHandles,
   pointHolesToShapes,
   pointPairs,
+  regionCommand,
+  regionRefusal,
   removeClip,
   removeClipRefusal,
   removeReference,
@@ -87,6 +89,7 @@ export function createCommandRegistryController(editor, {
     {id: 'tool-ellipse', name: 'Ellipse tool', group: 'Tools', keys: 'E', keywords: 'draw ellipse circle oval shape', run: () => setTool('ellipse')},
     {id: 'tool-line', name: 'Line tool', group: 'Tools', keys: 'L', keywords: 'draw straight line segment shape', run: () => setTool('line')},
     {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'C', keywords: 'cut slice', run: () => setTool('knife')},
+    {id: 'tool-region', name: 'Region tool', group: 'Tools', keys: 'X', keywords: 'extract delete erase area rectangle polygon lasso crop', run: () => setTool('region')},
     {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
     {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'Hold Space', keywords: 'hand scroll', run: () => setTool('hand')},
     {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},
@@ -160,6 +163,14 @@ export function createCommandRegistryController(editor, {
     {id: 'convert-to-path', name: 'Convert to path', group: 'Path', keywords: 'rectangle rect circle ellipse line basic shape editable nodes points',
       description: 'Turn the selected rectangles, circles, ellipses and lines into paths with points to edit, keeping their look',
       run: () => action('convert_to_path', {}, 'Converting to paths…'), disabled: convertRefusal},
+    // The part of the paths inside a region drawn with the Region tool, which
+    // shows what changes before anything does.
+    {id: 'extract-region', name: 'Extract region', group: 'Path', keywords: 'region area rectangle polygon cut take separate piece crop lasso',
+      description: 'Take what lies inside a region drawn with the Region tool (X) into paths of their own, cutting objects that cross its edge if chosen',
+      run: () => regionCommand('extract'), disabled: () => regionRefusal('extract')},
+    {id: 'delete-region', name: 'Delete region', group: 'Path', keywords: 'region area rectangle polygon erase remove cut lasso', danger: true,
+      description: 'Delete what lies inside a region drawn with the Region tool (X), cutting objects that cross its edge if chosen',
+      run: () => regionCommand('delete'), disabled: () => regionRefusal('delete')},
     {id: 'detach', name: 'Detach', label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Path', keywords: 'instance use shared unlink',
       description: 'Give this object its own copy of geometry it shares with others', run: () => action('detach'),
       disabled: () => !(oneObject()?.tag === 'use' || oneObject()?.shared)

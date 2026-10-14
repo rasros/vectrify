@@ -30,6 +30,8 @@ export function createCanvasEventsController(editor, {
   previewResize,
   previewShape,
   redrawOutline,
+  regionCorner,
+  regionRectangle,
   releaseStage,
   renderDrawing,
   renderInspector,
@@ -74,6 +76,7 @@ export function createCanvasEventsController(editor, {
       finish: result => action('resize', {anchor: result.anchor, scale: [result.sx, result.sy]}, 'Resizing…'),
     },
     knife: {end: knifeEnd, finish: cutWithKnife},
+    region: {rectangle: regionRectangle, corner: regionCorner},
     redraw: {setHover: value => { editor.redrawHover = value; }, finish: redrawOutline},
   });
 

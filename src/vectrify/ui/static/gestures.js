@@ -1,6 +1,6 @@
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, shapes, selection, nodes, resize, knife, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, selection, nodes, resize, knife, region, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
@@ -67,6 +67,27 @@ export function canvasGestures({view, path, shapes, selection, nodes, resize, kn
         if (!gesture.moved) return selection.pick(gesture);
         drawOverlay(); await knife.finish(gesture);
       },
+    },
+    // Region: a drag draws a rectangle (a click still selects); in polygon
+    // shape each click places a corner.
+    region: {
+      press(gesture, event) {
+        const p = point(event);
+        gesture.start = {x: p.x, y: p.y}; gesture.end = {x: p.x, y: p.y};
+      },
+      move(gesture, event) {
+        if (!gesture.moved) return;
+        const p = point(event);
+        gesture.end = {x: p.x, y: p.y}; drawOverlay();
+      },
+      async release(gesture) {
+        if (!gesture.moved) return selection.pick(gesture);
+        region.rectangle(gesture);
+      },
+    },
+    regionCorner: {
+      press(gesture, event) { const p = point(event); gesture.at = {x: p.x, y: p.y}; },
+      release(gesture) { region.corner(gesture.at); },
     },
     redraw: {
       press(gesture, event) {
