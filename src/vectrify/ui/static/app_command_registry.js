@@ -1,5 +1,5 @@
 import {splitKey} from './selection.js';
-import {breakable} from './lines.js';
+import {breakable, freeEnd} from './lines.js';
 import {JOIN_REACH} from './app_config.js';
 import {SHAPES} from './clipping.js';
 import {ALIGNMENTS, distributeName} from './align.js';
@@ -196,7 +196,11 @@ export function createCommandRegistryController(editor, {
     // Nodes: operations on the selected points.
     {id: 'handles-0', name: 'No handles', group: 'Nodes', keys: '1', keywords: 'corner sharp', run: () => app.commands.pointHandles(0), disabled: () => app.commands.noPoints()},
     {id: 'handles-1', name: 'One handle', group: 'Nodes', keys: '2', run: () => app.commands.pointHandles(1), disabled: () => app.commands.noPoints()},
-    {id: 'handles-2', name: 'Two handles', group: 'Nodes', keys: '3', keywords: 'smooth', run: () => app.commands.pointHandles(2), disabled: () => app.commands.noPoints()},
+    {id: 'handles-2', name: 'Two handles', group: 'Nodes', keys: '3', keywords: 'smooth', run: () => app.commands.pointHandles(2),
+      disabled: () => app.commands.noPoints() || (app.geometry.selectedPoints().some(key => {
+        const contour = app.geometry.contourAt(key);
+        return contour && freeEnd(contour, splitKey(key)[1]);
+      }) && 'An open endpoint can only have one handle; join the contour\'s ends first')},
     {id: 'straighten-handles', name: 'Straighten handles', group: 'Nodes', keys: '7', keywords: 'align smooth tangent line', run: () => app.selection.straightenHandles(),
       description: 'Toggle aligned handles: keep both in line while dragging, preserving their lengths', disabled: () => app.commands.noPoints()},
     {id: 'pin', name: 'Pin points', label: () => app.geometry.selectedPoints().length && app.geometry.selectedPoints().every(key => app.geometry.nodeAt(key)?.pinned) ? 'Unpin points' : 'Pin points', group: 'Nodes',

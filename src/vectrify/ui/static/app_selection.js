@@ -1,5 +1,6 @@
 import {DOUBLE_CLICK, NUDGE_RUN, POINT_REACH} from './app_config.js';
 import {pickTarget, pointKey, splitKey} from './selection.js';
+import {freeEnd} from './lines.js';
 import {hiddenRefusal} from './visibility.js';
 import {plural} from './util.js';
 
@@ -178,6 +179,8 @@ export function createSelectionController(editor, {
     $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
     $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
     const hints = [selectedHandle() ? 'Handle selected: Delete removes this handle. Toggle Straighten to keep both handles in line while dragging.' : !loaded ? 'Loading path points…' : !chosen.length ? (editor.tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Hold Shift to move horizontally or vertically. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag without snapping.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
+    const contour = node && contourAt(points[0]);
+    if (contour && freeEnd(contour, node.id)) hints.push('This contour is open, so its endpoint can only have one handle. Select both ends and use Join points (5) to close it.');
     // Points of shared geometry are points of every path drawing it.
     const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
     if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (under Path) to edit one path alone.`);
