@@ -94,7 +94,7 @@ def fit_lines(
             (surface - light) / np.maximum(surface - ink, CONTRAST), 0.0, 1.0
         )
         cover = np.where(surface - ink >= CONTRAST, cover, 0.0)
-        reader = _Reader(
+        reader = Reader(
             cover, width, image=image if span else None, foreground=foreground
         )
         geometry, measured = _fitted(
@@ -119,7 +119,7 @@ def fit_lines(
     return document
 
 
-class _Reader:
+class Reader:
     """Reads a line's ink across it."""
 
     def __init__(
@@ -232,7 +232,7 @@ def _normal(tangent: np.ndarray | None) -> np.ndarray | None:
 def _fitted(
     geometry: Geometry,
     frame: _Frame,
-    reader: _Reader,
+    reader: Reader,
     fixed: Frozen,
     *,
     span: bool = False,
@@ -314,7 +314,7 @@ def _fitted(
     return replace(geometry, subpaths=tuple(subpaths)), measured
 
 
-def _curve_shift(cubic: np.ndarray, reader: _Reader, *, span: bool):
+def _curve_shift(cubic: np.ndarray, reader: Reader, *, span: bool):
     """Least-squares handle motion from the ink at several points on a curve."""
     if not span:
         point, tangent = _bezier(cubic, np.array([0.5]))

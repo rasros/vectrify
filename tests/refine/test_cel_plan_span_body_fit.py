@@ -22,7 +22,7 @@ from vectrify.document.redraw import root_matrix
 from vectrify.refine.cel_plan import span_body_fit
 from vectrify.refine.cel_plan.ink_models import footprint
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
-from vectrify.refine.cel_plan.local import _native_raster
+from vectrify.refine.cel_plan.local import native_raster
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_centerline import construct as centerline
@@ -194,8 +194,8 @@ def test_complete_curved_body_preserves_ports_corner_shadow_and_every_contract(
     family.validate(candidate)
     loaded, _ = load_project(save_project(candidate))
     np.testing.assert_array_equal(
-        _native_raster(ET.fromstring(export_svg(candidate)), (64, 64)).root,
-        _native_raster(ET.fromstring(export_svg(loaded)), (64, 64)).root,
+        native_raster(ET.fromstring(export_svg(candidate)), (64, 64)).root,
+        native_raster(ET.fromstring(export_svg(loaded)), (64, 64)).root,
     )
     # Both banks retain all original observations after fitting.
     observed = added.source_breaks(profile)
@@ -354,7 +354,7 @@ def test_joint_body_uses_shared_group_opacity_once():
         "</g></svg>"
     )
     root = span_body_fit._stroke_root(document, ("a", "b"), (32, 32), Work.start(10))
-    actual = _native_raster(root, (32, 32)).root[..., 3]
+    actual = native_raster(root, (32, 32)).root[..., 3]
     assert actual[16, 16] == actual[16, 8] == 102
     # Isolated bodies never acquire base opacity or double-blended ancestors.
     assert len(tuple(root.iter("g"))) == len(document.ancestry("a")) - 1
@@ -368,10 +368,8 @@ def test_body_preserves_actual_paint_alpha_caps_and_local_width():
         "</g></svg>"
     )
     root = span_body_fit._stroke_root(document, ("a",), (32, 32), Work.start(10))
-    actual = _native_raster(root, (32, 32)).root[..., 3]
-    original = _native_raster(ET.fromstring(export_svg(document)), (32, 32)).root[
-        ..., 3
-    ]
+    actual = native_raster(root, (32, 32)).root[..., 3]
+    original = native_raster(ET.fromstring(export_svg(document)), (32, 32)).root[..., 3]
     np.testing.assert_array_equal(actual, original)
     assert actual[16, 12] == 26
     assert actual[16, 5] > 0

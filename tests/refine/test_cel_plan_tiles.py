@@ -163,7 +163,7 @@ def test_tile_limit_rejects_work_before_native_rendering(monkeypatch):
     def forbidden(*_args):
         pytest.fail("Oversized work must not reach the renderer")
 
-    monkeypatch.setattr(local, "_native_raster", forbidden)
+    monkeypatch.setattr(local, "native_raster", forbidden)
     with pytest.raises(LocalLimitError, match="tile limit"):
         evaluator.update(snapshot, drawing(color="#2040a0"), Box(0, 0, 160, 128), {})
 

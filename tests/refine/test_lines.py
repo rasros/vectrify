@@ -7,9 +7,9 @@ import pytest
 
 from vectrify.document import export_svg, import_svg
 from vectrify.operations.generate import Region
-from vectrify.operations.methods.nodes import _pixels, _Scored, _span_lines, _Task
+from vectrify.operations.methods.nodes import Scored, Task, region_pixels, span_lines
 from vectrify.refine.frozen import Paths, frozen
-from vectrify.refine.lines import _Reader, fit_lines
+from vectrify.refine.lines import Reader, fit_lines
 from vectrify.svg_render import render_image
 
 
@@ -30,7 +30,7 @@ def test_reading_the_same_ink_from_the_other_side_preserves_centre_and_width(
     cover = np.zeros((32, 32))
     cover[:, 12:15] = 1
     cover = gaussian_filter(cover, sigma=0.6)
-    reader = _Reader(cover, width)
+    reader = Reader(cover, width)
     point = np.array([[13.1, 16]])
     direction = np.asarray([normal])
     shift, measured = reader.across(point, direction)
@@ -52,7 +52,7 @@ def test_colour_cover_recovers_a_stroke_between_different_backgrounds(foreground
     colours = np.where((y < centre)[..., None], left, right)
     colours = np.where((np.abs(y - centre) < width / 2)[..., None], foreground, colours)
     image = np.broadcast_to(colours.mean(1)[:, None], (64, 64, 3)).copy()
-    reader = _Reader(
+    reader = Reader(
         np.zeros((64, 64)), width, image=image, foreground=np.asarray(foreground)
     )
     point, normal = np.array([[30, centre]]), np.array([[0, 1]])
@@ -107,8 +107,8 @@ def test_whole_span_fitting_moves_a_coloured_stroke_between_two_backgrounds():
     region = Region(0, 0, 64, 64, render_image(target, (0, 0, 64, 64), (64, 64)))
     paths = Paths({"p": source.geometry_for("p")})
     result = fit_lines(source, ["p"], region, frozen(paths), False, span=True)
-    before = _Scored.of(_pixels(source, region), region)
-    after = _Scored.of(_pixels(result, region), region)
+    before = Scored.of(region_pixels(source, region), region)
+    after = Scored.of(region_pixels(result, region), region)
     assert after.difference < before.difference * 0.5
     assert result.root == source.root
     assert [n.id for n in result.geometry_for("p").subpaths[0].nodes] == [
@@ -120,7 +120,7 @@ def test_colour_reader_recovers_a_thin_ribbon_not_touching_the_current_centre():
     foreground = np.array([0.9, 0.15, 0.1])
     image = np.ones((64, 64, 3))
     image[32] = 0.3 * foreground + 0.7
-    reader = _Reader(np.zeros((64, 64)), 0.3, image=image, foreground=foreground)
+    reader = Reader(np.zeros((64, 64)), 0.3, image=image, foreground=foreground)
     point, normal = np.array([[30, 31]]), np.array([[0, 1]])
     shift, measured = reader.across(point, normal)
     reversed_shift, reversed_width = reader.across(point, -normal)
@@ -134,7 +134,7 @@ def test_a_colour_reader_does_not_choose_between_equally_near_separate_ribbons()
     foreground = np.array([0.9, 0.15, 0.1])
     image = np.ones((64, 64, 3))
     image[[30, 32]] = 0.3 * foreground + 0.7
-    reader = _Reader(np.zeros((64, 64)), 0.3, image=image, foreground=foreground)
+    reader = Reader(np.zeros((64, 64)), 0.3, image=image, foreground=foreground)
     for normal in ([[0, 1]], [[0, -1]]):
         shift, measured = reader.across(np.array([[30, 31.5]]), np.asarray(normal))
         assert shift[0] == 0
@@ -191,8 +191,8 @@ def test_whole_curve_readings_fix_opposite_handle_errors_with_fixed_ends():
     document, region = problem()
     paths = Paths({"p": document.geometry_for("p")})
     result = fit_lines(document, ["p"], region, frozen(paths), False, span=True)
-    before = _Scored.of(_pixels(document, region), region)
-    after = _Scored.of(_pixels(result, region), region)
+    before = Scored.of(region_pixels(document, region), region)
+    after = Scored.of(region_pixels(result, region), region)
     assert after.difference < 0.4 * before.difference
     old = document.geometry_for("p").subpaths[0]
     new = result.geometry_for("p").subpaths[0]
@@ -205,9 +205,9 @@ def test_whole_curve_readings_fix_opposite_handle_errors_with_fixed_ends():
 @pytest.mark.parametrize("movement", [0, 0.2, 2])
 def test_additional_proposal_respects_movement_and_pinned_endpoints(movement):
     document, region = problem()
-    current = _Scored.of(_pixels(document, region), region)
-    task = _Task(document, region, {"movement": movement}, ("p",), region.image)
-    result, after = _span_lines(task, document, current, None)
+    current = Scored.of(region_pixels(document, region), region)
+    task = Task(document, region, {"movement": movement}, ("p",), region.image)
+    result, after = span_lines(task, document, current, None)
     assert after.difference <= current.difference
     for old, new in zip(
         document.geometry_for("p").subpaths[0].nodes,
@@ -228,7 +228,7 @@ def test_additional_proposal_respects_movement_and_pinned_endpoints(movement):
 def test_a_held_curve_keeps_its_handles_too():
     document, region = problem()
     curve = document.geometry_for("p").subpaths[0].nodes[1]
-    task = _Task(
+    task = Task(
         document,
         region,
         {"movement": 2},
@@ -236,8 +236,8 @@ def test_a_held_curve_keeps_its_handles_too():
         region.image,
         held=frozenset({curve.id}),
     )
-    current = _Scored.of(_pixels(document, region), region)
-    result, _ = _span_lines(task, document, current, None)
+    current = Scored.of(region_pixels(document, region), region)
+    result, _ = span_lines(task, document, current, None)
     assert result == document
 
 
@@ -262,8 +262,8 @@ def test_a_worse_whole_curve_proposal_is_discarded(monkeypatch):
         )
     )
     monkeypatch.setattr(lines, "fit_lines", lambda *_args, **_kwargs: bad)
-    task = _Task(document, region, {"movement": 2}, ("p",), region.image)
-    current = _Scored.of(_pixels(document, region), region)
-    result, after = _span_lines(task, document, current, None)
+    task = Task(document, region, {"movement": 2}, ("p",), region.image)
+    current = Scored.of(region_pixels(document, region), region)
+    result, after = span_lines(task, document, current, None)
     assert result == document
     assert after == current

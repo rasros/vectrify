@@ -201,7 +201,7 @@ def _render_tree(svg: str, visible_ids: frozenset[str] | None):
     return inner
 
 
-def _native_raster(inner, size: tuple[int, int]) -> Canvas:
+def native_raster(inner, size: tuple[int, int]) -> Canvas:
     if size[0] * size[1] * 4 > MAX_RASTER_BYTES:
         raise LocalLimitError("Native local-search raster limit")
     png = cairosvg.svg2png(
@@ -213,6 +213,10 @@ def _native_raster(inner, size: tuple[int, int]) -> Canvas:
         values = np.asarray(image.convert("RGBA"))
         values.flags.writeable = False
         return Canvas(values)
+
+
+# Older name still imported by sibling cel_plan modules.
+_native_raster = native_raster
 
 
 def _render_crop(
@@ -231,7 +235,7 @@ def _render_crop(
         # Changing an offscreen group or gradient's viewport can change Cairo's
         # intermediate rounding. Preserve the original native rasterization;
         # crop before converting the bounded buffer to floating-point pixels.
-        return _native_raster(inner, size).crop(box), True
+        return native_raster(inner, size).crop(box), True
     root = ET.Element(
         "{http://www.w3.org/2000/svg}svg",
         {
@@ -386,7 +390,7 @@ class LocalPolicy:
 
         check()
         paint = (
-            _native_raster(_render_tree(svg, visible_ids), (shape[1], shape[0]))
+            native_raster(_render_tree(svg, visible_ids), (shape[1], shape[0]))
             if len(outputs) > 1
             else None
         )

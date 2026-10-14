@@ -18,7 +18,7 @@ from vectrify.document.holes import reversed_subpath
 from vectrify.document.join import curve_path
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.svg import parse_path
-from vectrify.refine.cel_plan.local import _native_raster
+from vectrify.refine.cel_plan.local import native_raster
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.source_faces import SourceFace
 from vectrify.refine.cel_plan.source_family import SourceFamily
@@ -103,8 +103,8 @@ def test_complete_floor_keeps_native_alpha_locality_materials_and_shadow(
     assert result.document.element("owner").get("stroke") == "none"
     loaded, _ = load_project(save_project(result.document))
     np.testing.assert_array_equal(
-        _native_raster(ET.fromstring(export_svg(loaded)), (48, 48)).root,
-        _native_raster(ET.fromstring(export_svg(result.document)), (48, 48)).root,
+        native_raster(ET.fromstring(export_svg(loaded)), (48, 48)).root,
+        native_raster(ET.fromstring(export_svg(result.document)), (48, 48)).root,
     )
     residual = next(p.id for p in result.parts if p.role == "residual")
     assert (
