@@ -1,9 +1,7 @@
 import {splitKey} from './selection.js';
 import {breakable} from './lines.js';
 import {JOIN_REACH} from './app_config.js';
-
-// The basic shapes Convert to path turns into paths.
-const SHAPES = new Set(['rect', 'circle', 'ellipse', 'line']);
+import {SHAPES} from './clipping.js';
 
 // Command_registry owns its controls; editor contains the live state shared with other controllers.
 export function createCommandRegistryController(editor, {
@@ -43,16 +41,20 @@ export function createCommandRegistryController(editor, {
   openColours,
   openGenerate,
   openPalette,
+  openSetClip,
   openSnapEdges,
   openTidy,
   pointHandles,
   pointHolesToShapes,
   pointPairs,
+  removeClip,
+  removeClipRefusal,
   removeReference,
   renameObject,
   segmentPicked,
   selectedHandle,
   selectedPoints,
+  setClipRefusal,
   setTool,
   setView,
   splitParts,
@@ -159,7 +161,11 @@ export function createCommandRegistryController(editor, {
       description: 'Give this object its own copy of geometry it shares with others', run: () => action('detach'),
       disabled: () => !(oneObject()?.tag === 'use' || oneObject()?.shared)
         && (SHAPES.has(oneObject()?.tag) ? 'A basic shape shares nothing: use Convert to path' : 'Select one instance, or a path that shares its geometry')},
-    // Clipping
+    // Clipping: the boundary is a closed path; what lies outside it is hidden.
+    {id: 'set-clip', name: 'Set clip…', group: 'Clipping', keywords: 'clip clipping mask crop boundary hide outside path',
+      description: 'Clip the selected objects to a selected closed path, choosing which is clipped and which is the boundary', run: openSetClip, disabled: setClipRefusal},
+    {id: 'remove-clip', name: 'Remove clip', group: 'Clipping', keywords: 'unclip clipping mask crop release',
+      description: 'Stop clipping the selected objects; their boundary paths stay in the drawing', run: removeClip, disabled: removeClipRefusal},
     {id: 'show-clips', name: 'Show clipping boundaries', label: () => editor.showClipping ? 'Hide clipping boundaries' : 'Show clipping boundaries', group: 'Clipping', keywords: 'clip contour outline mask view',
       description: 'Show clipping boundaries as selectable outlines', run: toggleClipping},
     // Repair

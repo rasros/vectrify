@@ -550,11 +550,12 @@ def import_svg(svg: str) -> Document:
     document = Document(read(root), tuple(geometries))
     if issues:
         raise UnsupportedSvgError(issues)
-    # Exported linked insets retain the source's perimeter. Restore sharing,
-    # but do not trust stale metadata when a source was changed externally.
+    # Exported linked clips retain the source's perimeter, as their path or,
+    # inset, as its base. Restore sharing, but do not trust stale metadata
+    # when a source was changed externally.
     for element in document.elements():
         source = element.get(SOURCE)
-        if not element.get(INSET) or not source:
+        if not source:
             continue
         try:
             original = document.geometry_for(source)

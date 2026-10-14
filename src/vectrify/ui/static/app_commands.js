@@ -105,7 +105,7 @@ export function createCommandsController(editor, {
   // The context menu offers the commands for what is selected: object
   // commands for objects, Nodes for points. Those that cannot run now are
   // dimmed with the reason, as everywhere else.
-  const MENU_GROUPS = {objects: ['Select', 'Object', 'Arrange', 'Path', 'Repair'], points: ['Nodes']};
+  const MENU_GROUPS = {objects: ['Select', 'Object', 'Arrange', 'Path', 'Clipping', 'Repair'], points: ['Nodes']};
 
   function openContextMenu(x, y) {
     const menu = $('context-menu'), groups = MENU_GROUPS[level() === 'points' ? 'points' : 'objects'];
