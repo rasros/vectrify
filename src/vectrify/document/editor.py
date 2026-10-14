@@ -79,6 +79,7 @@ from vectrify.document.svg import (
     PAINT,
     validate_attributes,
 )
+from vectrify.document.taper import TAPERS
 from vectrify.document.topology import (
     EdgeRef,
     inverse_matrix,
@@ -434,7 +435,14 @@ class Editor:
     def set_locks(self, object_id: str, locks: frozenset[str]) -> Snapshot:
         """Explicit user command; operation transactions cannot unlock objects."""
         element = self._document.element(object_id)
-        known = set(EditKind) | PAINT | ARROWS | GEOMETRY[element.tag] | {"transform"}
+        known = (
+            set(EditKind)
+            | PAINT
+            | ARROWS
+            | TAPERS
+            | GEOMETRY[element.tag]
+            | {"transform"}
+        )
         if not locks <= known:
             raise DocumentError("Unknown property lock")
         document = self._document.replace_element(
@@ -828,7 +836,7 @@ class Transaction:
                     continue
                 kind = (
                     EditKind.PAINT
-                    if key in PAINT | ARROWS
+                    if key in PAINT | ARROWS | TAPERS
                     else EditKind.TRANSFORM
                     if key == "transform"
                     else EditKind.GEOMETRY

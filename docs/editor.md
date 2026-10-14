@@ -407,6 +407,13 @@ and saved projects restore it.
   stroke colour and width, and remain part of its selection. Projects preserve
   the settings; SVG exports contain ordinary triangle paths with owner metadata
   so reopening restores editable endpoint decorations without duplicate objects.
+  **Start taper** and **End taper** narrow the corresponding end to a point over
+  the given length in local drawing units; **0** disables that taper. Each open
+  contour gets its own tapers; closed contours retain their ordinary stroke.
+  If the lengths overlap, they shrink proportionally to fit the contour. The
+  centerline remains editable, including its nodes, and tapers follow paint and
+  geometry edits. SVG exports include filled outlines and preserve the settings
+  for reopening; **Stroke to path** makes the outline an ordinary filled path.
 - Tree swatches show resolved fill/stroke colors, including inherited paint;
   group swatches preview their contents. The right panel shows effective hex
   colors and names the parent they come from. No-paint and mixed selections

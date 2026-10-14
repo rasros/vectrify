@@ -408,8 +408,9 @@ class Document:
             if element.tag == "svg" and element is not self.root:
                 raise DocumentError("Nested SVG viewports are unsupported")
             from vectrify.document.arrows import ARROWS
+            from vectrify.document.taper import TAPERS
 
-            if not element.locks <= set(EditKind) | PAINT | ARROWS | GEOMETRY[
+            if not element.locks <= set(EditKind) | PAINT | ARROWS | TAPERS | GEOMETRY[
                 element.tag
             ] | {"transform"}:
                 raise DocumentError("Unknown property lock")

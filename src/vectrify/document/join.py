@@ -39,8 +39,9 @@ def path_style(document: Document, element: Element) -> dict[str, str]:
             (k, v) for k, v in ancestor.attributes if k in PAINT and k != "opacity"
         )
     from vectrify.document.arrows import ARROWS
+    from vectrify.document.taper import TAPERS
 
-    for key in ARROWS:
+    for key in ARROWS | TAPERS:
         value = element.get(key)
         if value is not None:
             style[key] = value
@@ -458,6 +459,10 @@ def bake_group_path(
         # when a non-uniform transform cannot be represented by that width.
         scale = math.sqrt(abs(a * d - b * c))
         style["stroke-width"] = str(float(style["stroke-width"]) * scale)
+        from vectrify.document.taper import TAPERS
+
+        for key in TAPERS & style.keys():
+            style[key] = str(float(style[key]) * scale)
     geometry = transformed_geometry(document.geometry_for(element.id), matrix)
     if clips and style["fill"] != "none":
         path = curve_path(geometry, style["fill-rule"])

@@ -19,6 +19,8 @@ from vectrify.document.model import (
     Subpath,
     new_id,
 )
+from vectrify.document.taper import OWNER as TAPER_OWNER
+from vectrify.document.taper import SOURCE_OPACITY, TAPERS, active
 
 SVG = "http://www.w3.org/2000/svg"
 XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -174,7 +176,7 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
     if tag in HIDEABLE:
         allowed |= {"display"}
     if tag in {"path", "line"}:
-        allowed |= ARROWS
+        allowed |= ARROWS | TAPERS
     if tag == "path":
         allowed |= {
             "data-vectrify-outline-source",
@@ -196,6 +198,12 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
             raise DocumentError("Clipping inset must be a finite nonnegative number")
         if name in ARROWS and value not in {"none", "arrow"}:
             raise DocumentError(f"Unsupported {name}: {value}")
+        if name in TAPERS and (
+            not re.fullmatch(NUMBER, value)
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise DocumentError("Taper length must be a finite nonnegative number")
         if name in NUMERIC:
             if not re.fullmatch(NUMBER, value) or not math.isfinite(float(value)):
                 raise DocumentError(f"{name} must be a finite number in document units")
@@ -442,23 +450,34 @@ def import_svg(svg: str) -> Document:
     owners = {n.get("id"): n for n in root.iter() if n.get("id")}
     for parent in list(root.iter()):
         for child in list(parent):
-            owner = child.get(OWNER)
+            decoration = TAPER_OWNER if child.get(TAPER_OWNER) is not None else OWNER
+            owner = child.get(decoration)
             if owner is None:
                 continue
             source = owners.get(owner)
+            target = source
+            if source is not None and source.tag.rsplit("}", 1)[-1] == "use":
+                target = owners.get((source.get(XLINK) or source.get("href") or "")[1:])
+            instance = decoration == TAPER_OWNER and child.tag.rsplit("}", 1)[-1] == "g"
             if (
-                child.tag.rsplit("}", 1)[-1] != "path"
-                or len(child)
+                child.tag.rsplit("}", 1)[-1] not in ({"g"} if instance else {"path"})
+                or (len(child) and not instance)
                 or source is None
-                or not any(source.get(k) == "arrow" for k in ARROWS)
+                or target is None
+                or not (
+                    active(target.attrib)
+                    if decoration == TAPER_OWNER
+                    else any(source.get(k) == "arrow" for k in ARROWS)
+                )
                 or set(child.attrib)
                 - {
                     "id",
                     "d",
-                    OWNER,
+                    decoration,
                     "fill",
                     "stroke",
                     "fill-opacity",
+                    "fill-rule",
                     "opacity",
                     "transform",
                     "clip-path",
@@ -468,24 +487,44 @@ def import_svg(svg: str) -> Document:
                 issues.append("Invalid generated arrow decoration")
             else:
                 try:
-                    validate_attributes(
-                        "path",
-                        {
-                            k: v
-                            for k, v in child.attrib.items()
-                            if k not in {"id", "d", OWNER}
-                        },
-                    )
-                    parse_path(child.get("d", ""))
-                    if (
-                        child.tag not in {"path", "{" + SVG + "}path"}
-                        or (child.text and child.text.strip())
-                        or (child.tail and child.tail.strip())
-                    ):
-                        raise DocumentError("Invalid arrow decoration content")
+                    for part in child.iter():
+                        tag = part.tag.rsplit("}", 1)[-1]
+                        if part.tag not in {tag, "{" + SVG + "}" + tag} or tag not in {
+                            "path",
+                            "g",
+                        }:
+                            raise DocumentError("Invalid generated stroke decoration")
+                        validate_attributes(
+                            tag,
+                            {
+                                k: v
+                                for k, v in part.attrib.items()
+                                if k not in {"id", "d", decoration}
+                            },
+                        )
+                        if tag == "path":
+                            if len(part):
+                                raise DocumentError(
+                                    "Generated path cannot have children"
+                                )
+                            parse_path(part.get("d", ""))
+                        if (part.text and part.text.strip()) or (
+                            part.tail and part.tail.strip()
+                        ):
+                            raise DocumentError("Invalid stroke decoration content")
                 except DocumentError as exc:
                     issues.append(str(exc))
                 parent.remove(child)
+
+    for node in root.iter():
+        original = node.attrib.pop(SOURCE_OPACITY, None)
+        if original is not None:
+            if not active(node.attrib):
+                issues.append("Taper source opacity requires a tapered line")
+            if original == "inherit":
+                node.attrib.pop("stroke-opacity", None)
+            else:
+                node.set("stroke-opacity", original)
 
     def read(node: ET.Element, parent: str | None = None) -> Element:
         if node.tag.startswith("{") and not node.tag.startswith("{" + SVG + "}"):
@@ -585,6 +624,28 @@ def export_svg(document: Document) -> str:
 
     document.validate()
 
+    def tapered_path(
+        source: Element, style: dict[str, str], owner: str
+    ) -> ET.Element | None:
+        from vectrify.document.lines import stroke_outline
+        from vectrify.document.taper import geometry_for
+
+        if style["stroke"] == "none" or float(style["stroke-width"]) <= 0:
+            return None
+        return ET.Element(
+            "path",
+            {
+                TAPER_OWNER: owner,
+                "d": stroke_outline(
+                    geometry_for(document, source), style, allow_empty=True
+                ).path_data(),
+                "fill": style["stroke"],
+                "stroke": "none",
+                "fill-opacity": style["stroke-opacity"],
+                "fill-rule": "nonzero",
+            },
+        )
+
     def write(element: Element) -> ET.Element:
         attrs = dict(element.attributes)
         validate_attributes(element.tag, attrs)
@@ -601,11 +662,71 @@ def export_svg(document: Document) -> str:
                 attrs["d"] = document.geometry(element.geometry_id).path_data()
         if "href" in attrs:
             attrs["xlink:href"] = attrs.pop("href")
+        if active(attrs) and element.tag in {"path", "line"}:
+            attrs[SOURCE_OPACITY] = attrs.get("stroke-opacity", "inherit")
+            attrs["stroke-opacity"] = "0"
         node = ET.Element(element.tag, attrs)
         for child in element.children:
             node.append(write(child))
-            if any(child.get(key) == "arrow" for key in ARROWS) and not any(
-                a.tag in {"defs", "clipPath"} for a in document.ancestry(child.id)
+            from vectrify.document.join import path_style
+
+            if (
+                active(dict(child.attributes))
+                and child.tag in {"path", "line"}
+                and not any(a.tag == "clipPath" for a in document.ancestry(child.id))
+            ):
+                decoration = tapered_path(child, path_style(document, child), child.id)
+                if decoration is not None:
+                    for key in ("transform", "clip-path", "opacity", "display"):
+                        value = child.get(key)
+                        if value is not None:
+                            decoration.set(key, value)
+                    node.append(decoration)
+            elif child.tag == "use":
+                source = document.element((child.get("href") or "")[1:])
+                if source.tag in {"path", "line"} and active(dict(source.attributes)):
+                    # A referenced leaf inherits paint from the use, not its defs.
+                    style = path_style(document, child)
+                    style.update(
+                        (k, v)
+                        for k, v in source.attributes
+                        if k in PAINT | TAPERS | ARROWS
+                    )
+                    decoration = tapered_path(source, style, child.id)
+                    if decoration is not None:
+                        decoration.attrib.pop(TAPER_OWNER)
+                        wrapper = ET.Element("g", {TAPER_OWNER: child.id})
+                        for key in ("transform", "clip-path", "opacity", "display"):
+                            value = child.get(key)
+                            if value is not None:
+                                wrapper.set(key, value)
+                        offset = ET.SubElement(
+                            wrapper,
+                            "g",
+                            {
+                                "transform": (
+                                    f"translate({child.get('x', '0')} "
+                                    f"{child.get('y', '0')})"
+                                )
+                            },
+                        )
+                        target = ET.SubElement(
+                            offset,
+                            "g",
+                            {
+                                k: v
+                                for k, v in source.attributes
+                                if k in {"transform", "clip-path", "opacity", "display"}
+                            },
+                        )
+                        target.append(decoration)
+                        node.append(wrapper)
+            if (
+                not active(dict(child.attributes))
+                and any(child.get(key) == "arrow" for key in ARROWS)
+                and not any(
+                    a.tag in {"defs", "clipPath"} for a in document.ancestry(child.id)
+                )
             ):
                 from vectrify.document.arrows import triangles
                 from vectrify.document.join import path_style

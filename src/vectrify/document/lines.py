@@ -413,7 +413,9 @@ def open_path(geometry: Geometry) -> pathops.Path:
     return path
 
 
-def stroke_outline(geometry: Geometry, style: dict[str, str]) -> Geometry:
+def stroke_outline(
+    geometry: Geometry, style: dict[str, str], *, allow_empty: bool = False
+) -> Geometry:
     """The area a stroke of *style* paints along *geometry*, as filled
     contours with no overlaps."""
     width = float(style.get("stroke-width", "1") or 1)
@@ -427,13 +429,18 @@ def stroke_outline(geometry: Geometry, style: dict[str, str]) -> Geometry:
         "round": pathops.LineJoin.ROUND_JOIN,
         "bevel": pathops.LineJoin.BEVEL_JOIN,
     }
-    path = open_path(geometry)
-    path.stroke(
-        width,
-        caps.get(style.get("stroke-linecap", ""), pathops.LineCap.BUTT_CAP),
-        joins.get(style.get("stroke-linejoin", ""), pathops.LineJoin.MITER_JOIN),
-        float(style.get("stroke-miterlimit", "4") or 4),
-    )
+    from vectrify.document.taper import active, outline
+
+    if active(style):
+        path = outline(geometry, width, style)
+    else:
+        path = open_path(geometry)
+        path.stroke(
+            width,
+            caps.get(style.get("stroke-linecap", ""), pathops.LineCap.BUTT_CAP),
+            joins.get(style.get("stroke-linejoin", ""), pathops.LineJoin.MITER_JOIN),
+            float(style.get("stroke-miterlimit", "4") or 4),
+        )
     path.convertConicsToQuads(0.01 * width)
     try:
         path = pathops.simplify(path)
@@ -448,6 +455,6 @@ def stroke_outline(geometry: Geometry, style: dict[str, str]) -> Geometry:
             path = pathops.op(path, arrow, pathops.PathOp.UNION)
     except pathops.PathOpsError as exc:
         raise DocumentError("Could not outline this stroke") from exc
-    if not list(path):
+    if not allow_empty and not list(path):
         raise DocumentError("This stroke paints nothing to outline")
     return replace(path_geometry(path), id=geometry.id)

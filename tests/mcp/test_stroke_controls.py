@@ -28,6 +28,8 @@ def test_mcp_stroke_styles_and_schema(tmp_path):
                 "stroke_miterlimit",
                 "start_arrow",
                 "end_arrow",
+                "start_taper",
+                "end_taper",
             }
             data(await client.call_tool("open", {"path": str(drawing)}))
             reply = data(
@@ -39,6 +41,8 @@ def test_mcp_stroke_styles_and_schema(tmp_path):
                         "stroke_linejoin": "bevel",
                         "stroke_miterlimit": 3,
                         "end_arrow": "arrow",
+                        "start_taper": 10,
+                        "end_taper": 15,
                     },
                 )
             )
@@ -47,6 +51,7 @@ def test_mcp_stroke_styles_and_schema(tmp_path):
             [p] = described["objects"]
             assert p["paint"]["stroke-linecap"] == "round"
             svg = data(await client.call_tool("get_svg", {}))["svg"]
-            assert 'data-vectrify-arrow-owner="p"' in svg
+            assert 'data-vectrify-taper-owner="p"' in svg
+            assert float(p["paint"]["data-vectrify-taper-start"]) == 10
 
     asyncio.run(run())
