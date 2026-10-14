@@ -68,7 +68,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   - **Paint**: fill (solid, linear gradient or none), stroke, stroke width,
     opacity, and the stroke's corners, ends and arrows.
   - **Transform**: the selection frame's **X**, **Y**, **W** and **H**, with
-    a proportion lock, and **Move by** an offset (see Position and size
+    a proportion lock, its **Rotation**, Flip horizontal and Flip vertical,
+    and **Move by** an offset (see Position and size, and Rotate and flip,
     below).
   - **Arrange**: Send to back, Send backward, Bring forward, Bring to front,
     Group and Ungroup; **Align** left, centre, right, top, middle and bottom
@@ -279,6 +280,38 @@ all of them as one undoable edit.
     and do not stop the whole object moving. Definitions and clipping
     boundaries have no bounds to align. Objects already in place send
     nothing, and the message says so.
+- **Rotate and flip.** In Move, a round handle sits on a stem above the
+  middle of the selection frame's top edge, and the **pivot**, a ringed
+  cross, at the frame's centre. Drag the handle to turn the selection about
+  the pivot: the preview turns each object exactly as the edit will, and the
+  frame turns with it, the status line showing the angle. Shift turns in 15°
+  steps; Escape cancels and restores the objects; letting go applies one
+  undoable **Rotate**. Drag the pivot to turn about another point: it snaps
+  to the frame's corners, edge middles and centre (Alt places it freely), and
+  Escape puts it back. A placed pivot, and the one a rotation turned about,
+  stays for the same objects until the drawing changes some other way, so
+  several turns add up about one point; then it returns to the centre. A
+  frame too small to grab the pivot apart from it keeps its pivot at the
+  centre, so a small object still moves wherever it is pressed. **Rotation**
+  under Transform shows the angle the selected objects are turned by on the
+  page, in degrees clockwise, through their groups too; typing an angle
+  turns the selection by the difference, about the pivot, the short way
+  round. Objects turned differently show *Mixed*, and a value turns them all
+  by that many degrees. A mirrored object is measured as flipped
+  horizontally first, so Flip horizontal keeps its angle and Flip vertical
+  adds 180°. **Flip horizontal** (Shift H) mirrors the selection left to
+  right, and **Flip vertical** (Shift V) top to bottom, about the centre of
+  its frame, each one undoable edit; they are under Transform, in the
+  right-click menu and in the palette. Rotations and flips are composed onto
+  each object's own transform in its parent group's frame, as resizing is,
+  never by a negative resize: objects inside rotated or scaled groups turn
+  and mirror about the same page point as the rest, and a selected group
+  takes its selected children along once. Strokes keep their width (a turn
+  or mirror changes no stroke width), and arrowheads, clipping, gradients
+  and nested groups turn with their objects, as all of them live in the
+  object's frame. A locked position or geometry refuses them, hides the
+  handle and dims the commands, saying why; definitions and clipping
+  boundaries cannot be turned.
 - In a point tool, the points of every selected path show, and those of
   every path inside a selected group, however deep; box select and the point
   commands span all of them. Selected instances (`use`) have no points of

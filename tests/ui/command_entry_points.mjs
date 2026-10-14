@@ -90,7 +90,7 @@ const objects = [
   {id: 'clipped', tag: 'g', label: 'Group 1', paint: {}, attributes: {'clip-path': 'url(#c)'}},
 ];
 for (const item of objects) Object.assign(item, {locks: [], inherited_locks: []});
-let selectedPoints = [], pointLevel = false;
+let selectedPoints = [], pointLevel = false, turnLock = '';
 const actions = [], toasts = [];
 const editor = Object.assign(createEditorState(), {
   state: {epoch: 'e', revision: 0, selection: {objects: ['line'], nodes: []}, objects, undo: [], redo: [], clipboard: null, reference: null, bounds: [0, 0, 100, 100]},
@@ -105,6 +105,8 @@ const registry = createCommandRegistryController(editor, {
   contourAt: () => ({closed: false, nodes: [{id: 'a'}, {id: 'b'}, {id: 'c'}]}), selectedHandle: () => null,
   pointPairs: () => selectedPoints.map(key => key.split(' ')), segmentPicked: () => false, holeContours: () => null,
   gradientRefusal: () => '', tidyTargets: () => 0,
+  transformRefusal: () => turnLock, turnRefusal: verb => turnLock && `${turnLock}; unlock it to ${verb}`,
+  flip: axis => { actions.push(['flip', axis]); return true; },
   ...Object.fromEntries(['noSelection', 'noPoints', 'noReference', 'visiblePaths', 'linePaths', 'fillPaths', 'joinCandidates', 'twoEnds', 'deleteSelection', 'breakPoints', 'cutHole', 'splitParts', 'openPalette']
     .map(name => [name, (...args) => context.commands[name](...args)])),
   ...Object.fromEntries(['joinEnds', 'mergeShapes', 'joinOpensDialog'].map(name => [name, (...args) => context.join[name](...args)])),
@@ -172,7 +174,20 @@ assert.equal(stripJoin.textContent, 'Join points', 'a strip button takes the reg
 const menuItem = id => $('context-menu').querySelector(`.menu-item[data-command=${id}]`);
 openContextMenu(10, 10);
 const headings = $('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent);
-assert.deepEqual(headings, ['Select', 'Object', 'Arrange', 'Path', 'Clipping', 'Repair']);
+assert.deepEqual(headings, ['Select', 'Object', 'Transform', 'Arrange', 'Path', 'Clipping', 'Repair']);
+// Flips are offered beside the Transform fields and in the menu, and say
+// why they cannot run as the rest do.
+const transformList = Object.assign(new Node('div'), {className: 'command-list'});
+transformList.dataset.commands = 'flip-horizontal flip-vertical';
+document.append(transformList); buildCommandLists(); renderCommands();
+assert.deepEqual(transformList.children.map(child => child.textContent), ['Flip horizontal', 'Flip vertical']);
+assert.equal(menuItem('flip-vertical').querySelector('kbd').textContent, 'Shift V');
+await commandById.get('flip-horizontal').run();
+assert.deepEqual(actions.pop(), ['flip', 'horizontal']);
+turnLock = 'Line: position is locked';
+assert.equal(commandRefusal(commandById.get('flip-vertical')), 'Line: position is locked; unlock it to flip');
+assert.equal(commandRefusal(commandById.get('rotate')), 'Line: position is locked');
+turnLock = '';
 assert.ok(!menuItem('join'), 'the Ctrl/⌘ J shortcut is not a menu entry of its own');
 assert.ok(!menuItem('join-points'), 'point operations stay with Nodes');
 
@@ -377,5 +392,8 @@ const lists = [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3><div class="command-list"
 assert.deepEqual(lists.map(([heading]) => heading), ['Arrange', 'Path', 'Clipping', 'Repair', 'Object']);
 assert.deepEqual(lists.find(([heading]) => heading === 'Clipping')[1], ['set-clip', 'remove-clip', 'show-clips']);
 for (const [heading, list] of lists) for (const id of list) assert.equal(commandById.get(id)?.group, heading, `${id} under ${heading}`);
+const flips = html.match(/<div class="command-list transform-commands" data-commands="([^"]+)"/)[1].split(' ');
+assert.deepEqual(flips, ['flip-horizontal', 'flip-vertical']);
+for (const id of flips) assert.equal(commandById.get(id)?.group, 'Transform', `${id} under Transform`);
 const pointList = html.match(/<div class="command-list" data-commands="([^"]+)" role="group" aria-label="Point operations">/)[1].split(' ');
 for (const id of pointList) assert.equal(commandById.get(id)?.group, 'Nodes', `${id} beside the points`);

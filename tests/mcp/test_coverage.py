@@ -101,6 +101,8 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("properties", ids=["a"], locks=[])
             await call("transform", ids=["a"], dx=1, dy=1)
             await call("transform", ids=["a"], box=[0, 0, 30, 30])
+            await call("transform", ids=["a"], rotate=30, flip="horizontal")
+            await call("transform", ids=["a"], flip="vertical")
             await call("arrange", ids=["a"], to="front")
             await call("arrange", ids=["a"], to="backward")
             await call("arrange", ids=["a"], parent="grp", index=0)

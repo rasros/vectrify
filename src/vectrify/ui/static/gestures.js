@@ -1,6 +1,6 @@
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, knife, region, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, rotate, knife, region, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
@@ -190,6 +190,27 @@ export function canvasGestures({view, path, shapes, selection, nodes, resize, mo
         else { selection.renderDrawing(); drawOverlay(); }
       },
       cancel: restoreTransforms,
+    },
+    // Turning the selection by its handle about the pivot, previewed as the
+    // server will compose it. A click on the handle turns nothing.
+    rotate: {
+      move(gesture, event) {
+        if (!gesture.moved) return;
+        gesture.result = rotate.result(event); rotate.preview(); drawOverlay();
+      },
+      async release(gesture) {
+        const result = gesture.moved && gesture.result;
+        if (result && Math.abs(result.angle) > 1e-9) await rotate.finish(result);
+        else { selection.renderDrawing(); drawOverlay(); }
+      },
+      cancel: restoreTransforms,
+    },
+    // A click on the pivot picks what is under it, as a click in the frame
+    // does, so the object there can still be picked (or made the key object).
+    pivot: {
+      move(gesture, event) { if (gesture.moved) { rotate.placePivot(event); drawOverlay(); } },
+      release(gesture) { if (!gesture.moved) return selection.pick(gesture); drawOverlay(); },
+      cancel: gesture => rotate.restorePivot(gesture),
     },
   };
 }

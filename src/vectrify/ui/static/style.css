@@ -214,6 +214,8 @@ button[aria-disabled=true]:hover { background: #2a332e; border-color: #3b4740; }
 .ratio-lock svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
 .two-fields.compact .ratio-lock[aria-pressed=true] { color: #c2e7cd; background: #3e5948; border-color: #66816e; }
 .transform-fields input:disabled { opacity: .45; cursor: help; }
+.transform-fields .field-spacer { flex: 1; }
+.transform-commands { margin-top: 10px; }
 #point-section .muted { margin: 0 0 10px; }
 #point-properties .two-fields { margin: 0 0 4px; }
 #point-properties .toggle { margin: 12px 0 0; }
@@ -289,6 +291,11 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 /* Align's key object keeps its place: its bounds are drawn apart. */
 #overlay .key-object { fill: none; stroke: #e0b25f; stroke-width: calc(2px * var(--selection-scale,1)); pointer-events: none; }
 #overlay .resize-tick { fill: #141918; stroke: #b0e8bf; stroke-width: calc(1px * var(--selection-scale,1)); pointer-events: none; }
+/* Move turns the selection by the round handle above its frame, about the pivot. */
+#overlay .rotate-stem { stroke: #b0e8bf; stroke-width: calc(1px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .rotate-handle { fill: #141918; stroke: #b0e8bf; stroke-width: calc(1.25px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .rotate-pivot-halo { fill: none; stroke: #141918; stroke-width: calc(3.5px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .rotate-pivot { fill: none; stroke: #d1a962; stroke-width: calc(1.25px * var(--selection-scale,1)); pointer-events: none; }
 
 /* The Reference panel, below the objects: the image, the view and the tools that match the drawing to it. */
 .reference-panel { flex: none; padding: 0 12px 14px; }

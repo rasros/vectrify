@@ -81,7 +81,13 @@ from vectrify.document.topology import (
     mapped_point,
     split_edges,
 )
-from vectrify.document.transforms import ancestry_matrix, object_matrix, root_matrix
+from vectrify.document.transforms import (
+    Linear,
+    about,
+    ancestry_matrix,
+    object_matrix,
+    root_matrix,
+)
 
 # Initial values of inherited paint, written onto a moved object that would
 # otherwise inherit something else from its new group.
@@ -96,6 +102,13 @@ INITIAL_PAINT = {
     "stroke-linecap": "butt",
     "stroke-linejoin": "miter",
     "stroke-miterlimit": "4",
+}
+
+# Past participles for refusals that name what an object cannot be.
+VERBED = {
+    "resize": "resized",
+    "rotate": "rotated",
+    "flip": "flipped",
 }
 
 # A stroke width in user units, as resizing can divide it.
@@ -2763,59 +2776,100 @@ class Transaction:
     ) -> None:
         """Scale objects by *scale* about *anchor*, both in root user space.
 
-        Each object's geometry stays as it is: the scale is composed onto its
-        own transform, in its parent's frame, so it lands where the scale puts
-        it whatever transforms its groups have. A selected object inside
-        another selected one scales with it, once. Strokes keep their width:
-        stroke widths in the scaled objects are divided by the scale's mean,
-        except where paint is locked. A non-uniform scale still stretches a
-        stroke along its longer axis, as SVG strokes follow their transform.
-        Locked position or geometry refuses the edit.
+        A resize is transform_objects with a positive scale on each axis:
+        reflections are Flip's, never a negative scale.
         """
         with self._change():
             sx, sy = scale
             if not all(math.isfinite(v) for v in (*anchor, sx, sy)) or min(sx, sy) <= 0:
                 raise EditRejectedError("Resize needs a positive, finite scale")
-            document = self._working
-            if not object_ids:
-                raise EditRejectedError("Choose objects to resize")
-            if document.root.id in object_ids:
-                raise EditRejectedError("Cannot resize the document root")
-            ax, ay = anchor
-            page = (sx, 0.0, 0.0, sy, ax - sx * ax, ay - sy * ay)
-            changes: list[tuple[str, dict[str, str | None]]] = []
-            for object_id in sorted(object_ids):
-                ancestry = document.ancestry(object_id)
-                if any(a.id in object_ids for a in ancestry[:-1]):
-                    continue
-                if any(a.tag in {"defs", "clipPath"} for a in ancestry):
-                    raise EditRejectedError(
-                        "Definitions and clipping boundaries cannot be resized"
-                    )
-                for kind, name in (
-                    (EditKind.TRANSFORM, "position"),
-                    (EditKind.GEOMETRY, "geometry"),
-                ):
-                    if any(kind in a.locks for a in ancestry):
-                        raise EditRejectedError(
-                            f"{object_id}: {name} is locked; unlock it to resize"
-                        )
-                frame = ancestry_matrix(ancestry[:-1])
-                local = multiply(inverse_matrix(frame), multiply(page, frame))
-                element = ancestry[-1]
-                changes.append(
-                    (
-                        object_id,
-                        {
-                            "transform": _transform_text(
-                                multiply(local, transform(element.get("transform")))
-                            )
-                        },
-                    )
+            self._transform_objects(object_ids, anchor, (sx, 0.0, 0.0, sy), "resize")
+
+    def transform_objects(
+        self,
+        object_ids: frozenset[str],
+        pivot: tuple[float, float],
+        linear: Linear,
+        *,
+        verb: str = "transform",
+    ) -> None:
+        """Apply the linear map *linear* (a, b, c, d) about *pivot*, in root
+        user space: a rotation, a reflection, a scale or any mix of them.
+
+        *verb* names the edit in refusals, as in "unlock it to rotate".
+        """
+        with self._change():
+            a, b, c, d = linear
+            if not all(math.isfinite(v) for v in (*pivot, *linear)) or math.isclose(
+                a * d - b * c, 0.0, abs_tol=1e-12
+            ):
+                raise EditRejectedError(
+                    f"Cannot {verb}: the transform must be finite and invertible"
                 )
-                changes.extend(self._stroke_widths(ancestry, math.sqrt(sx * sy)))
-            for object_id, attributes in changes:
-                self.set_attributes(object_id, attributes)
+            self._transform_objects(object_ids, pivot, linear, verb)
+
+    def _transform_objects(
+        self,
+        object_ids: frozenset[str],
+        pivot: tuple[float, float],
+        linear: Linear,
+        verb: str,
+    ) -> None:
+        """Compose *linear* about *pivot* onto each object's own transform.
+
+        Each object's geometry stays as it is: the map is composed onto its
+        own transform, in its parent's frame, so it lands where the map puts
+        it whatever transforms its groups have. A selected object inside
+        another selected one moves with it, once. Clipping, gradients and
+        arrowheads live in the object's frame, so they follow it. Strokes
+        keep their width: stroke widths are divided by the map's mean scale,
+        except where paint is locked; a rotation or reflection changes none.
+        A non-uniform scale still stretches a stroke along its longer axis,
+        as SVG strokes follow their transform. Locked position or geometry
+        refuses the edit.
+        """
+        document = self._working
+        if not object_ids:
+            raise EditRejectedError(f"Choose objects to {verb}")
+        if document.root.id in object_ids:
+            raise EditRejectedError(f"Cannot {verb} the document root")
+        page = about(pivot, linear)
+        factor = math.sqrt(abs(linear[0] * linear[3] - linear[1] * linear[2]))
+        changes: list[tuple[str, dict[str, str | None]]] = []
+        for object_id in sorted(object_ids):
+            ancestry = document.ancestry(object_id)
+            if any(a.id in object_ids for a in ancestry[:-1]):
+                continue
+            if any(a.tag in {"defs", "clipPath"} for a in ancestry):
+                raise EditRejectedError(
+                    f"Definitions and clipping boundaries cannot be "
+                    f"{VERBED.get(verb, 'transformed')}"
+                )
+            for kind, name in (
+                (EditKind.TRANSFORM, "position"),
+                (EditKind.GEOMETRY, "geometry"),
+            ):
+                if any(kind in a.locks for a in ancestry):
+                    raise EditRejectedError(
+                        f"{object_id}: {name} is locked; unlock it to {verb}"
+                    )
+            frame = ancestry_matrix(ancestry[:-1])
+            local = multiply(inverse_matrix(frame), multiply(page, frame))
+            element = ancestry[-1]
+            changes.append(
+                (
+                    object_id,
+                    {
+                        "transform": _transform_text(
+                            multiply(local, transform(element.get("transform")))
+                        )
+                    },
+                )
+            )
+            if not math.isclose(factor, 1.0, rel_tol=1e-12):
+                changes.extend(self._stroke_widths(ancestry, factor))
+        for object_id, attributes in changes:
+            self.set_attributes(object_id, attributes)
 
     def _stroke_widths(
         self, ancestry: tuple[Element, ...], factor: float

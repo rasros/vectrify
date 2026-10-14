@@ -713,11 +713,16 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         scale: list[float] | None = None,
         anchor: str | list[float] = "center",
         box: Region | None = None,
+        rotate: float | None = None,
+        flip: Literal["horizontal", "vertical"] | None = None,
     ) -> CallToolResult:
-        """Move objects by dx, dy document units and/or scale them by scale
-        [sx, sy] about anchor (a point, or center, top-left, top-right,
-        bottom-left, bottom-right of their bounds); or fit their painted
-        bounds to box [x, y, w, h]."""
+        """Scale objects by scale [sx, sy], rotate them by rotate degrees
+        (clockwise on the page) and/or mirror them (flip horizontal swaps left
+        and right, vertical top and bottom), in that order, all about anchor
+        (a point, or center, top-left, top-right, bottom-left, bottom-right of
+        their bounds), then move them by dx, dy document units; or fit their
+        painted bounds to box [x, y, w, h]. Objects inside transformed groups
+        turn and mirror on the page like the rest; strokes keep their width."""
         return state.call(
             "transform",
             {
@@ -727,6 +732,8 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "scale": scale,
                 "anchor": anchor,
                 "box": box,
+                "rotate": rotate,
+                "flip": flip,
             },
         )
 
