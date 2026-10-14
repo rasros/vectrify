@@ -17,19 +17,24 @@ const server = createServer(async (request, response) => {
   } catch { response.writeHead(404); response.end(); }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-let chrome, socket;
+let chrome, socket, diagnostics = '';
 const timeout = (promise, ms) => {
   let timer;
   return Promise.race([promise, new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('Browser test timed out')), ms);})]).finally(() => clearTimeout(timer));
 };
 try {
-  chrome = spawn(process.argv[2], ['--headless', '--no-sandbox', '--disable-gpu', '--disable-extensions', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {stdio: 'ignore'});
+  chrome = spawn(process.argv[2], ['--headless', '--no-sandbox', '--disable-gpu', '--disable-extensions', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {stdio: ['ignore', 'ignore', 'pipe']});
+  chrome.stderr.on('data', chunk => {diagnostics = (diagnostics + chunk).slice(-8000);});
   let port;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 200; i++) {
     try { port = (await readFile(resolve(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; }
-    catch { await new Promise(resolve => setTimeout(resolve, 50)); }
+    catch {
+      port = /DevTools listening on ws:\/\/[^/:]+:(\d+)\//.exec(diagnostics)?.[1];
+      if (port || chrome.exitCode !== null) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
   }
-  if (!port) throw new Error('Chrome did not start');
+  if (!port) throw new Error(`Chrome did not start (exit ${chrome.exitCode}): ${diagnostics}`);
   const tabs = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
   const tab = tabs.find(tab => tab.type === 'page' && tab.url === 'about:blank');
   socket = new WebSocket(tab.webSocketDebuggerUrl);
@@ -45,7 +50,15 @@ try {
     waiting.set(++id, {resolve, reject}); socket.send(JSON.stringify({id, method, params}));
   });
   await call('Page.enable');
+  const loaded = new Promise(resolve => {
+    const listener = event => {
+      if (JSON.parse(event.data).method !== 'Page.loadEventFired') return;
+      socket.removeEventListener('message', listener); resolve();
+    };
+    socket.addEventListener('message', listener);
+  });
   await call('Page.navigate', {url: `http://127.0.0.1:${server.address().port}/tests/ui/reference_render_browser.html`});
+  await timeout(loaded, 5000);
   const result = await timeout(call('Runtime.evaluate', {
     expression: "new Promise(resolve=>{const check=()=>{const el=document.getElementById('results');if(el && el.textContent!=='running')resolve(el.textContent);else setTimeout(check,10);};check();})",
     awaitPromise: true, returnByValue: true,
