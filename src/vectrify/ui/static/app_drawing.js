@@ -23,7 +23,7 @@ export function createDrawingController(editor, {
         }
       }
     }
-    for (const arrow of root.querySelectorAll('[data-vectrify-arrow-owner]')) arrow.dataset.objectId = arrow.getAttribute('data-vectrify-arrow-owner');
+    for (const arrow of root.querySelectorAll('[data-vectrify-arrow-owner], [data-vectrify-taper-owner]')) arrow.dataset.objectId = arrow.getAttribute('data-vectrify-arrow-owner') || arrow.getAttribute('data-vectrify-taper-owner');
     root.setAttribute('width', editor.state.bounds[2]); root.setAttribute('height', editor.state.bounds[3]);
     root.setAttribute('viewBox', editor.state.bounds.join(' ')); root.setAttribute('preserveAspectRatio', 'none');
     root.setAttribute('aria-label', editor.state.name);

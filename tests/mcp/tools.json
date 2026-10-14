@@ -851,7 +851,7 @@
  },
  {
   "name": "properties",
-  "description": "Set the objects' paint (colours as CSS colours or \"none\"), name\n(one object; empty clears it), locks and visibility. Stroke caps: butt,\nround, square; joins: miter, round, bevel; miter limit >= 1; start/end\narrows: none or arrow (on open contours, following the stroke colour\nand width). Locks: edit kinds (geometry, paint,\nstructure, transform) or properties (fill, stroke, d, ...); an empty\nlist unlocks. hidden true hides objects as display=\"none\", saved in\nthe SVG: they and all a hidden group holds are not drawn, rendered or\npicked; false shows them. A paint lock refuses it. One undo step.",
+  "description": "Set the objects' paint (colours as CSS colours or \"none\"), name\n(one object; empty clears it), locks and visibility. Stroke caps: butt,\nround, square; joins: miter, round, bevel; miter limit >= 1; start/end\narrows: none or arrow (on open contours, following the stroke colour\nand width). start_taper/end_taper are nonnegative lengths in local\ndrawing units; zero disables that taper. Locks: edit kinds (geometry, paint,\nstructure, transform) or properties (fill, stroke, d, ...); an empty\nlist unlocks. hidden true hides objects as display=\"none\", saved in\nthe SVG: they and all a hidden group holds are not drawn, rendered or\npicked; false shows them. A paint lock refuses it. One undo step.",
   "inputSchema": {
    "type": "object",
    "properties": {
@@ -1012,6 +1012,30 @@
      ],
      "default": null,
      "title": "End Arrow"
+    },
+    "start_taper": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Start Taper"
+    },
+    "end_taper": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "End Taper"
     },
     "name": {
      "anyOf": [

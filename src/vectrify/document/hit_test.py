@@ -162,6 +162,10 @@ def _stroke(
     tolerance: float,
 ) -> BaseGeometry:
     """Where a contour's stroke paints, in its own coordinates."""
+    from vectrify.document.taper import active, area
+
+    if not closed and active(style):
+        return area(points, width, style, tolerance)
     cap = {
         "butt": BufferCapStyle.flat,
         "round": BufferCapStyle.round,
@@ -515,6 +519,11 @@ class HitIndex:
         style = inherited | {
             k: v for k, v in attrs.items() if k in PAINT and k != "opacity"
         }
+        from vectrify.document.taper import TAPERS
+
+        style.update((k, v) for k, v in attrs.items() if k in TAPERS)
+        for key in TAPERS - attrs.keys():
+            style.pop(key, None)
         matrix = multiply(parent, transform(element.get("transform")))
         if not all(math.isfinite(v) for v in matrix):
             raise DocumentError("Transform exceeds finite coordinate range")

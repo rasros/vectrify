@@ -47,6 +47,7 @@ from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import attachment
 from vectrify.document.regions import SHAPES, region_polygon
 from vectrify.document.svg import NUMBER, SOLID, parse_path
+from vectrify.document.taper import TAPERS
 from vectrify.document.topology import inverse_matrix
 from vectrify.document.transforms import (
     REFLECTIONS,
@@ -1982,6 +1983,7 @@ class Session:
                     "stroke-miterlimit",
                 }
                 | ARROWS
+                | TAPERS
             ):
                 raise DocumentError("Unsupported paint property")
             fill = changes.get("fill")
@@ -2451,7 +2453,7 @@ class Session:
                         "stroke-linecap": None,
                         "stroke-linejoin": None,
                         "stroke-miterlimit": None,
-                        **dict.fromkeys(ARROWS),
+                        **dict.fromkeys(ARROWS | TAPERS),
                     }
                 tx.replace_geometry(path.id, line)
                 tx.set_attributes(path.id, changes)

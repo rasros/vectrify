@@ -84,7 +84,8 @@ export function createOverlayController(editor, {
       return [...drawing.querySelectorAll('use')].filter(use => !use.closest('defs') &&
         (use.getAttribute('href') || use.getAttributeNS('http://www.w3.org/1999/xlink', 'href')) === `#${element.id}`);
     }
-    return [element, ...[...drawing.querySelectorAll('[data-vectrify-arrow-owner]')].filter(arrow => arrow.getAttribute('data-vectrify-arrow-owner') === id)];
+    const companions = [...drawing.querySelectorAll('[data-vectrify-arrow-owner], [data-vectrify-taper-owner]')].filter(arrow => (arrow.getAttribute('data-vectrify-arrow-owner') || arrow.getAttribute('data-vectrify-taper-owner')) === id);
+    return companions.some(shape => shape.hasAttribute('data-vectrify-taper-owner')) ? companions : [element, ...companions];
   }
 
   function clipSelection(group, element) {
