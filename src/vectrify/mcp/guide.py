@@ -28,7 +28,7 @@ For X use Y:
   pick(x, y) (its colour)
 - the shape to match: trace_reference(region) outlines the reference's dark
   (or colour=...) areas as path data
-- paint, name, locks: properties(ids, ...); move or scale: transform;
+- paint, name, locks, hiding: properties(ids, ...); move or scale: transform;
   stacking and groups: arrange
 - join anything (points, line ends, filled outlines): join
 - collect paths without changing their contours: combine
@@ -91,7 +91,7 @@ for `coords="local"`.
 
 1. `describe()`: the artboard, the reference, the person's selection (for
    context only), the window view, and the objects
-   (id, label, tag, parent, paint, bounds, locks), a page at a time
+   (id, label, tag, parent, paint, bounds, locks, hidden), a page at a time
    (`page`, `page_size`, or `within` a group id).
 2. `describe` also gives the person's selection (objects, points), and in
    the editor window the visible region, zoom, canvas pixels, active tool,
@@ -132,9 +132,12 @@ for `coords="local"`.
 
 ## Editing
 
-- Objects: `properties(ids, fill, stroke, ..., name, locks)` (paint, a
-  name for one object, locks; one step), `transform(ids, dx, dy, scale,
-  anchor)` (move and/or scale) or `transform(ids, box=...)` (fit to a box),
+- Objects: `properties(ids, fill, stroke, ..., name, locks, hidden)` (paint,
+  a name for one object, locks, hiding; one step). Hidden objects
+  (`hidden`, or `inherited_hidden` inside a hidden group) are saved as
+  display="none": they are not rendered, picked or tidied and have no
+  bounds. `transform(ids, dx, dy, scale, anchor)` (move and/or scale) or
+  `transform(ids, box=...)` (fit to a box),
   `arrange(ids, to="front")` (restack) or `arrange(ids, parent, index)`
   (move into a group), `group(ids)` (create), `group(ids, action="dissolve")`
   (keep the groups' children), `split_parts`, `cut_hole` (two

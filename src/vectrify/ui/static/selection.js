@@ -129,7 +129,8 @@ export function selectionStatus(level, objects, points) {
 // selected paths, and every path inside a selected group, however deep, in
 // drawing order. *objects* lists {id, tag, parent, resource} in drawing order.
 // Instances (use) have no points of their own: they are counted apart, to ask
-// for them to be detached.
+// for them to be detached. Hidden paths, and those in hidden groups, show no
+// points: they are not drawn.
 export function pointTargets(selected, objects) {
   const chosen = new Set(selected), parent = new Map(objects.map(item => [item.id, item.parent]));
   const clips = new Set(objects.filter(item => item.tag === 'clipPath').map(item => item.id));
@@ -147,7 +148,7 @@ export function pointTargets(selected, objects) {
   };
   const paths = [], instances = [];
   for (const item of objects) {
-    if ((item.resource && !inClip(item.id)) || !inside(item.id)) continue;
+    if ((item.resource && !inClip(item.id)) || item.inherited_hidden || !inside(item.id)) continue;
     if (item.tag === 'path') paths.push(item.id);
     else if (item.tag === 'use') instances.push(item.id);
   }

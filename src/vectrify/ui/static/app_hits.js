@@ -13,7 +13,8 @@ export function createHitsController(editor, {
     // instances, including painted shapes hidden behind another painted shape.
     return [...new Set(document.elementsFromPoint(x, y).map(targetId).filter(id => {
       const item = object(id);
-      return item && (!item.resource || svgElement(id)?.closest('clipPath')) && !['g', 'svg', 'defs', 'clipPath'].includes(item.tag);
+      // Hidden objects are not drawn, so the browser finds none of them.
+      return item && !item.inherited_hidden && (!item.resource || svgElement(id)?.closest('clipPath')) && !['g', 'svg', 'defs', 'clipPath'].includes(item.tag);
     }))];
   }
 

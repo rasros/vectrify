@@ -475,6 +475,27 @@ def test_properties_set_paint_name_and_locks_in_one_step():
         call("properties", ids=["a", "b"], name="Both")
 
 
+def test_properties_hide_objects_and_describe_and_pick_follow():
+    call = Calls()
+    reply = call("properties", ids=["grp", "a"], hidden=True)
+    assert reply["step"] == "Agent: Hide objects"
+    document = call.agent.session.editor.snapshot.document
+    assert document.element("grp").get("display") == "none"
+    assert document.element("a").get("fill") == "red"
+    rows = {o["id"]: o for o in call.agent.call("describe").data["objects"]}
+    assert rows["grp"]["hidden"]
+    assert rows["c"]["inherited_hidden"]
+    assert "hidden" not in rows["c"]
+    assert rows["c"]["bounds"] is None
+    assert "hidden" not in rows["b"]
+    picked = call.agent.call("pick", {"x": 20, "y": 20}).data["objects"]
+    assert "a" not in [o["id"] for o in picked]
+    call("properties", ids=["a"], hidden=False)
+    assert not call.agent.session.editor.snapshot.document.hidden("a")
+    with pytest.raises(agent_module.DocumentError, match="true or false"):
+        call("properties", ids=["a"], hidden="yes")
+
+
 def test_transform_moves_and_scales_in_one_step():
     call = Calls()
     reply = call("transform", ids=["a"], dx=10, dy=0, scale=[2, 2], anchor="top-left")

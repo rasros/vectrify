@@ -2,6 +2,7 @@ import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
 import {FRAME_REACH, SNAP_RADIUS} from './app_config.js';
 import {selectionContains} from './selection.js';
 import {boxLines, snapBox} from './snap.js';
+import {hiddenRefusal} from './visibility.js';
 
 // Resizing owns its controls; editor contains the live state shared with other controllers.
 export function createResizingController(editor, {
@@ -73,12 +74,13 @@ export function createResizingController(editor, {
   }
 
   // The objects the selection can snap to: not the selected ones, what they
-  // hold, nor the groups holding them, which move or grow with them.
+  // hold, nor the groups holding them, which move or grow with them, nor
+  // hidden objects.
   function snapCandidates() {
     const map = parents(), selected = new Set(editor.state.selection.objects), around = new Set();
     for (const id of selected) for (let at = map.get(id); at; at = map.get(at)) around.add(at);
     const inside = id => { for (let at = id; at; at = map.get(at)) if (selected.has(at)) return true; return false; };
-    return editor.state.objects.filter(item => !item.resource && !['defs', 'clipPath'].includes(item.tag) && !around.has(item.id) && !inside(item.id));
+    return editor.state.objects.filter(item => !item.resource && !item.inherited_hidden && !['defs', 'clipPath'].includes(item.tag) && !around.has(item.id) && !inside(item.id));
   }
 
   // Other objects' bounds and the artboard's edges, which a dragged edge snaps
@@ -167,6 +169,8 @@ export function createResizingController(editor, {
 
 // Why the selection cannot be resized, or rotated or flipped (*verb*), or ''.
 export function selectionResizeRefusal(editor, {topSelection, object}, verb = 'resize') {
+  const hidden = hiddenRefusal(topSelection(), object, verb);
+  if (hidden) return hidden;
   for (const id of topSelection()) {
     const item = object(id), lock = item?.inherited_locks.find(kind => kind === 'transform' || kind === 'geometry');
     if (lock) return `${item.label}: ${lock === 'transform' ? 'position' : 'geometry'} is locked; unlock it to ${verb}`;

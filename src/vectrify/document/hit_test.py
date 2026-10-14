@@ -503,7 +503,13 @@ class HitIndex:
         record: bool,
         clip: bool = False,
     ) -> tuple[BaseGeometry, dict[str, BaseGeometry]]:
-        if element.tag == "defs" or (element.tag == "clipPath" and not clip):
+        # Hidden objects, and all a hidden group holds, paint nothing: they
+        # are no hits, as in the window and the exported SVG.
+        if (
+            element.tag == "defs"
+            or (element.tag == "clipPath" and not clip)
+            or element.get("display") == "none"
+        ):
             return GeometryCollection(), {}
         attrs = dict(element.attributes)
         style = inherited | {

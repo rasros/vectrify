@@ -1,4 +1,5 @@
 import {FIELD_NAMES, boxFields, fieldEdit, formatLength, rotationEdit, sizeRefusal} from './transform.js';
+import {hiddenRefusal} from './visibility.js';
 
 const FIELDS = ['x', 'y', 'w', 'h'];
 
@@ -35,10 +36,14 @@ export function createTransformController(editor, {
   // Why nothing in the section can run now, or ''.
   function boundsRefusal(box) {
     if (!editor.state?.selection.objects.length) return 'Select objects first';
+    const hidden = hiddenRefusal(topSelection(), object, 'edit');
+    if (hidden) return hidden;
     return box ? '' : 'The selection has no bounds to edit: select shapes or groups, not definitions or clipping boundaries';
   }
 
   function moveRefusal() {
+    const hidden = hiddenRefusal(topSelection(), object, 'move');
+    if (hidden) return hidden;
     for (const id of topSelection()) {
       const item = object(id);
       if (item?.inherited_locks.includes('transform')) return `${item.label}: position is locked; unlock it to move`;
@@ -132,6 +137,8 @@ export function createTransformController(editor, {
     const dx = Number($('move-x').value), dy = Number($('move-y').value);
     $('move-x').value = '0'; $('move-y').value = '0';
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) { toast('Move by needs numbers', true); return null; }
+    const hidden = hiddenRefusal(topSelection(), object, 'move');
+    if (hidden) { toast(hidden, true); return null; }
     return later(() => action('move', {dx, dy}));
   }
 

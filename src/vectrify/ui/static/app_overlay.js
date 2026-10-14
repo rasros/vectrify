@@ -109,6 +109,8 @@ export function createOverlayController(editor, {
     for (const element of targets) {
       // Clip contours are drawn in all of their consumer frames below.
       if (element.closest('clipPath')) continue;
+      // Hidden objects have no place on the canvas: the tree marks them.
+      if (object(element.dataset.objectId)?.inherited_hidden) continue;
       const matrix = localToOverlay(element);
       if (!element?.getBBox || !matrix) continue;
       try {

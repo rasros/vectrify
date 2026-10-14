@@ -33,7 +33,8 @@ export function createViewController(editor, {
     for (const element of targets) {
       const clip = element.closest('clipPath');
       const matrices = clip ? clippingFrames(element, drawing, overlay.getScreenCTM()).map(frame => frame.matrix) : [localToOverlay(element)];
-      if (!element.getBBox) continue;
+      // Hidden objects have no place on the canvas to zoom to.
+      if (!element.getBBox || element.closest?.('[display="none"]')) continue;
       try {
         const b = element.getBBox();
         const style = getComputedStyle(element);

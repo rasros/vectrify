@@ -1,3 +1,4 @@
+import {hiddenRefusal} from './visibility.js';
 import {boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, pickTarget, pointInside, pointKey, pointerTarget, rectInside, selectionContains, splitKey} from './selection.js';
 import {SHAPE_TOOLS} from './shapes.js';
 
@@ -209,7 +210,8 @@ export function createCanvasController(editor, {
       return selectPoints(editor.state.selection.objects, boxSelect(selectedPoints(), found, finished.shift));
     }
     const container = editor.scope || editor.state.root;
-    const found = editor.state.objects.filter(item => item.parent === container && !item.resource && !['defs', 'clipPath'].includes(item.tag)).filter(item => {
+    // Hidden objects are not drawn, so a box does not catch them.
+    const found = editor.state.objects.filter(item => item.parent === container && !item.resource && !item.inherited_hidden && !['defs', 'clipPath'].includes(item.tag)).filter(item => {
       const rect = svgElement(item.id)?.getBoundingClientRect();
       return rect && rect.width + rect.height > 0 && rectInside(rect, box);
     }).map(item => item.id);
@@ -301,7 +303,8 @@ export function createCanvasController(editor, {
           const element = svgElement(oid);
           return {id:oid, element, before:object(oid).attributes.transform || '', frame: element && localToOverlay(element.parentElement)};
         }).filter(m=>m.element && m.frame);
-        startGesture('move', event, common, {id, members, box: editor.selectionBox && {...editor.selectionBox}}); return;
+        const refusal = hiddenRefusal(topSelection(), object, 'move');
+        startGesture('move', event, common, {id, members, refusal, box: editor.selectionBox && {...editor.selectionBox}}); return;
       }
     }
     startGesture('box', event, common, {id});
