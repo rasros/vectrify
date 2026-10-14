@@ -183,6 +183,6 @@ export function createAlignController(editor, {
     });
     return api;
   }
-  const api = {trackKey, keyObject, alignPlan, distributePlan, alignRefusal, distributeRefusal, alignDescription, distributeDescription, align, distribute, renderAlign, drawKeyObject, wire};
+  const api = {trackKey, keyObject, lockRefusal, alignPlan, distributePlan, alignRefusal, distributeRefusal, alignDescription, distributeDescription, align, distribute, renderAlign, drawKeyObject, wire};
   return api;
 }

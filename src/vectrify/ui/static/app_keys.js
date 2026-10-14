@@ -1,4 +1,4 @@
-
+import {NUDGE_STEP, NUDGE_STEP_LARGE} from './app_config.js';
 
 // Keys owns its controls; editor contains the live state shared with other controllers.
 export function createKeysController(editor, {
@@ -16,6 +16,7 @@ export function createKeysController(editor, {
   input,
   later,
   level,
+  nudge,
   oneObject,
   openPalette,
   regionBack,
@@ -30,6 +31,13 @@ export function createKeysController(editor, {
   stepUp,
   window = globalThis.window,
 } = {}) {
+
+  // Arrow keys nudge the selection; with Shift, ten times as far.
+  const NUDGES = {arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1]};
+
+  // Where arrow keys keep their own meaning: the object tree, menus, the
+  // palette's list and choices. Text fields and dialogs keep all keys.
+  const NAVIGATES = '[role="tree"], [role="menu"], [role="listbox"], [role="radiogroup"], [role="dialog"], [role="slider"]';
 
   // Tool shortcuts; Space held pans.
   const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', p: 'pencil', i: 'eyedropper', c: 'knife', x: 'region', g: 'gradient', r: 'redraw'};
@@ -87,8 +95,9 @@ export function createKeysController(editor, {
       if (!busy && editor.state && !event.repeat) later(stepUp);
       return;
     }
-    // Held keys repeat; while an edit runs the repeats would pile up.
-    if(event.repeat&&(editor.pending||input.waiting)&&!['arrowleft','arrowright','arrowup','arrowdown'].includes(key)){event.preventDefault();return;}
+    // Held keys repeat; while an edit runs the repeats would pile up. Held
+    // arrows add up into the nudge waiting instead.
+    if(event.repeat&&(editor.pending||input.waiting)&&!NUDGES[key]){event.preventDefault();return;}
     if (editor.tool==='path' && editor.pathDraft.length) {
       if (event.key==='Enter') {event.preventDefault();later(()=>finishPath(false));return;}
       if (event.key==='Backspace' || event.key==='Delete' || (mod&&key==='z')) {
@@ -101,6 +110,9 @@ export function createKeysController(editor, {
       if (event.key==='Enter') {event.preventDefault();later(regionEnter);return;}
       if ((event.key==='Backspace' || event.key==='Delete') && !editor.region.closed) {event.preventDefault();if(!editor.drag)regionBack();return;}
     }
+    // Ctrl/⌘ A selects everything at the editing level, or every point of
+    // the selected paths in a point tool; text fields keep their own.
+    if(mod&&!event.altKey&&!event.shiftKey&&key==='a'){event.preventDefault();if(!event.repeat)later(()=>runCommand('select-all'));return;}
     if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
     if(mod&&!event.altKey&&!event.shiftKey&&['c','v'].includes(key)){
       event.preventDefault();later(()=>runCommand(key==='c'?'copy':'paste'));return;
@@ -119,6 +131,14 @@ export function createKeysController(editor, {
       later(()=>{if(editor.state?.selection.objects.length)runCommand(command);});return;
     }
     if(mod||event.altKey)return;
+    if(NUDGES[key]){
+      // Not while a gesture is under way, nor with nothing selected, when
+      // the key keeps its default.
+      if(document.activeElement?.closest?.(NAVIGATES)||editor.drag||editor.pathDraft.length||editor.region||!editor.state?.selection.objects.length)return;
+      event.preventDefault();
+      const step=event.shiftKey?NUDGE_STEP_LARGE:NUDGE_STEP;
+      nudge(NUDGES[key][0]*step,NUDGES[key][1]*step);return;
+    }
     if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
     // Tools and the view are on the left hand. A tool key switches at once,
     // even while an edit runs, and cancels a gesture under way.
@@ -166,6 +186,6 @@ export function createKeysController(editor, {
     window.addEventListener('beforeunload',event=>{if(editor.dirty||editor.pathDraft.length){event.preventDefault();event.returnValue='';}});
       return api;
   }
-  const api = {TOOL_KEYS, stripKeys, cancelGesture, gestureModifiers, keyDown, wire};
+  const api = {TOOL_KEYS, NUDGES, stripKeys, cancelGesture, gestureModifiers, keyDown, wire};
   return api;
 }

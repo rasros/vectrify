@@ -6,17 +6,32 @@
 // A queue of input. *busy* says whether an edit is running, *idle* resolves
 // once none is. Input runs at once when nothing is running or waiting;
 // otherwise after the running edits and the input queued before it.
+//
+// Input of one *kind* can coalesce instead: while the last input queued is
+// of the same kind and has not started, a new one merges into it (*merge*
+// combines their values) and *fn* runs once, with the total, when its turn
+// comes. Held arrow keys so send one nudge per edit, not one per repeat.
 export function inputQueue(busy, idle) {
-  let chain = Promise.resolve(), waiting = 0;
+  let chain = Promise.resolve(), waiting = 0, last = null;
+  function run(fn) {
+    last = null;
+    if (!busy() && !waiting) return fn();
+    waiting++;
+    const result = chain.then(async () => { await idle(); return fn(); }).finally(() => { waiting--; });
+    chain = result.catch(() => {});
+    return result;
+  }
+  function coalesce(kind, value, merge, fn) {
+    if (last && last.kind === kind && !last.started) { last.value = merge(last.value, value); return last.result; }
+    const entry = {kind, value, started: false};
+    entry.result = run(() => { entry.started = true; return fn(entry.value); });
+    if (!entry.started) last = entry;
+    return entry.result;
+  }
   return {
     get waiting() { return waiting; },
-    run(fn) {
-      if (!busy() && !waiting) return fn();
-      waiting++;
-      const result = chain.then(async () => { await idle(); return fn(); }).finally(() => { waiting--; });
-      chain = result.catch(() => {});
-      return result;
-    },
+    run,
+    coalesce,
   };
 }
 

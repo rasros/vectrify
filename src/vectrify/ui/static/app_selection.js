@@ -1,17 +1,26 @@
-import {DOUBLE_CLICK, POINT_REACH} from './app_config.js';
-import {pickTarget, splitKey} from './selection.js';
+import {DOUBLE_CLICK, NUDGE_RUN, POINT_REACH} from './app_config.js';
+import {pickTarget, pointKey, splitKey} from './selection.js';
+
+// What Select all leaves out: definitions, gradients and clipping paths,
+// which are not drawn where they are.
+const UNSELECTABLE = ['defs', 'clipPath', 'linearGradient', 'stop'];
 
 // Selection owns its controls; editor contains the live state shared with other controllers.
 export function createSelectionController(editor, {
   $,
   action,
+  carryHandles,
   contourAt,
   document = globalThis.document,
   focusSelection,
   geometryNodes,
   later,
+  laterMerged,
   level,
+  localToOverlay,
+  moveLockRefusal,
   nodeAt,
+  now = () => globalThis.performance.now(),
   object,
   overlay,
   parents,
@@ -19,6 +28,7 @@ export function createSelectionController(editor, {
   pointTargetsNow,
   renderCommands,
   request,
+  restoreValues,
   revealObject,
   runCommand,
   scheduleStrip,
@@ -27,6 +37,8 @@ export function createSelectionController(editor, {
   sharingPaths,
   svgElement,
   toast,
+  topSelection,
+  valuesById,
 } = {}) {
 
   const nearKey = target => target && `${target.dataset.object} ${target.dataset.node} ${target.dataset.part}`;
@@ -255,6 +267,98 @@ export function createSelectionController(editor, {
     action('node', {object: id, node: nodeId, values: [...node.values.slice(0,-2), x, y]});
   }
 
+  // Select all: in a point tool, every point of the selected paths; else
+  // every object at the editing level, inside the entered group if any, that
+  // is drawn: not definitions, gradients or clipping boundaries.
+  function selectAllTargets() {
+    if (level() === 'points') return pointPaths().flatMap(id => geometryNodes(id).map(node => pointKey(id, node.id)));
+    const container = editor.scope || editor.state.root;
+    return editor.state.objects.filter(item => item.parent === container && !item.resource && !UNSELECTABLE.includes(item.tag)).map(item => item.id);
+  }
+
+  function selectAllRefusal() {
+    if (level() === 'points') return pointPaths().length ? '' : 'Select paths first: Select all then picks all their points';
+    return selectAllTargets().length ? '' : editor.scope ? 'The entered group has nothing to select' : 'The drawing has nothing to select';
+  }
+
+  function selectAll() {
+    const found = selectAllTargets();
+    if (level() === 'points') return found.length ? selectPoints(editor.state.selection.objects, found) : undefined;
+    editor.activeHandle = null; editor.clickCycle = null; editor.focusPoint = null;
+    return action('select', {objects: found}, 'Selecting…');
+  }
+
+  // Arrow keys nudge the selection by *dx*, *dy* in document units: the
+  // selected points in a point tool, else the selected objects. Nudges
+  // pressed while an edit runs add up into one edit, sent once it is done,
+  // so a held key never queues a backlog. A run of nudges of one selection,
+  // each within NUDGE_RUN of the last, is one undo step (the server joins
+  // them while nothing else changes the drawing in between).
+  let nudgeRun = null;
+
+  function nudge(dx, dy) {
+    const {epoch, selection} = editor.state, key = JSON.stringify([epoch, level() === 'points', selection.objects, selection.nodes]), time = now();
+    if (!nudgeRun || nudgeRun.key !== key || time - nudgeRun.time > NUDGE_RUN) nudgeRun = {id: `${epoch}:${time}:${Math.random().toString(36).slice(2)}`, key};
+    nudgeRun.time = time;
+    const run = nudgeRun.id;
+    return laterMerged(`nudge ${run}`, [dx, dy], (a, b) => [a[0] + b[0], a[1] + b[1]], ([x, y]) => nudgeBy(x, y, run));
+  }
+
+  async function nudgeBy(dx, dy, run) {
+    if (!editor.state || (!dx && !dy)) return false;
+    const edit = level() === 'points' ? pointNudge(dx, dy) : objectNudge();
+    if (!edit) return false;
+    if (edit.refusal) { toast(edit.refusal, true); return false; }
+    if (edit.changes) return action('move_nodes', {changes: edit.changes, nudge: run}, 'Moving points…');
+    return action('move', {dx, dy, nudge: run}, 'Moving selection…');
+  }
+
+  // The objects move through the move command, which takes the document
+  // offset into each one's own frame; locked positions refuse.
+  function objectNudge() {
+    const top = topSelection();
+    if (!top.length) return null;
+    if (top.some(id => UNSELECTABLE.includes(object(id)?.tag))) return {refusal: 'Definitions keep their place: select drawing objects to move'};
+    const refusal = moveLockRefusal(top);
+    return refusal ? {refusal} : {};
+  }
+
+  // The selected points move by the offset taken into each path's own frame,
+  // their handles riding along, as a drag moves them: a point of geometry
+  // shared by several shown paths moves once.
+  function pointNudge(dx, dy) {
+    const points = selectedPoints();
+    if (!points.length) return null;
+    if (points.some(key => nodeAt(key)?.pinned)) return {refusal: 'Pinned points stay put: unpin them to move them'};
+    const locked = [...new Set(points.map(key => splitKey(key)[0]))].map(object).find(item => item?.inherited_locks.includes('geometry'));
+    if (locked) return {refusal: `${locked.label}: geometry is locked; unlock it to move its points`};
+    const once = new Set(), moving = new Map();
+    for (const key of points) {
+      const [id, nodeId] = splitKey(key), twin = `${editor.geometries.get(id)?.id} ${nodeId}`;
+      if (!nodeAt(key) || once.has(twin)) continue;
+      once.add(twin);
+      if (!moving.has(id)) moving.set(id, new Set());
+      moving.get(id).add(nodeId);
+    }
+    const changes = {};
+    for (const [id, nodes] of moving) {
+      const g = editor.geometries.get(id), matrix = localToOverlay(svgElement(id));
+      if (!g || !matrix) continue;
+      // The overlay is in document units: its inverse's linear part takes
+      // the offset into the path's frame, through any nested transforms.
+      const {a, b, c, d} = matrix.inverse(), x = a * dx + c * dy, y = b * dx + d * dy;
+      const saved = valuesById(g);
+      for (const node of geometryNodes(id)) if (nodes.has(node.id)) { const v = node.values; v[v.length-2] += x; v[v.length-1] += y; }
+      carryHandles(g, saved);
+      for (const node of geometryNodes(id)) {
+        const before = saved.get(node.id);
+        if (node.values.some((v, i) => v !== before[i])) (changes[id] ||= {})[node.id] = [...node.values];
+      }
+      restoreValues(g, saved);
+    }
+    return Object.keys(changes).length ? {changes} : null;
+  }
+
   function wire() {
     // The point's coordinates, in the right panel and the Nodes strip.
     for (const field of document.querySelectorAll('.point-x, .point-y')) {
@@ -269,6 +373,6 @@ export function createSelectionController(editor, {
     $('node-pin').onchange=()=>runCommand('pin');
       return api;
   }
-  const api = {nearKey, nearestPoint, pointContours, selectObject, sameClickSpot, clickTargets, selectAtPoint, clickEmpty, pointPairs, focusedPoint, nodeHandles, handleCount, selectedHandle, straightenHandles, renderNodeInspector, holesKey, holeContours, loadNodeHoles, plural, fillPointHoles, pointHolesToShapes, movePointTo, wire};
+  const api = {nearKey, nearestPoint, pointContours, selectObject, sameClickSpot, clickTargets, selectAtPoint, clickEmpty, pointPairs, focusedPoint, nodeHandles, handleCount, selectedHandle, straightenHandles, renderNodeInspector, holesKey, holeContours, loadNodeHoles, plural, fillPointHoles, pointHolesToShapes, movePointTo, selectAllTargets, selectAllRefusal, selectAll, nudge, nudgeBy, pointNudge, wire};
   return api;
 }

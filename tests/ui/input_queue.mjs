@@ -70,3 +70,28 @@ dropped.record(event('pointerup', 9));
 seen.length = 0;
 assert.equal(dropped.replay(handlers), false);
 assert.deepEqual(seen, []);
+
+// Coalesced input: with nothing running it runs at once; while an edit runs,
+// repeats of one kind add up into the one input waiting, which runs once with
+// the total. Other input queued after it starts a new one, so order holds.
+const sum = (a, b) => a + b, nudges = [];
+const nudge = (kind, step) => queue.coalesce(kind, step, sum, total => { nudges.push(`${kind} ${total}`); return edit(log, `${kind} ${total}`); });
+const firstNudge = nudge('right', 1);
+assert.deepEqual(nudges, ['right 1']);
+for (let i = 0; i < 5; i++) nudge('right', 1);
+assert.equal(queue.waiting, 1, 'five repeats wait as one input');
+queue.run(() => nudges.push('key'));
+nudge('right', 10);
+nudge('right', 1);
+nudge('up', 1);
+assert.equal(queue.waiting, 4);
+await firstNudge;
+while (queue.waiting) await new Promise(resolve => setTimeout(resolve, 2));
+assert.deepEqual(nudges, ['right 1', 'right 5', 'key', 'right 11', 'up 1']);
+// Once one has started, a repeat queues anew rather than changing it.
+nudges.length = 0;
+const started = nudge('left', 1);
+nudge('left', 2);
+await started;
+while (queue.waiting) await new Promise(resolve => setTimeout(resolve, 2));
+assert.deepEqual(nudges, ['left 1', 'left 2']);

@@ -9,6 +9,15 @@ export const FRAME_REACH = 6;
 // How far, in screen pixels, the rotation handle sits above the selection's frame.
 export const ROTATE_REACH = 24;
 
+// Arrow keys nudge the selection by NUDGE_STEP document units, with Shift
+// by NUDGE_STEP_LARGE: a step does not depend on the zoom, and lands on whole
+// units from a whole-unit position, as X, Y and Move by give them.
+export const NUDGE_STEP = 1, NUDGE_STEP_LARGE = 10;
+
+// Nudges of one selection less than this many milliseconds apart are one
+// undo step.
+export const NUDGE_RUN = 1000;
+
 // Two clicks at one spot within this many milliseconds are a double-click.
 export const DOUBLE_CLICK = 400;
 

@@ -105,13 +105,15 @@ export function createCommandsController(editor, {
   // The context menu offers the commands for what is selected: object
   // commands for objects, Nodes for points. Those that cannot run now are
   // dimmed with the reason, as everywhere else.
-  const MENU_GROUPS = {objects: ['Select', 'Object', 'Transform', 'Arrange', 'Path', 'Clipping', 'Repair'], points: ['Nodes']};
+  const MENU_GROUPS = {objects: ['Select', 'Object', 'Transform', 'Arrange', 'Path', 'Clipping', 'Repair'], points: ['Select', 'Nodes']};
+  // Of Select, a point tool's menu offers only Select all points.
+  const MENU_SKIPS = {objects: ['step-up'], points: ['step-up', 'enter']};
 
   function openContextMenu(x, y) {
-    const menu = $('context-menu'), groups = MENU_GROUPS[level() === 'points' ? 'points' : 'objects'];
+    const menu = $('context-menu'), kind = level() === 'points' ? 'points' : 'objects', groups = MENU_GROUPS[kind];
     menu.replaceChildren();
     for (const group of groups) {
-      const shown = COMMANDS.filter(command => command.group === group && !command.hidden?.() && command.id !== 'step-up');
+      const shown = COMMANDS.filter(command => command.group === group && !command.hidden?.() && !MENU_SKIPS[kind].includes(command.id));
       if (!shown.length) continue;
       if (menu.children.length) menu.append(Object.assign(document.createElement('div'), {className: 'menu-divider', role: 'separator'}));
       menu.append(Object.assign(document.createElement('div'), {className: 'menu-heading', textContent: group, role: 'presentation'}));

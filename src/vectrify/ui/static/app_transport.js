@@ -32,8 +32,13 @@ export function createTransportController(editor, {
 
   const input = inputQueue(() => editor.pending > 0 || !!editor.drag, idle);
 
-  function later(fn) {
-    const result = input.run(fn);
+  function later(fn) { return queued(input.run(fn)); }
+
+  // Like later(), but merging into input of the same *kind* still waiting
+  // (inputQueue's coalesce): repeated keys then make one edit, not a backlog.
+  function laterMerged(kind, value, merge, fn) { return queued(input.coalesce(kind, value, merge, fn)); }
+
+  function queued(result) {
     document.body.setAttribute('aria-busy', String(editor.pending > 0 || input.waiting > 0));
     Promise.resolve(result).catch(() => {}).finally(() => document.body.setAttribute('aria-busy', String(editor.pending > 0 || input.waiting > 0)));
     return result;
@@ -65,6 +70,6 @@ export function createTransportController(editor, {
     $('toast-close').onclick = () => $('toast').hidden = true;
       return api;
   }
-  const api = {toast, setBusy, idle, input, later, desktop, bridge, request, wire};
+  const api = {toast, setBusy, idle, input, later, laterMerged, desktop, bridge, request, wire};
   return api;
 }
