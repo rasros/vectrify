@@ -413,3 +413,16 @@ button[data-command="straighten-handles"][aria-pressed=mixed] { border-color: #6
 #overlay .region-target.whole .selection-filled { fill: #ff6b6b; }
 #overlay .region-target.inside .selection-contour, #overlay .region-target.uncut .selection-contour { stroke: #9aa8a0; stroke-dasharray: calc(4px * var(--selection-scale,1)) calc(3px * var(--selection-scale,1)); }
 #overlay .region-target.inside .selection-filled, #overlay .region-target.uncut .selection-filled { fill: none; }
+.eyedropper-status { color: #b9cbbf; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.eyedropper-status.refused { color: #f0b7a7; }
+.paint-row .eyedropper-button { padding: 4px 5px; line-height: 0; }
+.eyedropper-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#overlay .eyedropper-halo { fill: none; stroke: #052b3a; }
+#overlay .eyedropper-ring { fill: none; stroke: #fff; }
+#overlay .eyedropper-swatch { stroke: #052b3a; }
+#overlay .eyedropper-swatch.fill { fill: #5cdeff; }
+#overlay .eyedropper-swatch.stroke { fill: #fff; stroke: #5cdeff; }
+#overlay .eyedropper-label { fill: #fff; stroke: #052b3a; stroke-linejoin: round; paint-order: stroke; font-family: inherit; }
+#overlay .eyedropper-mark.refused .eyedropper-ring, #overlay .eyedropper-mark.refused .eyedropper-swatch { stroke: #ff8a5c; }
+#overlay .eyedropper-mark.refused .eyedropper-swatch.fill { fill: #ff8a5c; }
+#overlay .eyedropper-mark.refused .eyedropper-label { fill: #ffc9b3; }

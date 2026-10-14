@@ -32,7 +32,7 @@ export function createKeysController(editor, {
 } = {}) {
 
   // Tool shortcuts; Space held pans.
-  const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', c: 'knife', x: 'region', g: 'gradient', r: 'redraw'};
+  const TOOL_KEYS = {a: 'select', v: 'move', s: 'nodes', d: 'path', m: 'rect', e: 'ellipse', l: 'line', i: 'eyedropper', c: 'knife', x: 'region', g: 'gradient', r: 'redraw'};
 
   // A tool strip's numbered controls, by digit.
   function stripKeys(name) {

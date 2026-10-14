@@ -238,6 +238,11 @@ export function createCanvasController(editor, {
       common.deselectOutside = false;
       startGesture('shape', event, common, {tool: editor.tool}); return;
     }
+    // The eyedropper samples wherever it is pressed, the selection staying.
+    if (editor.tool === 'eyedropper') {
+      common.deselectOutside = false;
+      startGesture('eyedropper', event, common); return;
+    }
     if (editor.tool === 'path' && !common.deselectOutside) {
       const p=point(event), first=editor.pathDraft[0];
       if (first && editor.pathDraft.length>=3 && Math.hypot(p.x-first.x,p.y-first.y)*editor.zoom<8) {
@@ -333,6 +338,7 @@ export function createCanvasController(editor, {
       if (editor.tool==='path' && editor.pathDraft.length) {editor.pathHover=point(event);drawOverlay();}
       if (editor.tool==='redraw' && redrawLines()) {const p=point(event);editor.redrawHover=[p.x,p.y];drawOverlay();}
       if (editor.tool==='region' && editor.region && !editor.region.closed) {const p=point(event);editor.regionHover={x:p.x,y:p.y};drawOverlay();}
+      if (editor.tool==='eyedropper' && editor.state) {const p=point(event);editor.eyedropperHover={x:p.x,y:p.y};drawOverlay();}
       if (['nodes', 'redraw'].includes(editor.tool) && editor.state) hoverPoints(event);
       if (editor.tool === 'move' && editor.state) hoverResize(event);
       if (editor.tool === 'gradient' && editor.state) stage.style.cursor = gradientCursor(event.clientX, event.clientY) || 'default';

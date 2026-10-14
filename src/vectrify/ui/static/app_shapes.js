@@ -94,6 +94,14 @@ export function createShapesController(editor, {
     showSize();
   }
 
+  // A colour for the drawing paint's fill or stroke, as its picker sets it:
+  // turned on and remembered.
+  function setColour(kind, colour) {
+    if (!COLOUR.test(colour)) return;
+    settings[kind] = colour.toLowerCase(); settings[`${kind}On`] = true;
+    remember(); renderControls();
+  }
+
   function preview(gesture) {
     gesture.shape = dragShape(gesture);
     showSize(shapeSize(gesture.shape));
@@ -166,6 +174,6 @@ export function createShapesController(editor, {
     };
     return api;
   }
-  const api = {settings: () => settings, paint, container, dragShape, clickShape, showSize, renderControls, preview, cancel, drawShape, finish, wire};
+  const api = {settings: () => settings, paint, setColour, container, dragShape, clickShape, showSize, renderControls, preview, cancel, drawShape, finish, wire};
   return api;
 }

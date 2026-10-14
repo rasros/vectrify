@@ -113,6 +113,8 @@ class Backend:
                     result = session.holes(data)
                 elif path == "/api/region":
                     result = session.region(data)
+                elif path == "/api/sample":
+                    result = session.sample(data)
                 elif path == "/api/nodes":
                     session.check_revision(data)
                     result = (

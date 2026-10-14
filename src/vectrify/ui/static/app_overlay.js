@@ -16,6 +16,7 @@ export function createOverlayController(editor, {
   drawPathDraft,
   drawPoints,
   drawRedraw,
+  drawEyedropper,
   drawRegion,
   drawRotation = () => {},
   drawShape,
@@ -136,6 +137,7 @@ export function createOverlayController(editor, {
     drawShape();
     drawKnife();
     drawRegion();
+    drawEyedropper();
     drawRedraw();
     drawSnap();
     drawBox();

@@ -48,6 +48,7 @@ export function createCanvasEventsController(editor, {
   restoreValues,
   rotateDrag,
   rotateSelection,
+  sampleColour,
   selectAtPoint,
   selectPoints,
   setTool,
@@ -90,6 +91,7 @@ export function createCanvasEventsController(editor, {
     gradient: {result: gradientDrag, preview: previewGradient, finish: finishGradient, restore: restoreGradient, refuse: message => toast(message, true)},
     knife: {end: knifeEnd, finish: cutWithKnife},
     region: {rectangle: regionRectangle, corner: regionCorner},
+    eyedropper: {sample: sampleColour},
     redraw: {setHover: value => { editor.redrawHover = value; }, finish: redrawOutline},
   });
 

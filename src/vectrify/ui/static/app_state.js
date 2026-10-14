@@ -24,6 +24,7 @@ export function createEditorState() {
       pathHover: null,
       region: null,
       regionHover: null,
+      eyedropperHover: null,
       redrawHover: null,
       selectionBox: null,
       keepRatio: false,

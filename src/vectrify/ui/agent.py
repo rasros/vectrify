@@ -1199,18 +1199,20 @@ class Agent:
         return Reply(data, images)
 
     def _colours(self, at: tuple[float, float], reach: float) -> dict[str, Any]:
-        """The drawing's and the reference's mean colour within *reach* of
-        *at* (half a unit at least), and how far apart they are."""
-        half = max(reach, 0.5)
-        box = (at[0] - half, at[1] - half, 2 * half, 2 * half)
-        size = (17, 17)
-        drawing = agent_look.disc_mean(self._cached("drawing", box, size))
+        """The drawing's and the reference's colour within *reach* of *at*,
+        as the Eyedropper samples them (agent_look.sample_colour), and how
+        far apart they are."""
+        drawing = agent_look.sample_colour(
+            lambda box, size: self._cached("drawing", box, size), at, reach
+        )
         colours: dict[str, Any] = {
             "drawing": agent_look.hex_colour(drawing),
             "reference": None,
         }
         if self.session.reference:
-            reference = agent_look.disc_mean(self._cached("reference", box, size))
+            reference = agent_look.sample_colour(
+                lambda box, size: self._cached("reference", box, size), at, reach
+            )
             colours["reference"] = agent_look.hex_colour(reference)
             colours["difference"] = round(
                 math.dist(drawing, reference) / math.sqrt(3), 4
