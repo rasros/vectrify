@@ -15,10 +15,10 @@ import pathops
 
 from vectrify.document.join import path_geometry
 from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
 from vectrify.refine.cel_plan.score import render
 
-MAX_PIXELS = 1536**2
 MAX_MASK_BYTES = 16 * 1024**2
 MAX_MOVEMENT = 2.0
 PAINT_SPREAD = 24
@@ -48,7 +48,7 @@ class CarrierFit:
         box = Box(0, 0, w, h)
         if (
             self.carrier is None
-            or box.area > MAX_PIXELS
+            or box.area > RASTER_PIXELS
             or box.area * np.dtype(np.float32).itemsize > MAX_MASK_BYTES
         ):
             self.diagnostics["bounds_exclusions"] += 1

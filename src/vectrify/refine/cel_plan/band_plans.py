@@ -21,24 +21,22 @@ from vectrify.document import Editor, Selection, export_svg
 from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.atoms import (
-    CHUNK_PIXELS,
-    MAX_PARTS,
-    AtomLimitError,
-    Atoms,
-)
+from vectrify.refine.cel_plan.atoms import MAX_PARTS, AtomLimitError, Atoms
 from vectrify.refine.cel_plan.band_fit import BandFit, opaque_core
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.filled_bands import (
-    MAX_NATIVE_PIXELS,
-    MAX_NODES,
     MAX_PATHS,
-    MAX_WIDTH,
     _check,
     invert,
     supported_style,
 )
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import (
+    BAND_NODES,
+    BAND_WIDTH,
+    CHUNK_PIXELS,
+    RASTER_PIXELS,
+)
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box, _native_raster
 from vectrify.refine.cel_plan.material_band_fit import MaterialBandFit
 from vectrify.refine.cel_plan.model import StageInterruptedError
@@ -86,7 +84,7 @@ def attached_locality(before, after, oid, removed, changed, size, work):
     is reported separately from byte-exact locality.
     """
     _check(work)
-    if np.prod(size) > MAX_NATIVE_PIXELS:
+    if np.prod(size) > RASTER_PIXELS:
         return None
     ids = tuple(dict.fromkeys((oid, *changed)))
     if len(ids) > MAX_PARTS:
@@ -153,7 +151,7 @@ def separate(geometry, rule, work, *, index=None):
         <= (MAX_SUBPATHS if index is None else MAX_COMPOUND_SUBPATHS)
         or any(not s.closed for s in geometry.subpaths)
         or sum(len(s.nodes) for s in geometry.subpaths)
-        > (MAX_NODES if index is None else MAX_COMPOUND_NODES)
+        > (BAND_NODES if index is None else MAX_COMPOUND_NODES)
     ):
         return None
     if index is None:
@@ -162,7 +160,7 @@ def separate(geometry, rule, work, *, index=None):
         )
     elif type(index) is not int or not 0 <= index < len(geometry.subpaths):
         raise ValueError("A separated band requires an existing contour index")
-    if len(geometry.subpaths[index].nodes) > MAX_NODES:
+    if len(geometry.subpaths[index].nodes) > BAND_NODES:
         return None
     main = replace(geometry, subpaths=(geometry.subpaths[index],))
     marks = replace(
@@ -313,7 +311,7 @@ class BandPlans:
             old.atoms.key if old.atoms is not None else None
         ):
             raise ValueError("Band co-planning requires the ancestor source graph")
-        if np.prod(self.evidence.source_size) > MAX_NATIVE_PIXELS:
+        if np.prod(self.evidence.source_size) > RASTER_PIXELS:
             self.diagnostics["bounded"] += 1
             return
         scoped = [
@@ -395,13 +393,13 @@ class BandPlans:
                     continue
                 for index, sub in enumerate(geometry.subpaths):
                     _check(work)
-                    if not sub.closed or not 3 <= len(sub.nodes) <= MAX_NODES:
+                    if not sub.closed or not 3 <= len(sub.nodes) <= BAND_NODES:
                         continue
                     extent = curve_path(replace(geometry, subpaths=(sub,))).bounds
                     if max(extent[2] - extent[0], extent[3] - extent[1]) < 8:
                         continue
                     eligible.append((len(sub.nodes), surface, style, index))
-            elif 2 <= len(geometry.subpaths) <= MAX_SUBPATHS and nodes <= MAX_NODES:
+            elif 2 <= len(geometry.subpaths) <= MAX_SUBPATHS and nodes <= BAND_NODES:
                 eligible.append((nodes, surface, style, None))
         eligible.sort(key=lambda v: (-v[0], v[1].id))
         before, native_before = None, None
@@ -572,7 +570,7 @@ class BandPlans:
                     else tuple(
                         model.width + delta * amount
                         for amount in (0, -1, -0.5, 0.5, 1)
-                        if 0.8 <= model.width + delta * amount <= MAX_WIDTH
+                        if 0.8 <= model.width + delta * amount <= BAND_WIDTH
                     )
                 )
                 for width in widths:
@@ -1126,7 +1124,7 @@ class BandPlans:
             return None
         ys, xs = np.nonzero(own)
         margin = 16 + int(
-            np.ceil(MAX_WIDTH * np.linalg.norm(matrix[:4]) * max(e.scale) / 2)
+            np.ceil(BAND_WIDTH * np.linalg.norm(matrix[:4]) * max(e.scale) / 2)
         )
         lo = np.minimum(
             np.floor((nb[:2] - e.offset) * e.scale) - margin, (xs.min(), ys.min())

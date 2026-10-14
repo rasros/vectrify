@@ -22,7 +22,8 @@ from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, MAX_NODES, _check
+from vectrify.refine.cel_plan.filled_bands import _check
+from vectrify.refine.cel_plan.limits import BAND_NODES, RASTER_PIXELS
 from vectrify.refine.cel_plan.local import _native_raster
 from vectrify.refine.cel_plan.paint_continuation import _paint, _supported
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT
@@ -290,7 +291,7 @@ class SourceFamily:
             or not curve_path(removed).area
             or any(not s.closed for s in (*original.subpaths, *removed.subpaths))
             or sum(len(s.nodes) for s in original.subpaths) > 1024
-            or sum(len(s.nodes) for s in removed.subpaths) > MAX_NODES
+            or sum(len(s.nodes) for s in removed.subpaths) > BAND_NODES
             or pathops.op(
                 curve_path(removed), curve_path(original), pathops.PathOp.DIFFERENCE
             ).area
@@ -379,7 +380,7 @@ class SourceFamily:
         if (
             len(size) != 2
             or any(type(n) is not int or n <= 0 for n in size)
-            or np.prod(size) > MAX_NATIVE_PIXELS
+            or np.prod(size) > RASTER_PIXELS
             or not _supported(before, owner)
             or not _paint(before, path_style(before, before.element(owner)))
         ):

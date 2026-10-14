@@ -19,12 +19,12 @@ from scipy.ndimage import map_coordinates
 from vectrify.document.join import path_style, transformed_geometry
 from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
-from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, _check
+from vectrify.refine.cel_plan.filled_bands import _check
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS, SOURCE_NODES
 from vectrify.refine.cel_plan.line_fidelity import MAX_PROFILES, MAX_SAMPLES
 from vectrify.refine.cel_plan.local import _native_raster
 
 MAX_PATHS = 256
-MAX_NODES = 16_384
 SUPPORT_ALPHA = 0.05
 EFFECTS = (
     "clip-path",
@@ -90,7 +90,7 @@ class StrokeInventory:
         """
         _check(work)
         h, w = self.guard.shape[:2]
-        if h * w > MAX_NATIVE_PIXELS:
+        if h * w > RASTER_PIXELS:
             raise ValueError("Stroke inventory exceeds the native pixel bound")
         profiles = self.guard.original_profiles(work=work)
         if len(profiles) > MAX_PROFILES:
@@ -116,7 +116,7 @@ class StrokeInventory:
                 continue
             geometry = document.geometry_for(element.id)
             count += sum(len(s.nodes) for s in geometry.subpaths)
-            if len(included) >= MAX_PATHS or count > MAX_NODES:
+            if len(included) >= MAX_PATHS or count > SOURCE_NODES:
                 raise ValueError("Stroke inventory exceeds the editable geometry bound")
             style, _opacity = supported
             frame = root_matrix(document, element.id)

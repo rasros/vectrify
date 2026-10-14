@@ -27,8 +27,9 @@ from vectrify.refine.cel_plan.band_fit import (
     MAX_PARAMETERS,
     painted_context,
 )
-from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, MAX_WIDTH, _check
+from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import BAND_WIDTH, RASTER_PIXELS
 from vectrify.refine.cel_plan.line_fidelity import MAX_PROFILES, FittingBody
 from vectrify.refine.cel_plan.local import HALO, Box, _native_raster
 from vectrify.refine.cel_plan.paint_continuation import _supported
@@ -150,9 +151,9 @@ class SpanBodyFit:
             or self.evidence.rgba.shape != (size[1], size[0], 4)
             or self.guard.shape != self.evidence.rgba.shape
             or added_guard.shape != self.guard.shape
-            or np.prod(size) > MAX_NATIVE_PIXELS
+            or np.prod(size) > RASTER_PIXELS
             or not np.isfinite(width)
-            or not 0.8 <= width <= MAX_WIDTH
+            or not 0.8 <= width <= BAND_WIDTH
             or len(center.subpaths) != 1
             or center.subpaths[0].closed
             or len(center.subpaths[0].nodes) < 2
@@ -386,7 +387,7 @@ class SpanBodyFit:
         minimum = max(0.8, width * 0.5)
         initial = np.r_[np.zeros(len(variables)), minimum]
         limits = [(-float(MAX_MOVEMENT), float(MAX_MOVEMENT))] * len(variables) + [
-            (minimum, min(MAX_WIDTH, width * 1.5))
+            (minimum, min(BAND_WIDTH, width * 1.5))
         ]
         score(initial)
         minimize(

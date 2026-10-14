@@ -27,11 +27,11 @@ from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.contracts import State
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Work
 
 MAX_MARKS = 64
-MAX_NODES = 6_000
 
 
 @dataclass(frozen=True)
@@ -156,7 +156,7 @@ def enclosed(
                 return reject("unsupported-mark-gradient")
         geometry = document.geometry_for(oid)
         nodes += sum(len(s.nodes) for s in geometry.subpaths)
-        if nodes > MAX_NODES:
+        if nodes > DOCUMENT_NODES:
             return reject("mark-node-limit")
         geometries.append(
             transformed_geometry(
@@ -187,7 +187,7 @@ def enclosed(
         selected_members = tuple(
             sorted((*members, *(i for oid in ids for i in surfaces[oid].members)))
         )
-        if sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES:
+        if sum(len(s.nodes) for s in shape.subpaths) > DOCUMENT_NODES:
             return reject("source-alpha-proof-node-limit")
         if not in_core(state, selected_members, survivor, shape, work):
             return reject("unproved-source-alpha-variation")
@@ -247,7 +247,7 @@ def in_core(
             or float(style["opacity"]) != 1
             or element.get("clip-path", "none") != "none"
             or not opaque_fill(document, style["fill"])
-            or sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES
+            or sum(len(s.nodes) for s in shape.subpaths) > DOCUMENT_NODES
         ):
             continue
         shape = transformed_geometry(

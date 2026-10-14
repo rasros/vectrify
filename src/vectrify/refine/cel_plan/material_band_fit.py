@@ -35,9 +35,10 @@ from vectrify.refine.cel_plan.band_fit import (
     MAX_PARAMETERS,
     painted_context,
 )
-from vectrify.refine.cel_plan.filled_bands import MAX_WIDTH, _check
+from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.ink_models import footprint
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import BAND_WIDTH
 from vectrify.refine.cel_plan.local import Box, _native_raster
 from vectrify.refine.cel_plan.paint_continuation import (
     MAX_PATCH_CONTOURS,
@@ -169,7 +170,7 @@ class MaterialBandFit:
         width_min = seed.band.width if width_fixed else max(0.8, seed.band.width * 0.5)
         limits = [(-float(MAX_MOVEMENT), float(MAX_MOVEMENT))] * len(variables)
         if not width_fixed:
-            limits.append((width_min, min(MAX_WIDTH, seed.band.width * 1.5)))
+            limits.append((width_min, min(BAND_WIDTH, seed.band.width * 1.5)))
         if len(limits) > MAX_PARAMETERS:
             return None
         flat = _flat(before.geometry_for(oid), owner_frame, work)
@@ -177,7 +178,7 @@ class MaterialBandFit:
             return None
         strip = curve_path(
             transformed_geometry(
-                footprint(center, MAX_WIDTH, cap="butt"), inverse_matrix(owner_frame)
+                footprint(center, BAND_WIDTH, cap="butt"), inverse_matrix(owner_frame)
             )
         )
         frame = multiply(inverse_matrix(material_frame), owner_frame)

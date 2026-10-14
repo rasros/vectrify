@@ -24,6 +24,7 @@ from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure, measure_link
 from vectrify.refine.cel_plan.ink_carrier import CarrierFit
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.line_fidelity import SourceProfile
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError
@@ -41,7 +42,6 @@ MAX_POINTS = 16_384
 MAX_RUN_POINTS = 2048
 MAX_WIDTH = 16
 MAX_RUN_VARIATION = 3
-MAX_PIXELS = 1536**2
 MAX_MODELS = 8
 MAX_MASK_BYTES = 16 * 1024**2
 PAINT_SPREAD = 24
@@ -818,7 +818,7 @@ def models(
     discovery=None,
 ):
     """Return complete bounded models; interruption discards partial discovery."""
-    if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
+    if work.interrupted or mask.size > RASTER_PIXELS or not mask.any():
         return ()
     if source_intervals and not source_absence:
         raise ValueError("Source intervals require source absence constraints")

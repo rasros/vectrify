@@ -17,9 +17,10 @@ from scipy.ndimage import distance_transform_edt, map_coordinates
 from vectrify.document import Geometry
 from vectrify.document.join import curve_path, transformed_geometry
 from vectrify.document.redraw import root_matrix
-from vectrify.refine.cel_plan.filled_bands import MAX_NODES, MAX_WIDTH, Band, _check
+from vectrify.refine.cel_plan.filled_bands import Band, _check
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.limits import BAND_NODES, BAND_WIDTH
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.crossings import crossings
@@ -56,13 +57,13 @@ class SourceBands:
         if (
             rule not in {"nonzero", "evenodd"}
             or not 0 < tolerance <= 3
-            or not 0 <= width <= MAX_WIDTH
+            or not 0 <= width <= BAND_WIDTH
         ):
             raise ValueError("Source band fitting requires bounded settings")
         if (
             not geometry.subpaths
             or any(not s.closed for s in geometry.subpaths)
-            or sum(len(s.nodes) for s in geometry.subpaths) > MAX_NODES
+            or sum(len(s.nodes) for s in geometry.subpaths) > BAND_NODES
         ):
             return None
         frame = root_matrix(document, oid)
@@ -125,7 +126,7 @@ class SourceBands:
         index, observed = matches[0]
         anchors = observed.anchors
         length = float(np.linalg.norm(np.diff(anchors, axis=0), axis=1).sum())
-        hint = float(np.clip(alpha.sum() / max(length, 1e-12), 0.8, MAX_WIDTH))
+        hint = float(np.clip(alpha.sum() / max(length, 1e-12), 0.8, BAND_WIDTH))
         source = self.evidence.rgba[box.slices]
         measured = measure(
             anchors - lo,
@@ -142,7 +143,7 @@ class SourceBands:
         if (
             len(model.contour.nodes) > 8
             or crossings(shape)
-            or not 0.8 <= measured.width <= MAX_WIDTH
+            or not 0.8 <= measured.width <= BAND_WIDTH
         ):
             return None
         paint = "#" + "".join(

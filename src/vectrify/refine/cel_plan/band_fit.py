@@ -25,8 +25,9 @@ from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.bounds import conservative_bounds
-from vectrify.refine.cel_plan.filled_bands import MAX_WIDTH, _check
+from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import BAND_WIDTH
 from vectrify.refine.cel_plan.local import Box, _native_raster
 from vectrify.refine.cel_plan.score import composite, render
 from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE, SourceAbsence
@@ -342,7 +343,10 @@ class BandFit:
         ] * len(variables)
         if not width_fixed:
             limits.append(
-                (max(0.8, seed.band.width * 0.5), min(MAX_WIDTH, seed.band.width * 1.5))
+                (
+                    max(0.8, seed.band.width * 0.5),
+                    min(BAND_WIDTH, seed.band.width * 1.5),
+                )
             )
         reused = self._cached is not None and self._cached[0] == cache_key
         if reused:

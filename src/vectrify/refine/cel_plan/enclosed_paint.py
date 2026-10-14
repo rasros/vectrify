@@ -24,10 +24,11 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.contracts import Proposal, State
-from vectrify.refine.cel_plan.families import Families, _gradient, _opacity
+from vectrify.refine.cel_plan.families import Families, _opacity, apply_paint
 from vectrify.refine.cel_plan.geometry import Model, ellipse
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.layer_order import ordered
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.nested import Enclosed, in_core
@@ -38,7 +39,6 @@ from vectrify.refine.tracing import _loops
 
 MAX_PIXELS = 65_536
 MAX_PERIMETER = 4_096
-MAX_NODES = 6_000
 RESIDUALS = (48.0, 24.0)
 COVERAGE_REACH = 1.5  # Native pixels, independent of the analysis scale.
 
@@ -261,7 +261,7 @@ def proposals(
                 transformed_geometry(Geometry("interior", (model.contour,)), inverse),
                 survivor,
             )
-            if sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES or crossings(
+            if sum(len(s.nodes) for s in shape.subpaths) > DOCUMENT_NODES or crossings(
                 shape
             ):
                 continue
@@ -308,22 +308,7 @@ def proposals(
             ) as transaction:
                 transaction.delete_objects(frozenset(set(ids) - {survivor}))
                 transaction.replace_geometry(survivor, shape)
-                transaction.set_fill(
-                    survivor,
-                    _gradient(paint, evidence, document, survivor, opacity)
-                    if paint.gradient
-                    else paint.color,
-                )
-                transaction.set_attributes(
-                    survivor,
-                    {
-                        "fill-rule": "nonzero",
-                        "stroke": "none",
-                        "fill-opacity": "1"
-                        if paint.gradient
-                        else repr(min(1.0, paint.opacity / opacity)),
-                    },
-                )
+                apply_paint(transaction, survivor, paint, evidence, document, opacity)
             proposed = ordered(
                 editor.snapshot.document,
                 survivor,

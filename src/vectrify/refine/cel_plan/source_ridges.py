@@ -29,16 +29,12 @@ from vectrify.document.join import (
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
-from vectrify.refine.cel_plan.atoms import MAX_PIXELS, Atoms
+from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.geometry import ellipse
-from vectrify.refine.cel_plan.ink_replace import (
-    MAX_NODES,
-    MAX_PATHS,
-    InkReplacement,
-    identified,
-)
+from vectrify.refine.cel_plan.ink_replace import MAX_PATHS, InkReplacement, identified
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES, RASTER_PIXELS
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import (
     Evidence,
@@ -251,7 +247,7 @@ class SourceRidges:
 
     def bands(self, work):
         evidence = self.evidence
-        if work.interrupted or evidence.drawn.size > MAX_PIXELS:
+        if work.interrupted or evidence.drawn.size > RASTER_PIXELS:
             return
         # Do not close a detected gap or treat an alpha void as an RGB cavity.
         cavities, count = label(binary_fill_holes(evidence.drawn) & ~evidence.drawn)
@@ -378,7 +374,7 @@ class SourceRidges:
                 surfaces[oid].role != "surface"
                 or surfaces[oid].covered
                 or len(ids) > self.max_paths
-                or nodes > MAX_NODES
+                or nodes > DOCUMENT_NODES
                 or style["stroke"] != "none"
                 or float(style["opacity"]) != 1
                 or element.get("clip-path", "none") != "none"
@@ -496,7 +492,7 @@ class SourceRidges:
                 for oid in set(ids) | set(ink_ids)
                 for s in editor.snapshot.document.geometry_for(oid).subpaths
             )
-            > 2 * MAX_NODES
+            > 2 * DOCUMENT_NODES
         ):
             self.diagnostics["geometry_exclusions"] += 1
             return None

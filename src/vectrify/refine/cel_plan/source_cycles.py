@@ -13,13 +13,13 @@ from scipy.ndimage import gaussian_filter1d
 from vectrify.document import Geometry
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
+from vectrify.refine.cel_plan.limits import SOURCE_NODES
 from vectrify.refine.cel_plan.line_fidelity import SourceBreaks, SourceProfile
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.source_intervals import (
     CAP_MARGINS,
     MAX_FITS,
     MAX_INTERVALS,
-    MAX_NODES,
     MAX_RUNS,
     MIN_SUPPORT,
 )
@@ -244,7 +244,7 @@ class SourceCycle:
                 if contour is None:
                     continue
                 nodes = len(contour.nodes)
-                if self.diagnostics["nodes"] + nodes > MAX_NODES:
+                if self.diagnostics["nodes"] + nodes > SOURCE_NODES:
                     raise ValueError("Source cycles exceed the output node bound")
                 self.diagnostics["nodes"] += nodes
                 self.diagnostics["recovered_runs"] += 1

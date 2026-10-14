@@ -20,7 +20,8 @@ from vectrify.document import Geometry
 from vectrify.document.holes import reversed_subpath
 from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
-from vectrify.refine.cel_plan.filled_bands import MAX_NODES, MAX_WIDTH, _check
+from vectrify.refine.cel_plan.filled_bands import _check
+from vectrify.refine.cel_plan.limits import BAND_NODES, BAND_WIDTH
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT, MAX_POINTS
 from vectrify.refine.cel_plan.source_slices import MAX_COMPOUND_NODES
 
@@ -95,7 +96,7 @@ def discover(document, oid, observed, former_field, work):
         or sum(len(s.nodes) for s in original.subpaths) > MAX_COMPOUND_NODES
         or not former_field.subpaths
         or any(not s.closed for s in former_field.subpaths)
-        or sum(len(s.nodes) for s in former_field.subpaths) > MAX_NODES
+        or sum(len(s.nodes) for s in former_field.subpaths) > BAND_NODES
     ):
         return ()
     old, required = curve_path(original), curve_path(former_field)
@@ -119,7 +120,7 @@ def discover(document, oid, observed, former_field, work):
         )
         if len(nearby) < 4:
             continue
-        pairs = KDTree(vertices[nearby]).query_pairs(MAX_WIDTH, output_type="ndarray")
+        pairs = KDTree(vertices[nearby]).query_pairs(BAND_WIDTH, output_type="ndarray")
         if len(pairs) > MAX_CHORDS:
             continue
         chords = sorted(tuple(map(int, nearby[pair])) for pair in pairs)
@@ -136,7 +137,7 @@ def discover(document, oid, observed, former_field, work):
             else:
                 continue
             edges_a, edges_b = _arc(nodes, i, j), _arc(nodes, k, end_b)
-            if not 4 <= 2 + len(edges_a) + len(edges_b) <= MAX_NODES:
+            if not 4 <= 2 + len(edges_a) + len(edges_b) <= BAND_NODES:
                 continue
             field_nodes = (
                 replace(nodes[i], command="M", values=nodes[i].endpoint),
@@ -174,7 +175,10 @@ def discover(document, oid, observed, former_field, work):
                 continue
             guide = (rail_a[::-1] + rail_b) / 2
             length = float(np.linalg.norm(np.diff(guide, axis=0), axis=1).sum())
-            if not length or abs(curve_path(world_field).area) / length > MAX_WIDTH / 2:
+            if (
+                not length
+                or abs(curve_path(world_field).area) / length > BAND_WIDTH / 2
+            ):
                 continue
             remainder = pathops.op(old, path, pathops.PathOp.DIFFERENCE)
             retained = replace(

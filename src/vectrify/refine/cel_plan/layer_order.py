@@ -11,11 +11,11 @@ from vectrify.document.hit_test import multiply
 from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.model import Work
 
 MAX_PROOFS = 16
 MAX_GROUP_PROOFS = 64
-MAX_NODES = 6_000
 
 
 def ordered(
@@ -95,7 +95,7 @@ def ordered_surfaces(
     nodes = sum(len(s.nodes) for shape in footprints for s in shape.subpaths) + sum(
         len(s.nodes) for oid in marks for s in document.geometry_for(oid).subpaths
     )
-    if nodes > MAX_NODES:
+    if nodes > DOCUMENT_NODES:
         diagnostics["order_proof_limits"] += 1
         return None
     group_disjoint: dict[str, bool] = {}
@@ -127,7 +127,7 @@ def ordered_surfaces(
                 continue
             style = path_style(document, child)
             shape = document.geometry_for(child.id)
-            if sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES:
+            if sum(len(s.nodes) for s in shape.subpaths) > DOCUMENT_NODES:
                 diagnostics["order_proof_limits"] += 1
                 return None
             if style["stroke"] != "none" or child.get("clip-path", "none") != "none":

@@ -14,11 +14,11 @@ from typing import Any
 import numpy as np
 
 from vectrify.document import Geometry
+from vectrify.refine.cel_plan.limits import SOURCE_NODES
 from vectrify.refine.cel_plan.model import StageInterruptedError
 
 MAX_STYLES = 8
 MAX_RUNS = 128
-MAX_NODES = 16_384
 MAX_FITS = 256
 FACTORS = (0.9, 0.8, 0.7, 0.6)
 
@@ -61,7 +61,7 @@ class SourceWidths:
         if (
             len(groups) > MAX_STYLES
             or sum(len(g["contours"]) for g in groups) > MAX_RUNS
-            or sum(len(s.nodes) for g in groups for s in g["contours"]) > MAX_NODES
+            or sum(len(s.nodes) for g in groups for s in g["contours"]) > SOURCE_NODES
         ):
             self.diagnostics["bounded"] += 1
             return original

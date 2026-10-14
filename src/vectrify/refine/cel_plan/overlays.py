@@ -25,10 +25,11 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.contracts import Proposal, State
-from vectrify.refine.cel_plan.families import Families, _gradient, _opacity
+from vectrify.refine.cel_plan.families import Families, _opacity, apply_paint
 from vectrify.refine.cel_plan.geometry import Model, ellipse
 from vectrify.refine.cel_plan.ink_replace import InkReplacement, identified
 from vectrify.refine.cel_plan.layer_order import ordered
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
 from vectrify.refine.cel_plan.nested import enclosed
 from vectrify.refine.cel_plan.opacity import fit_samples
@@ -38,7 +39,6 @@ from vectrify.refine.tracing import _loops
 
 MAX_GROUPS = 32
 MAX_PERIMETER = 4_096
-MAX_NODES = 6_000
 MIN_AREA = 64
 MAX_ENCLOSURE_PIXELS = 65_536
 ENCLOSURE_SCAN_PIXELS = 262_144
@@ -133,7 +133,7 @@ class ClosedOverlays:
                     continue
                 geometry = state.document.geometry_for(surface.id)
                 nodes = sum(len(sub.nodes) for sub in geometry.subpaths)
-                if nodes <= MAX_NODES:
+                if nodes <= DOCUMENT_NODES:
                     priority = -1 if surface.members in self.enclosure_hints else 1
                     boxes = [self.restoration.boxes[i] for i in surface.members]
                     if (
@@ -350,21 +350,13 @@ class ClosedOverlays:
                     ) as transaction:
                         transaction.delete_objects(frozenset(set(ids) - {survivor}))
                         transaction.replace_geometry(survivor, shape)
-                        transaction.set_fill(
+                        apply_paint(
+                            transaction,
                             survivor,
-                            _gradient(paint, self.evidence, document, survivor, opacity)
-                            if paint.gradient
-                            else paint.color,
-                        )
-                        transaction.set_attributes(
-                            survivor,
-                            {
-                                "fill-rule": "nonzero",
-                                "stroke": "none",
-                                "fill-opacity": "1"
-                                if paint.gradient
-                                else repr(min(1.0, paint.opacity / opacity)),
-                            },
+                            paint,
+                            self.evidence,
+                            document,
+                            opacity,
                         )
                         for element, geometry in continuations:
                             transaction.replace_geometry(element.id, geometry)

@@ -11,11 +11,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from vectrify.refine.cel_plan.limits import CHUNK_PIXELS
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.material_groups import MAX_MATERIALS
 from vectrify.refine.cel_plan.model import StageInterruptedError
-
-CHUNK_PIXELS = 65_536
 
 
 @dataclass(frozen=True)

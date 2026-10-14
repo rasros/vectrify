@@ -28,7 +28,8 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.constraints import merged
 from vectrify.refine.cel_plan.contracts import Proposal, State
-from vectrify.refine.cel_plan.families import Families, _gradient, _opacity
+from vectrify.refine.cel_plan.families import Families, _opacity, apply_paint
+from vectrify.refine.cel_plan.limits import CHUNK_PIXELS, DOCUMENT_NODES, RASTER_PIXELS
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.nested import in_core
@@ -36,12 +37,9 @@ from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Surface
 from vectrify.refine.crossings import crossings
 
-MAX_PIXELS = 1536**2
-CHUNK_PIXELS = 65_536
 MAX_OWNERS = 4096
 MAX_SEEDS = 8
 MAX_PATHS = 128
-MAX_NODES = 6000
 MAX_PROPOSALS = 16
 MAX_ORDER_PROOFS = 128
 RESIDUALS = (24.0, 48.0)
@@ -129,7 +127,7 @@ class MaterialSurfaces:
             nodes = sum(
                 len(s.nodes) for s in state.document.geometry_for(surface.id).subpaths
             )
-            if len(components) != 1 or nodes > MAX_NODES:
+            if len(components) != 1 or nodes > DOCUMENT_NODES:
                 continue
             eligible[surface.id] = (
                 surface,
@@ -151,7 +149,7 @@ class MaterialSurfaces:
 
     def _screen(self, eligible, paint, work, *, extend=True):
         evidence, graph = self.families.evidence, self.families.graph
-        if graph.labels.size > MAX_PIXELS:
+        if graph.labels.size > RASTER_PIXELS:
             self.diagnostics["bounded_groups"] += 1
             return None
         ids = sorted(eligible)
@@ -249,7 +247,10 @@ class MaterialSurfaces:
                     visited.add(oid)
                     if maximum.get(oid, float("inf")) > limit:
                         continue
-                    if len(ids) >= MAX_PATHS or nodes + eligible[oid][2] > MAX_NODES:
+                    if (
+                        len(ids) >= MAX_PATHS
+                        or nodes + eligible[oid][2] > DOCUMENT_NODES
+                    ):
                         self.diagnostics["bounded_groups"] += 1
                         continue
                     ids.append(oid)
@@ -332,7 +333,7 @@ class MaterialSurfaces:
                     if accumulated is None
                     else pathops.op(accumulated, shape, pathops.PathOp.UNION)
                 )
-                if sum(1 for _ in accumulated) > MAX_NODES:
+                if sum(1 for _ in accumulated) > DOCUMENT_NODES:
                     self.diagnostics["order_limits"] += 1
                     return False
                 continue
@@ -348,7 +349,7 @@ class MaterialSurfaces:
             if (
                 style["stroke"] != "none"
                 or child.get("clip-path", "none") != "none"
-                or group_nodes > MAX_NODES
+                or group_nodes > DOCUMENT_NODES
             ):
                 self.diagnostics["order_limits"] += 1
                 return False
@@ -361,7 +362,7 @@ class MaterialSurfaces:
                 if intervening is None
                 else pathops.op(intervening, shape, pathops.PathOp.UNION)
             )
-            if sum(1 for _ in intervening) > MAX_NODES:
+            if sum(1 for _ in intervening) > DOCUMENT_NODES:
                 self.diagnostics["order_limits"] += 1
                 return False
         return disjoint() and not work.interrupted
@@ -385,7 +386,7 @@ class MaterialSurfaces:
             )
             if work.interrupted:
                 return
-            if sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES or crossings(
+            if sum(len(s.nodes) for s in shape.subpaths) > DOCUMENT_NODES or crossings(
                 shape
             ):
                 self.diagnostics["bounded_groups"] += 1
@@ -406,23 +407,13 @@ class MaterialSurfaces:
             with editor.transaction("Propose broad coherent material") as transaction:
                 transaction.delete_objects(frozenset(set(ids) - {survivor}))
                 transaction.replace_geometry(survivor, shape)
-                transaction.set_fill(
+                apply_paint(
+                    transaction,
                     survivor,
-                    _gradient(
-                        paint, self.families.evidence, document, survivor, opacity
-                    )
-                    if paint.gradient
-                    else paint.color,
-                )
-                transaction.set_attributes(
-                    survivor,
-                    {
-                        "fill-rule": "nonzero",
-                        "stroke": "none",
-                        "fill-opacity": "1"
-                        if paint.gradient
-                        else repr(min(1.0, paint.opacity / opacity)),
-                    },
+                    paint,
+                    self.families.evidence,
+                    document,
+                    opacity,
                 )
             proposed = editor.snapshot.document
             holds = set(state.details.get("geometry_constraints", ()))

@@ -19,7 +19,8 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.constraints import discard, merged
 from vectrify.refine.cel_plan.contracts import Proposal
-from vectrify.refine.cel_plan.families import _gradient, _opacity
+from vectrify.refine.cel_plan.families import _opacity, apply_paint
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES, SURFACE_BOX_PIXELS
 from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.nested import in_core
 from vectrify.refine.cel_plan.opacity import fit_samples
@@ -28,11 +29,9 @@ from vectrify.refine.cel_plan.surface_models import prediction
 from vectrify.refine.crossings import crossings
 
 MAX_OWNERS = 8
-MAX_PIXELS = 262_144
 MAX_EDGES = 4096
 MAX_LINES = 4
 MAX_PROPOSALS = 16
-MAX_NODES = 6000
 MAX_MEMBERS = 128
 MIN_JUMP = 16.0
 MAX_RESIDUAL = 48.0
@@ -172,7 +171,7 @@ class SurfaceSplits:
                 continue
             y0, y1 = min(b[0].start for b in boxes), max(b[0].stop for b in boxes)
             x0, x1 = min(b[1].start for b in boxes), max(b[1].stop for b in boxes)
-            if (y1 - y0) * (x1 - x0) > MAX_PIXELS:
+            if (y1 - y0) * (x1 - x0) > SURFACE_BOX_PIXELS:
                 self.diagnostics["bounded"] += 1
                 continue
             roi = (slice(y0, y1), slice(x0, x1))
@@ -215,7 +214,8 @@ class SurfaceSplits:
                     return
                 if (
                     any(not s.subpaths or crossings(s) for s in shapes)
-                    or sum(len(p.nodes) for s in shapes for p in s.subpaths) > MAX_NODES
+                    or sum(len(p.nodes) for s in shapes for p in s.subpaths)
+                    > DOCUMENT_NODES
                 ):
                     self.diagnostics["bounded"] += 1
                     continue
@@ -281,23 +281,8 @@ class SurfaceSplits:
                             if opacity <= 0:
                                 break
                             with editor.transaction("Fit shade-side paint") as tx:
-                                tx.set_fill(
-                                    child,
-                                    _gradient(
-                                        paint, evidence, split_document, child, opacity
-                                    )
-                                    if paint.gradient
-                                    else paint.color,
-                                )
-                                tx.set_attributes(
-                                    child,
-                                    {
-                                        "fill-rule": "nonzero",
-                                        "stroke": "none",
-                                        "fill-opacity": "1"
-                                        if paint.gradient
-                                        else repr(min(1.0, paint.opacity / opacity)),
-                                    },
+                                apply_paint(
+                                    tx, child, paint, evidence, split_document, opacity
                                 )
                         else:
                             proposed = editor.snapshot.document

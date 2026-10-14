@@ -22,6 +22,7 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.ink import measure_link
+from vectrify.refine.cel_plan.limits import BAND_WIDTH
 from vectrify.refine.cel_plan.local import _native_raster
 from vectrify.refine.cel_plan.paint_continuation import _supported
 from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE
@@ -32,7 +33,6 @@ MAX_PATHS = 32
 MAX_NODES = 1024
 MAX_PORTS = 128
 MAX_MOVEMENT = 1.5
-MAX_WIDTH = 12
 MATCH = 1e-6
 
 
@@ -121,7 +121,7 @@ class SourceJunctions:
             width = float(style["stroke-width"]) * scale
             if (
                 scale <= 1e-12
-                or not 0.8 <= width <= MAX_WIDTH
+                or not 0.8 <= width <= BAND_WIDTH
                 or not np.allclose(
                     linear.T @ linear, np.eye(2) * scale**2, rtol=1e-8, atol=1e-10
                 )

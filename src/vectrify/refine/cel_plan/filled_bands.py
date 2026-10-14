@@ -30,16 +30,14 @@ from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.contracts import Proposal
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import BAND_NODES, BAND_WIDTH, RASTER_PIXELS
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.crossings import crossings
 
 MAX_POINTS = 16_384
-MAX_NODES = 256
 MAX_PATHS = 16
-MAX_WIDTH = 12
-MAX_NATIVE_PIXELS = 1536**2
 PROFILE_CHUNK = 1024
 
 
@@ -100,7 +98,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
     if (
         not geometry.subpaths
         or any(not sub.closed for sub in geometry.subpaths)
-        or sum(len(sub.nodes) for sub in geometry.subpaths) > MAX_NODES
+        or sum(len(sub.nodes) for sub in geometry.subpaths) > BAND_NODES
     ):
         return None
     bounds = np.asarray(curve_path(geometry).bounds, float)
@@ -124,7 +122,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
     if count != 1:
         return None
     depth = np.asarray(distance_transform_edt(mask))
-    if float(np.percentile(depth[mask], 95)) > MAX_WIDTH / 2:
+    if float(np.percentile(depth[mask], 95)) > BAND_WIDTH / 2:
         return None
     skeleton = cel.thin(mask)
     _check(work)
@@ -135,7 +133,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
     raw = runs[0] + origin
     length = float(np.linalg.norm(np.diff(raw, axis=0), axis=1).sum())
     width = float(alpha.sum() / max(length, 1e-12))
-    if not 0.8 <= width <= MAX_WIDTH or length < max(8, 8 * width):
+    if not 0.8 <= width <= BAND_WIDTH or length < max(8, 8 * width):
         return None
     closed = np.array_equal(raw[0], raw[-1])
     source = raw[:-1] if closed else raw
@@ -148,7 +146,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
     )
     normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-6)
-    offsets = np.arange(-MAX_WIDTH, MAX_WIDTH + 0.125, 0.25)
+    offsets = np.arange(-BAND_WIDTH, BAND_WIDTH + 0.125, 0.25)
     widths = np.empty(len(source))
     shift = np.empty(len(source))
     for start in range(0, len(source), PROFILE_CHUNK):
@@ -179,7 +177,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
     if np.percentile(widths, 90) / max(np.percentile(widths, 10), 0.25) > 2:
         return None
     width = float(np.median(widths))
-    if not 0.8 <= width <= MAX_WIDTH:
+    if not 0.8 <= width <= BAND_WIDTH:
         return None
     centered = source + shift[:, None] * normal
     points = gaussian_filter1d(centered, 1, axis=0, mode=mode)
@@ -197,7 +195,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
             if norm < 1e-6:
                 return None
             direction /= norm
-            distances = np.arange(0, 2 * MAX_WIDTH + 0.125, 0.125)
+            distances = np.arange(0, 2 * BAND_WIDTH + 0.125, 0.125)
             queries = points[end] + distances[:, None] * direction
             opacity = map_coordinates(
                 alpha,
@@ -216,7 +214,7 @@ def invert(geometry, rule, work, *, tolerance=0.25):
     _check(work)
     contour = fitted(points, tolerance).contour
     result = Geometry("band-stroke", (contour,))
-    if len(contour.nodes) > MAX_NODES or crossings(result):
+    if len(contour.nodes) > BAND_NODES or crossings(result):
         return None
     _check(work)
     return Band(result, width, len(raw))
@@ -258,7 +256,7 @@ class FilledBands:
             return
         document = state.document
         width, height = self.evidence.source_size
-        if width * height > MAX_NATIVE_PIXELS:
+        if width * height > RASTER_PIXELS:
             self.diagnostics["bounded"] += 1
             return
         before = None

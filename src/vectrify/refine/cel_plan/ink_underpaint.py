@@ -27,12 +27,12 @@ from vectrify.document.join import (
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.geometry import fitted
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.nested import opaque_fill
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.tracing import _loops
 
-MAX_NODES = 6000
 MAX_PERIMETER = 4096
 
 
@@ -95,7 +95,7 @@ def compact(
         for s in document.geometry_for(oid).subpaths
     )
     node_count += sum(len(s.nodes) for g in (original, rim) for s in g.subpaths)
-    if node_count > MAX_NODES:
+    if node_count > DOCUMENT_NODES:
         return reject("geometry-limit")
     # Both sides meet near the source rim's medial contour. This boundary has
     # no visible significance if every native pixel it can mix is under ink.
@@ -198,7 +198,7 @@ def compact(
     )
     if (
         sum(len(s.nodes) for g in (background, middle_shape) for s in g.subpaths)
-        > MAX_NODES
+        > DOCUMENT_NODES
     ):
         return reject("output-geometry-limit")
     diagnostics["rim_compact_underpaints"] += 1
