@@ -363,6 +363,65 @@ def test_inset_keeps_body_outline_visible_below_shadows_and_expands_holes():
     assert clip_outline(doc, clip).area == pytest.approx(46 * 46 - 24 * 24)
 
 
+CORNER_SVG = """<svg width="100" height="100">
+<g id="style" stroke-linejoin="round" stroke-miterlimit="4">
+<path id="body" fill="green" stroke="black" stroke-width="8"
+ d="M10 10 H90 V90 H50 V50 H10 Z"/></g>
+<path id="shade" fill="blue" d="M0 0 H100 V100 H0 Z"/>
+</svg>"""
+
+
+@pytest.mark.parametrize("join", ["miter", "round", "bevel"])
+@pytest.mark.parametrize("limit", [1, 4])
+def test_inset_matches_inherited_corner_join_and_miter_limit(join, limit):
+    agent = make(CORNER_SVG)
+    call(
+        agent,
+        "properties",
+        ids=["style"],
+        stroke_linejoin=join,
+        stroke_miterlimit=limit,
+    )
+    call(agent, "clip", ids=["shade"], boundary=["body"], inset=4)
+    doc = agent.session.editor.snapshot.document
+    # At a reflex corner the inset must leave exactly the body's stroke
+    # exposed: a hardcoded miter leaves green tabs beside rounded outlines.
+    expected = (0, 0, 0) if join == "miter" and limit == 4 else (0, 0, 255)
+    assert tuple(pixels(doc)[46, 53, :3]) == expected
+    svg = export_svg(doc)
+    loaded = import_svg(svg)
+    assert export_svg(loaded) == svg
+    assert np.array_equal(pixels(doc), pixels(loaded))
+    reopened = Session(import_svg(CORNER_SVG))
+    reopened.open(agent.session.project(), "corners.vectrify")
+    assert export_svg(reopened.editor.snapshot.document) == svg
+
+
+@pytest.mark.parametrize("linked", [True, False])
+def test_inset_corner_settings_follow_linked_source_changes_and_undo(linked):
+    from vectrify.document.clipping import clip_geometry
+
+    agent = make(CORNER_SVG)
+    result = call(
+        agent, "clip", ids=["shade"], boundary=["body"], inset=4, linked=linked
+    )
+    doc = agent.session.editor.snapshot.document
+    boundary = doc.element(result["clipping"][0]["clip"]).children[0]
+    rounded = clip_geometry(doc, boundary).path_data()
+    changed = call(agent, "properties", ids=["style"], stroke_linejoin="miter")
+    doc = agent.session.editor.snapshot.document
+    mitered = clip_geometry(doc, doc.element(boundary.id)).path_data()
+    assert (mitered != rounded) == linked
+    call(agent, "properties", ids=["style"], stroke_miterlimit=1)
+    doc = agent.session.editor.snapshot.document
+    assert (
+        clip_geometry(doc, doc.element(boundary.id)).path_data() != mitered
+    ) == linked
+    call(agent, "undo", ids=[changed["edit_id"]])
+    doc = agent.session.editor.snapshot.document
+    assert clip_geometry(doc, doc.element(boundary.id)).path_data() == rounded
+
+
 @pytest.mark.parametrize("linked", [True, False])
 def test_inset_follows_source_edits_only_when_linked_and_survives_round_trips(linked):
     from vectrify.document.clipping import clip_geometry

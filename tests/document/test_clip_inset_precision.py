@@ -29,7 +29,8 @@ def filled(geometry: Geometry):
 
 
 @pytest.mark.parametrize("inset", [0.1, 0.325, 1.0])
-def test_thin_curved_inset_stays_at_requested_distance(inset):
+@pytest.mark.parametrize("join", ["miter", "round", "bevel"])
+def test_thin_curved_inset_stays_at_requested_distance(inset, join):
     # A tapered curved blade: test both edges away from sharp corners, where
     # the inner stroke perimeter must sit exactly one half-width inward.
     source = parse_path(
@@ -37,7 +38,7 @@ def test_thin_curved_inset_stays_at_requested_distance(inset):
         "C174.141 348.083 169.191 351.997 169.565 357.249 Z"
     )
     area = filled(source)
-    derived = inset_geometry(source, inset, "nonzero")
+    derived = inset_geometry(source, inset, "nonzero", join)
     edge = filled(derived).boundary.intersection(box(170, 341, 176, 348))
     samples = get_coordinates(edge)
     assert len(samples) > 20
