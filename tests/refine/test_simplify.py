@@ -100,7 +100,7 @@ def test_a_join_cannot_add_a_missing_handle_at_a_pinned_end(path, position, offs
 
 
 def test_pinned_endpoints_stay_through_snap_and_simplify():
-    from tests.document.test_topology import contour_editor
+    from tests.document.helpers import contour_editor
     from vectrify.refine.snap import snap
 
     editor = contour_editor()

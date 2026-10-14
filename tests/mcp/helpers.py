@@ -11,6 +11,10 @@ import numpy as np
 from mcp.types import CallToolResult, ImageContent, TextContent
 from PIL import Image
 
+from vectrify.document import import_svg
+from vectrify.ui.agent import Agent
+from vectrify.ui.session import Session
+
 SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" \
 viewBox="0 0 400 200">
 <rect id="sky" width="400" height="200" fill="#e8ebe0"/>
@@ -76,3 +80,9 @@ async def restore(call, command: str = "undo", count: int = 1):
     history = data(await call("history", limit=max(30, count)))
     ids = [entry["id"] for entry in history[command][:count]]
     return await call(command, ids=ids)
+
+
+def fresh() -> tuple[Agent, list]:
+    agent = Agent(Session(import_svg(SVG)))
+    hello = agent.call("hello").data
+    return agent, [hello["epoch"], hello["revision"]]

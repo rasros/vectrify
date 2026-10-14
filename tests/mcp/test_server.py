@@ -279,7 +279,7 @@ def test_without_a_target_the_agent_is_told_how_to_get_one():
 
 
 def test_fit_colours_linear_creates_private_fill_and_round_trips(tmp_path):
-    from tests.operations.test_gradient_fit import DOC, ramp_reference
+    from tests.operations.helpers import DOC, ramp_reference
     from vectrify.document import import_svg, load_project
 
     drawing = tmp_path / "ramp.svg"

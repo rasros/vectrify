@@ -6,8 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
-from tests.refine.test_cel_plan_ink import exterior_profile, line
-from tests.refine.test_cel_plan_ink_models import drawing
+from tests.refine.cel_helpers import drawing, exterior_profile, line
 from vectrify.document import Geometry
 from vectrify.document.join import curve_path, transformed_geometry
 from vectrify.document.svg import parse_path
@@ -50,7 +49,7 @@ def test_carrier_raster_preserves_native_phase_holes_and_tile_equivalence(
     assert fit.raster(Work.start(10)) is actual
 
 
-@pytest.mark.parametrize("bound", ["MAX_PIXELS", "MAX_MASK_BYTES", "MAX_TILES"])
+@pytest.mark.parametrize("bound", ["RASTER_PIXELS", "MAX_MASK_BYTES", "MAX_TILES"])
 def test_carrier_raster_bounds_precede_allocation_and_publish_no_mask(
     monkeypatch, bound
 ):

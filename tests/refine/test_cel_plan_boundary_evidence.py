@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.ndimage import gaussian_filter
 
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import stripes
 from vectrify.refine import cel
 from vectrify.refine.cel_plan import families
 from vectrify.refine.cel_plan.boundary_evidence import shade_fragment

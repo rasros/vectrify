@@ -4,16 +4,14 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from PIL import Image
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
+from tests.refine.cel_helpers import junction_drawing as drawing
+from tests.refine.cel_helpers import prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import curve_path
-from vectrify.refine import cel
 from vectrify.refine.cel_plan import ink_models
 from vectrify.refine.cel_plan.core_cells import CoreCells
-from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.ink import measure, measure_link
@@ -21,27 +19,6 @@ from vectrify.refine.cel_plan.local import LocalPolicy
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
-
-
-def drawing(alpha=255, *, gap=False):
-    path = "M20 48H44 M50 48H76 M44 20V48 M50 48V76"
-    path += " M44 48H46 M48 48H50" if gap else " M44 48H50"
-    svg = (
-        '<svg width="96" height="96"><g opacity="'
-        + str(alpha / 255)
-        + '"><path d="M8 8H88V88H8Z" fill="#ad8665"/>'
-        f'<path d="{path}" stroke="#202020" stroke-width="2" '
-        'fill="none" stroke-linecap="butt"/></g></svg>'
-    )
-    rgba = render(svg, (96, 96))
-    evidence = collect(
-        Image.fromarray((rgba * 255).round().astype(np.uint8)),
-        None,
-        Options(),
-        Work.start(10),
-    )
-    mask = (~evidence.empty) & (cel.lightness(evidence.target) < 65)
-    return evidence, mask
 
 
 @pytest.mark.parametrize("alpha", [255, 128, 64])

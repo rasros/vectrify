@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_silhouette_ink import circle, perimeter
+from tests.refine.cel_helpers import circle, perimeter
 from vectrify.document import Geometry
 from vectrify.refine.cel_plan.ink import measure_closed
 from vectrify.refine.cel_plan.line_fidelity import SourceProfile
@@ -193,7 +193,7 @@ def test_opt_in_bank_recovers_actual_source_gap_without_closing_it(alpha):
 def test_gap_replacement_exports_an_open_editable_stroke_and_roundtrips(
     tmp_path, monkeypatch
 ):
-    from tests.refine.test_cel_plan_families import prepared
+    from tests.refine.cel_helpers import prepared
     from vectrify.document import export_svg, load_project, save_project
     from vectrify.document.join import path_style
     from vectrify.refine.cel_plan import export as exporter
@@ -255,7 +255,7 @@ def test_gap_replacement_exports_an_open_editable_stroke_and_roundtrips(
         )
 
 
-@pytest.mark.parametrize("limit", ["MAX_RUNS", "MAX_NODES"])
+@pytest.mark.parametrize("limit", ["MAX_RUNS", "SOURCE_NODES"])
 def test_interval_and_node_bounds_never_publish_a_prefix(monkeypatch, limit):
     from vectrify.refine.cel_plan import source_cycles
 

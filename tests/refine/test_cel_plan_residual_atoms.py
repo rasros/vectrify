@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_atoms import capacity_source, one_atom
+from tests.refine.cel_helpers import capacity_source, one_atom
 from vectrify.refine.cel_plan import atoms as module
 from vectrify.refine.cel_plan.atoms import AtomLimitError, Atoms, ResidualCut
 from vectrify.refine.cel_plan.graph import build

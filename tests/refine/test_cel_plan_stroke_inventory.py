@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_source_bands import fixture
+from tests.refine.cel_helpers import bands_fixture as fixture
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan import stroke_inventory
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
@@ -166,10 +166,10 @@ def test_caps_and_fractional_native_frame_are_sampled_from_actual_export():
 
 def test_bounds_and_cancellation_cannot_publish_partial_coverage(monkeypatch):
     _, guard, document, _, _ = fixture()
-    monkeypatch.setattr(stroke_inventory, "MAX_NATIVE_PIXELS", 10)
+    monkeypatch.setattr(stroke_inventory, "RASTER_PIXELS", 10)
     with pytest.raises(ValueError, match="pixel bound"):
         StrokeInventory(guard).observe(document, Work.start(10))
-    monkeypatch.setattr(stroke_inventory, "MAX_NATIVE_PIXELS", 96**2)
+    monkeypatch.setattr(stroke_inventory, "RASTER_PIXELS", 96**2)
     with pytest.raises(StageInterruptedError):
         StrokeInventory(guard).observe(document, Work.start(0))
     real = stroke_inventory._native_raster

@@ -6,28 +6,13 @@ import numpy as np
 import pathops
 import pytest
 
-from tests.refine.test_cel_plan_ink_models import drawing
+from tests.refine.cel_helpers import drawing
+from tests.refine.cel_helpers import fidelity_source as source
 from vectrify.refine.cel_plan import ink_models, line_fidelity
 from vectrify.refine.cel_plan.ink import Ink
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.score import render
-
-
-def source(*, alpha=1, gap=False, shifted=0, blank=False):
-    path = "M10 32H46 M50 32H86" if gap else f"M10 {32 + shifted}H86"
-    return render(
-        '<svg width="96" height="64">'
-        f'<g opacity="{alpha}"><path d="M0 0H96V64H0Z" fill="#c4b79c"/>'
-        + (
-            ""
-            if blank
-            else f'<path d="{path}" fill="none" stroke="#202020" '
-            'stroke-width="3" stroke-linecap="butt"/>'
-        )
-        + "</g></svg>",
-        (96, 64),
-    )
 
 
 def profile():

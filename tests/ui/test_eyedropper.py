@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from tests.ui.test_session import send
+from tests.ui.helpers import send
 from vectrify.document import DocumentError, import_svg
 from vectrify.ui.agent import Agent
 from vectrify.ui.server import Backend

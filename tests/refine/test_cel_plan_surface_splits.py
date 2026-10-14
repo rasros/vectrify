@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_surface_models import ramp
+from tests.refine.cel_helpers import prepared, ramp
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.join import transformed_geometry
 from vectrify.refine.cel_plan import proposals, surface_splits
@@ -206,7 +205,7 @@ def test_complete_paint_outlier_and_actual_rgba_core_protect_source(monkeypatch)
     factory = SurfaceSplits(Families(evidence, build(evidence), options), options)
     assert list(factory(changed, Work.start(10))) == []
     assert factory.diagnostics["core_exclusions"] > 0
-    monkeypatch.setattr(surface_splits, "MAX_PIXELS", 1)
+    monkeypatch.setattr(surface_splits, "SURFACE_BOX_PIXELS", 1)
     assert list(factory(state, Work.start(10))) == []
     assert state.partition is not None
     assert state.partition.atoms is None

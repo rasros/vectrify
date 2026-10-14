@@ -7,8 +7,7 @@ import pathops
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import prepared, ramp, stripes
 from vectrify.document import (
     Editor,
     Selection,
@@ -26,17 +25,6 @@ from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import search
 from vectrify.refine.cel_plan.surface_models import MaterialSurfaces
-
-
-def ramp(alpha=255, hole=False):
-    evidence = stripes(alpha=alpha, gradient=True, hole=hole)
-    target = evidence.target.copy()
-    shown = ~evidence.empty
-    values = np.broadcast_to(16 + 3 * (np.arange(96) - 8), shown.shape)
-    target[shown, 0] = values[shown]
-    rgba = evidence.rgba.copy()
-    rgba[..., :3][shown] = target[shown] / 255
-    return replace(evidence, target=target, smooth=target, coarse=target, rgba=rgba)
 
 
 @pytest.mark.parametrize("alpha", [255, 128])
@@ -352,7 +340,7 @@ def test_complete_streamed_screen_and_stop_do_not_publish_partial_ownership(
 def test_bounded_analysis_does_not_replace_the_safe_state(monkeypatch):
     evidence = ramp()
     frontier, state, options = prepared(evidence)
-    monkeypatch.setattr(surface_models, "MAX_PIXELS", 1)
+    monkeypatch.setattr(surface_models, "RASTER_PIXELS", 1)
     factory = MaterialSurfaces(Families(evidence, build(evidence), options), options)
     assert list(factory(state, Work.start(10))) == []
     assert factory.diagnostics["bounded_groups"] > 0

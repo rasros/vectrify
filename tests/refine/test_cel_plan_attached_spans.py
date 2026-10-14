@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.refine.cel_helpers import fixture
 from vectrify.document import Editor, Selection, export_svg, import_svg
 from vectrify.document.join import curve_path
-from vectrify.document.redraw import root_matrix
 from vectrify.refine.cel_plan import attached_spans
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
@@ -18,71 +18,6 @@ from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_family import SourceFamily
 from vectrify.refine.cel_plan.span_body_fit import SpanBodyFit
-
-OWNER = "M10 10 C25 10 40 25 50 30 H90 V70 H50 V34 C40 29 25 14 10 14 Z"
-BASE = "M10 14 C25 14 40 29 50 34 H90 V80 H10 Z"
-LINE = "M10 12 C25 12 40 27 50 32"
-
-
-def fixture(*, opacity=1, transform="translate(0 0)", reverse=False):
-    head = (
-        '<svg width="160" height="160"><g id="component" '
-        f'opacity="{opacity}" transform="{transform}">'
-    )
-    background = '<path id="bg" d="M0 0H160V160H0Z" fill="#b49150"/>'
-    base = f'<path id="base" d="{BASE}" fill="#b49150"/>'
-    bar = (
-        '<path id="bar" d="M10 12L50 32" fill="none" stroke="#060301" '
-        'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
-    )
-    document = import_svg(
-        head
-        + background
-        + base
-        + f'<path id="ink" d="{OWNER}" fill="#271b10"/>'
-        + bar
-        + "</g></svg>"
-    )
-    raw = render(
-        head
-        + background
-        + base
-        + '<path d="M50 34H90V70H50Z" fill="#271b10"/>'
-        + f'<path d="{LINE}" fill="none" stroke="#060301" '
-        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
-        + bar
-        + "</g></svg>",
-        (160, 160),
-    )
-    evidence = collect(
-        Image.fromarray(np.rint(raw * 255).astype(np.uint8)),
-        None,
-        Options(),
-        Work.start(10),
-    )
-    t = np.linspace(0.2, 0.8, 25)[:, None]
-    points = (
-        (1 - t) ** 3 * [10, 12]
-        + 3 * (1 - t) ** 2 * t * [25, 12]
-        + 3 * (1 - t) * t**2 * [40, 27]
-        + t**3 * [50, 32]
-    )
-    a, b, c, d, e, f = root_matrix(document, "ink")
-    points = points @ np.array(((a, b), (c, d))) + (e, f)
-    profiles = [
-        SourceProfile.at(points, 2),
-        SourceProfile.at(
-            np.linspace((10, 12), (50, 32), 20) @ np.array(((a, b), (c, d))) + (e, f),
-            1.5,
-        ),
-    ]
-    if reverse:
-        profiles.reverse()
-    guard = SourceLineGuard(evidence.rgba, profiles)
-    part = Partition(
-        (Surface("bg", (1, 2), "underlay"), Surface("base", (1,)), Surface("ink", (2,)))
-    )
-    return document, part, evidence, guard
 
 
 @pytest.mark.parametrize(

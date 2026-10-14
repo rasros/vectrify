@@ -78,7 +78,7 @@ def test_source_pixel_exhaustion_yields_no_unbounded_votes(monkeypatch):
 
     visible = np.ones((40, 50), bool)
     target = np.full((*visible.shape, 3), 160.0)
-    monkeypatch.setattr(facet_lines, "MAX_PIXELS", 16)
+    monkeypatch.setattr(facet_lines, "RASTER_PIXELS", 16)
     voter = FacetLines(target, visible)
     assert list(voter(visible, Work.start(10))) == []
     assert voter.diagnostics["bounded"] == 1

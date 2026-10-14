@@ -6,7 +6,7 @@ import numpy as np
 import pathops
 import pytest
 
-from tests.refine.test_cel_plan_ink_models import drawing
+from tests.refine.cel_helpers import drawing
 from vectrify.document.join import curve_path
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import ink_models

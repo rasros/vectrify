@@ -4,7 +4,7 @@ from threading import Barrier, Thread
 
 import pytest
 
-from tests.ui.test_session import SVG, send
+from tests.ui.helpers import SVG, send
 from vectrify.document import DocumentError, Element, Selection, import_svg
 from vectrify.document.history import ConcurrentEditError
 from vectrify.ui.agent import Agent

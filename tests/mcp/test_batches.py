@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.mcp.test_agent import fresh
+from tests.mcp.helpers import fresh
 from vectrify.document import DocumentError
 
 

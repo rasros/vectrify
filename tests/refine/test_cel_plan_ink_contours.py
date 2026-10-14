@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ink_replace import source
+from tests.refine.cel_helpers import prepared, rims, ring
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.join import transformed_geometry
 from vectrify.document.paint import GradientStop, LinearGradient
@@ -20,55 +19,6 @@ from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import search
-
-
-def ring(*, alpha=128, hole=False, gap=False, irregular=False):
-    evidence = source(alpha=alpha)
-    y, x = np.mgrid[:64, :96]
-    dx, dy = (x + 0.5 - 48) / 24, (y + 0.5 - 32) / 20
-    angle = np.arctan2(dy, dx)
-    radius = np.hypot(dx, dy)
-    if irregular:
-        radius /= 1 + 0.14 * np.cos(7 * angle)
-    inside = radius < 0.78
-    ink = (radius < 1) & ~inside
-    if gap:
-        ink &= np.abs(angle) > 0.3
-    labels = inside.astype(np.int32)
-    labels[ink] = (
-        2 + np.floor((angle[ink] + np.pi) * 12 / (2 * np.pi)).astype(np.int32) % 12
-    )
-    palette = np.array(
-        [(220, 180, 100), (60, 150, 90), *[(12 + i, 8 + i, 5 + i) for i in range(12)]],
-        dtype=np.float32,
-    )
-    target = palette[labels]
-    empty = inside if hole else np.zeros(inside.shape, bool)
-    opacity = (~empty).astype(np.float32) * (alpha / 255)
-    rgba = np.concatenate((target / 255, opacity[..., None]), axis=-1)
-    return replace(
-        evidence,
-        labels=labels,
-        target=target,
-        smooth=target,
-        coarse=target,
-        rgba=rgba,
-        opacity=opacity,
-        empty=empty,
-        foreground=~empty,
-        line=ink,
-        drawn=ink,
-        darkness=ink.astype(float) * 180,
-        texture=np.zeros(ink.shape),
-    )
-
-
-def rims(factory, state):
-    return [
-        p
-        for p in factory(state, Work.start(10))
-        if p.details["ink_replacement"].get("boundary_model") == "source-rim"
-    ]
 
 
 @pytest.mark.parametrize("alpha", [255, 128, 64])

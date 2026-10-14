@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_overlays import source
+from tests.refine.cel_helpers import overlay_source as source
+from tests.refine.cel_helpers import prepared
 from vectrify.document import (
     Editor,
     Selection,

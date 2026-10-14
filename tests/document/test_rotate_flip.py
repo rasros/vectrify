@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from tests.document.test_document import render, select
+from tests.document.helpers import render, select
 from vectrify.document import Editor, EditRejectedError, export_svg, import_svg
 from vectrify.document.hit_test import HitIndex, multiply
 from vectrify.document.transforms import REFLECTIONS, about, root_matrix, rotation

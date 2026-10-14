@@ -4,9 +4,8 @@ import numpy as np
 import pytest
 from scipy.ndimage import map_coordinates
 
-from tests.refine.test_cel_plan_ink_models import drawing
-from tests.refine.test_cel_plan_source_absence import observed_gap
-from tests.refine.test_cel_plan_source_links import drawing as junction
+from tests.refine.cel_helpers import drawing, observed_gap
+from tests.refine.cel_helpers import junction_drawing as junction
 from vectrify.document import Geometry
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import ink_models, source_widths
@@ -103,7 +102,7 @@ def test_capacity_failure_after_a_successful_style_returns_all_original_widths(
     assert fit.diagnostics["styles"] == []
 
 
-@pytest.mark.parametrize("bound", ["MAX_STYLES", "MAX_RUNS", "MAX_NODES"])
+@pytest.mark.parametrize("bound", ["MAX_STYLES", "MAX_RUNS", "SOURCE_NODES"])
 def test_preflight_bounds_skip_native_fits(monkeypatch, bound):
     monkeypatch.setattr(source_widths, bound, 0)
     absence = Absence()

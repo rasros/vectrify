@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import stripes
 from vectrify.document import import_svg
 from vectrify.refine.cel_plan.bounds import conservative_bounds
 from vectrify.refine.cel_plan.contracts import Proposal, State

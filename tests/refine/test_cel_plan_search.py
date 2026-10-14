@@ -9,7 +9,8 @@ import pathops
 import pytest
 from PIL import Image
 
-from vectrify.document import Editor, Selection, export_svg, import_svg
+from tests.refine.cel_helpers import INITIAL, TARGET, color, proposal, setup
+from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan import local
 from vectrify.refine.cel_plan import search as beam
 from vectrify.refine.cel_plan.evidence import collect
@@ -25,19 +26,6 @@ from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators, bounds
 from vectrify.refine.cel_plan.score import render, representation
 from vectrify.refine.cel_plan.search import Proposal, Rejections, State, search
-
-INITIAL = (
-    '<svg width="160" height="128"><defs>'
-    '<linearGradient id="a"><stop offset="0" stop-color="#ac5030"/>'
-    '<stop offset="1" stop-color="#b45030"/></linearGradient>'
-    '<linearGradient id="b"><stop offset="0" stop-color="#40907c"/>'
-    '<stop offset="1" stop-color="#409084"/></linearGradient></defs>'
-    '<path id="left" fill="url(#a)" d="M8 8H72V120H8Z"/>'
-    '<path id="right" fill="url(#b)" d="M88 8H152V120H88Z"/></svg>'
-)
-TARGET = INITIAL.replace('fill="url(#a)"', 'fill="#b05030"').replace(
-    'fill="url(#b)"', 'fill="#409080"'
-)
 
 
 @pytest.mark.parametrize(
@@ -76,21 +64,6 @@ def test_native_boolean_failure_does_not_lose_checkpoint_or_other_operators(
     assert set(closed) == set(names)
 
 
-def setup(initial=INITIAL, target=TARGET, *, size=(160, 128)):
-    options = Options(refine=False)
-    truth = render(target, size)
-    evidence = collect(
-        Image.fromarray(np.rint(truth * 255).astype(np.uint8)),
-        None,
-        options,
-        Work.start(10),
-    )
-    frontier = Frontier(Policy(truth))
-    assert frontier.add(initial, "Initial")
-    frontier.freeze_normalizer()
-    return frontier, evidence, options
-
-
 @pytest.mark.parametrize("stop", [False, True])
 def test_expired_local_slice_can_checkpoint_only_with_live_shared_validation_time(stop):
     frontier, _evidence, options = setup()
@@ -112,13 +85,6 @@ def test_expired_local_slice_can_checkpoint_only_with_live_shared_validation_tim
     selected = frontier.select(50)
     assert selected.metrics["gradients"] == (2 if stop else 1)
     assert frontier.policy.evaluate(selected.svg).valid
-
-
-def color(document, oid, value):
-    editor = Editor(document, selection=Selection(whole_document=True))
-    with editor.transaction("Test proposal") as transaction:
-        transaction.set_fill(oid, value)
-    return editor.snapshot.document
 
 
 @pytest.mark.parametrize("shared", [False, True])
@@ -210,18 +176,6 @@ def test_shared_checkpoint_guard_accounts_for_proposal_completion_latency(monkey
     assert report["checkpoint_guard_seconds"] >= 1.2
     assert report["score_disagreements"] == 0
     assert frontier.select(50).metrics["gradients"] == 1
-
-
-def proposal(state, oid, value, *, operator="paint", parent=None):
-    document = color(state.document, oid, value)
-    return Proposal(
-        operator,
-        (oid,),
-        (value,),
-        parent or state.key,
-        document,
-        bounds(state.document, document, (oid,)),
-    )
 
 
 def test_fast_search_reserves_evaluations_for_cumulative_edits():

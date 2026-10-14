@@ -7,8 +7,7 @@ import pathops
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_piecewise_surfaces import indented_family, step
+from tests.refine.cel_helpers import indented_family, prepared, step
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.join import curve_path, path_geometry
 from vectrify.document.svg import parse_path

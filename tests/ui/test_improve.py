@@ -1,8 +1,6 @@
 """Selected path fitting keeps editor scope, constraints, and revision safety."""
 
-import base64
 import io
-import time
 from dataclasses import replace
 from threading import Event
 
@@ -11,6 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.ui.helpers import reference, wait
 from vectrify.document import (
     DocumentError,
     Editor,
@@ -49,17 +48,6 @@ def target(svg=SVG):
     data = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
     assert data is not None
     return Image.open(io.BytesIO(data))
-
-
-def reference(image):
-    stream = io.BytesIO()
-    image.save(stream, format="PNG")
-    return {
-        "name": "target.png",
-        "opacity": 0.5,
-        "data_url": "data:image/png;base64,"
-        + base64.b64encode(stream.getvalue()).decode(),
-    }
 
 
 @pytest.mark.parametrize("transparent", [False, True])
@@ -159,15 +147,6 @@ def start_fit(session, **settings):
             "settings": {"nodes": False, "handles": False, "color": True, **settings},
         }
     )
-
-
-def wait(session, job):
-    for _ in range(500):
-        state = session.operation({"command": "status", "job": job["id"]})
-        if state["status"] != "running":
-            return state
-        time.sleep(0.01)
-    pytest.fail("Operation did not finish")
 
 
 def test_job_apply_is_single_undoable_edit_and_rejects_stale_reference(monkeypatch):

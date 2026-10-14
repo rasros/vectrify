@@ -5,41 +5,19 @@ import math
 import numpy as np
 import pytest
 
-from tests.operations.test_colours_cleanup import render, request
+from tests.operations.helpers import (
+    COLOURS,
+    DOC,
+    END,
+    START,
+    ramp_reference,
+    render,
+    request,
+)
 from vectrify.document import Editor, Selection, import_svg
 from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.operations import Job, Permissions, method
-
-# The shape sits in a scaled, skewed group so the fit has to map the ramp
-# from root user space into the shape's own.
-DOC = (
-    '<svg width="100" height="100" viewBox="0 0 100 100">'
-    '<rect id="bg" width="100" height="100" fill="#ffffff"/>'
-    '<g transform="translate(10 15) scale(1.25 0.8) skewX(10)">'
-    '<path id="a" d="M0 0 L56 0 L56 65 L0 65 Z" fill="#808080"{stroke}/></g></svg>'
-)
-# The reference's ramp, in root user space: dark red to pale blue.
-START, END = (0.0, 5.0), (100.0, 80.0)
-COLOURS = ((0.7, 0.1, 0.1), (0.3, 0.6, 0.9))
-
-
-def ramp_reference(size=100):
-    """The drawing painted with the known ramp, rendered by cairosvg."""
-    (x1, y1), (x2, y2) = START, END
-    hexes = ["#" + "".join(f"{round(v * 255):02x}" for v in c) for c in COLOURS]
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" '
-        'viewBox="0 0 100 100"><defs><linearGradient id="r" '
-        f'gradientUnits="userSpaceOnUse" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}">'
-        f'<stop offset="0" stop-color="{hexes[0]}"/>'
-        f'<stop offset="1" stop-color="{hexes[1]}"/></linearGradient>'
-        '<clipPath id="c"><path transform="translate(10 15) scale(1.25 0.8) '
-        'skewX(10)" d="M0 0 L56 0 L56 65 L0 65 Z"/></clipPath></defs>'
-        '<rect width="100" height="100" fill="#ffffff"/>'
-        '<rect width="100" height="100" fill="url(#r)" clip-path="url(#c)"/></svg>'
-    )
-    return render(svg, size)
 
 
 def expected(point):

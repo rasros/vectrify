@@ -7,7 +7,7 @@ import pathops
 import pytest
 from PIL import Image
 
-from tests.refine.test_cel_plan_families import prepared
+from tests.refine.cel_helpers import drawing, prepared
 from vectrify.document import (
     Editor,
     Geometry,
@@ -31,26 +31,6 @@ from vectrify.refine.cel_plan.local import LocalPolicy
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
-
-
-def drawing(alpha=128, *, gap=False):
-    line = "M20 28 L76 60 M20 60 L76 28"
-    if gap:
-        line = "M20 28 L42 28 M54 28 L76 28"
-    svg = (
-        '<svg width="96" height="96"><g opacity="'
-        + str(alpha / 255)
-        + '"><path d="M8 8 H88 V88 H8Z" fill="#ad8665"/>'
-        '<path d="M48 8 H88 V88 H48Z" fill="#9d8065"/>'
-        f'<path d="{line}" fill="none" stroke="#202020" '
-        'stroke-width="3" stroke-linecap="round"/></g></svg>'
-    )
-    rgba = render(svg, (96, 96))
-    image = Image.fromarray((rgba * 255).round().astype(np.uint8))
-    options = Options(refine=False)
-    evidence = collect(image, None, options, Work.start(10))
-    ink = (~evidence.empty) & (cel.lightness(evidence.target) < 65)
-    return evidence, ink
 
 
 @pytest.mark.parametrize("alpha", [255, 128, 64])

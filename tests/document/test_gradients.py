@@ -6,6 +6,8 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
+from tests.document.helpers import GRADIENT_SVG as SVG
+from tests.document.helpers import RAMP, private_editor
 from vectrify.document import (
     DocumentError,
     EditKind,
@@ -26,22 +28,6 @@ from vectrify.document.paint import (
     solid_paint,
 )
 from vectrify.operations.generate import fresh_ids
-
-SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" '
-    'xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">'
-    '<defs id="defs"><linearGradient id="base">'
-    '<stop id="s0" offset="0" stop-color="#ff0000"/>'
-    '<stop id="s1" offset="100%" stop-color="#0000ff" stop-opacity="0.5"/>'
-    "</linearGradient>"
-    '<linearGradient id="g" xlink:href="#base" gradientUnits="userSpaceOnUse" '
-    'x1="0" y1="0" x2="10" y2="0" spreadMethod="reflect"/></defs>'
-    '<path id="p" d="M0 0 H10 V10 H0 Z" fill="url(#g)"/>'
-    '<rect id="r" width="2" height="2" fill="#00ff00"/></svg>'
-)
-RAMP = LinearGradient(
-    (0, 0), (2, 1), (GradientStop(0, "#000000"), GradientStop(1, "#ffffff"))
-)
 
 
 def gradients(document):
@@ -217,19 +203,6 @@ def test_a_gradient_counts_as_its_mean_colour_where_one_colour_is_needed():
         },
     ]
     assert average_paint(styles, [1.0, 1.0], document)["fill"] == "#800080"
-
-
-def private_editor():
-    editor = Editor(
-        import_svg(
-            '<svg width="10" height="10"><path id="p" d="M0 0 H10 V10 H0 Z"/>'
-            '<rect id="r" width="1" height="1"/></svg>'
-        ),
-        selection=Selection.all(),
-    )
-    with editor.transaction("Private fill") as tx:
-        tx.set_fill("p", RAMP)
-    return editor
 
 
 def test_private_gradients_round_trip_in_projects_svg_and_fresh_ids():

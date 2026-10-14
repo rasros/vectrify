@@ -6,7 +6,8 @@ from typing import ClassVar
 import pytest
 from PIL import Image
 
-from tests.operations.test_contract import Recolour, editor, request
+from tests.operations.helpers import Recolour, editor
+from tests.operations.helpers import contract_request as request
 from vectrify.document import DocumentError, Editor, Selection, import_svg
 from vectrify.operations import (
     Budget,

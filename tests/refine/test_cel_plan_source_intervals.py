@@ -6,9 +6,8 @@ import numpy as np
 import pytest
 from scipy.ndimage import map_coordinates
 
-from tests.refine.test_cel_plan_ink_models import drawing
-from tests.refine.test_cel_plan_source_absence import observed_gap
-from tests.refine.test_cel_plan_source_links import drawing as junction
+from tests.refine.cel_helpers import drawing, observed_gap
+from tests.refine.cel_helpers import junction_drawing as junction
 from vectrify.document import Geometry
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import ink_models, source_intervals
@@ -124,12 +123,12 @@ def test_missing_own_gaps_or_mismatched_ends_cannot_authorize_a_split():
 
 
 @pytest.mark.parametrize(
-    "bound", ["MAX_INTERVALS", "MAX_FITS", "MAX_RUNS", "MAX_NODES"]
+    "bound", ["MAX_INTERVALS", "MAX_FITS", "MAX_RUNS", "SOURCE_NODES"]
 )
 def test_independent_bounds_never_publish_partial_intervals(monkeypatch, bound):
     _, profile, original, absence = source_case()
     monkeypatch.setattr(
-        source_intervals, bound, 1 if bound in {"MAX_INTERVALS", "MAX_NODES"} else 0
+        source_intervals, bound, 1 if bound in {"MAX_INTERVALS", "SOURCE_NODES"} else 0
     )
     with pytest.raises(ValueError, match="bound"):
         SourceIntervals(absence).recover(

@@ -384,11 +384,11 @@ def test_nested_sibling_changes_are_rejected_even_with_declared_parent(change):
 @pytest.mark.parametrize(
     "limit",
     [
-        "MAX_PIXELS",
+        "RASTER_PIXELS",
         "MAX_PATHS",
         "MAX_COMPONENTS",
         "MAX_FIELDS",
-        "MAX_NODES",
+        "DOCUMENT_NODES",
         "MAX_PARENTS",
     ],
 )

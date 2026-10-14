@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.document.test_document import SHARED, SVG, render, select
+from tests.document.helpers import SHARED, SVG, render, select
 from vectrify.document import (
     DocumentError,
     Editor,

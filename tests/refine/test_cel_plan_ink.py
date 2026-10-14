@@ -3,11 +3,8 @@
 import numpy as np
 import pytest
 
+from tests.refine.cel_helpers import exterior_profile, line
 from vectrify.refine.cel_plan.ink import measure
-
-
-def line():
-    return np.column_stack((np.arange(10.5, 90), np.full(80, 40.5)))
 
 
 def test_color_boundary_with_a_dark_ridge_proposes_a_continuous_local_stroke():
@@ -97,18 +94,6 @@ def test_a_separate_profile_mark_cannot_pull_the_source_centroid_across_a_gap():
     assert changed is not None
     np.testing.assert_allclose(changed.points, proof.points)
     assert changed.width == proof.width
-
-
-def exterior_profile(alpha=1):
-    target = np.full((80, 100, 3), 180.0)
-    target[:40] = 255
-    target[40:44, 8:92] = 15
-    opacity = np.zeros((80, 100), float)
-    opacity[40:] = alpha
-    opacity[40] *= 0.2
-    points = line().copy()
-    points[:, 1] = 42.5
-    return points, target, opacity
 
 
 @pytest.mark.parametrize("alpha", [1, 0.5, 0.25])

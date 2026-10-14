@@ -7,8 +7,7 @@ import pytest
 from PIL import Image
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ink_models import drawing
+from tests.refine.cel_helpers import drawing, prepared
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.hit_test import multiply
 from vectrify.document.join import path_style, transformed_geometry

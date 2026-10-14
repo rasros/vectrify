@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from tests.refine.test_cel_plan_search import setup
+from tests.refine.cel_helpers import setup
 from vectrify.document import (
     Editor,
     Element,

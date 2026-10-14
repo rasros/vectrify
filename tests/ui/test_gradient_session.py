@@ -2,9 +2,8 @@
 
 import pytest
 
-from tests.operations.test_gradient_fit import DOC, ramp_reference
-from tests.ui.test_improve import reference, wait
-from tests.ui.test_session import send
+from tests.operations.helpers import DOC, ramp_reference
+from tests.ui.helpers import reference, send, wait
 from vectrify.document import DocumentError, EditRejectedError, Selection, import_svg
 from vectrify.ui.session import Session
 
@@ -101,7 +100,7 @@ def test_fit_gradient_then_a_flat_colour_from_the_paint_panel():
 
 
 def test_private_fill_properties_edit_stops_endpoints_and_undo():
-    from tests.document.test_gradients import private_editor
+    from tests.document.helpers import private_editor
 
     session = Session(private_editor().snapshot.document)
     session.editor.select(Selection(object_ids=frozenset({"p"})))
@@ -138,7 +137,7 @@ def test_private_fill_properties_edit_stops_endpoints_and_undo():
 
 
 def test_imported_shared_gradients_remain_in_the_tree():
-    from tests.document.test_gradients import SVG
+    from tests.document.helpers import GRADIENT_SVG as SVG
 
     session = Session(import_svg(SVG))
     rows = {o["id"]: o for o in session.state()["objects"]}
@@ -231,7 +230,7 @@ def test_shared_gradient_edit_rejects_an_unrelated_selection_and_invalid_setting
 
 
 def test_private_gradient_uses_the_same_resource_edit_and_keeps_ownership():
-    from tests.document.test_gradients import private_editor
+    from tests.document.helpers import private_editor
 
     session = Session(private_editor().snapshot.document)
     send(session, "select", objects=["p"])

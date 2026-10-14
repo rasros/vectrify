@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from tests.mcp.test_agent import fresh
+from tests.mcp.helpers import fresh
 from vectrify.document import DocumentError
 from vectrify.document.svg import parse_path
 from vectrify.ui.agent_look import protect_trace
@@ -116,7 +116,7 @@ def test_redraw_across_protected_corner_is_refused_without_live_change():
 
 
 def test_tidy_reports_the_effective_tolerance_without_reference():
-    from tests.mcp.test_agent import fresh
+    from tests.mcp.helpers import fresh
 
     agent, seen = fresh()
     job = agent.call(

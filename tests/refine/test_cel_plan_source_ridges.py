@@ -7,8 +7,7 @@ import pathops
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ink_contours import ring
+from tests.refine.cel_helpers import prepared, ring
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.paint import GradientStop, LinearGradient
@@ -190,7 +189,7 @@ def test_unproved_ridge_never_replaces_seed(kind):
 
 
 @pytest.mark.parametrize(
-    "limit", ["MAX_PATHS", "MAX_NODES", "MAX_CAVITY_AREA", "MAX_BANDS"]
+    "limit", ["MAX_PATHS", "DOCUMENT_NODES", "MAX_CAVITY_AREA", "MAX_BANDS"]
 )
 def test_bounded_discovery_keeps_original_ownership(limit, monkeypatch):
     evidence = fragmented()

@@ -5,8 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.document.test_components import drawing
-from tests.document.test_document import render, select
+from tests.document.helpers import drawing, pair, render, select
 from vectrify.document import Editor, EditRejectedError, export_svg, import_svg
 
 
@@ -46,14 +45,6 @@ def test_join_group_collapses_to_one_path_and_preserves_pins_and_inherited_paint
     assert after.ancestry(joined)[-2].id == before.ancestry(group.id)[-2].id
     assert after.element(joined).get("opacity") == ".5"
     np.testing.assert_array_equal(render(export_svg(before)), render(export_svg(after)))
-
-
-def pair(attrs_a="", attrs_b="", second="M40 0H50V10H40Z", extra=""):
-    return import_svg(
-        '<svg width="100" height="100"><g id="g" fill="red">'
-        f'<path id="a" d="M0 0H10V10H0Z" {attrs_a}/>{extra}'
-        f'<path id="b" d="{second}" {attrs_b}/></g></svg>'
-    )
 
 
 def test_nonconsecutive_regions_join_at_frontmost_with_area_weighted_paint():
@@ -409,7 +400,7 @@ def test_join_two_groups_preserves_clipping_and_inherited_color_choice():
     editor = Editor(doc, selection=select("g", "h"))
     with editor.transaction("Join") as tx:
         joined = tx.join_paths(frozenset({"g", "h"}), color_source="b")
-    from tests.document.test_hit_test import hits
+    from tests.document.helpers import hits
     from vectrify.document import HitIndex
 
     hit = HitIndex(editor.snapshot.document)

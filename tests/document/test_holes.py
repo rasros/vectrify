@@ -2,8 +2,8 @@
 
 import pytest
 
-from tests.document.test_document import select
-from tests.ui.test_session import send
+from tests.document.helpers import select
+from tests.ui.helpers import send
 from vectrify.document import DocumentError, Editor, EditRejectedError, import_svg
 from vectrify.document.holes import (
     document_hole_shape,
@@ -169,7 +169,7 @@ def test_coincident_and_intersecting_contours_are_not_offered_as_holes(rule):
 def test_fill_changes_only_pixels_inside_the_chosen_hole():
     import numpy as np
 
-    from tests.document.test_document import render
+    from tests.document.helpers import render
     from vectrify.document import export_svg
 
     doc = drawing()

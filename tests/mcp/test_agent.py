@@ -6,17 +6,11 @@ from collections.abc import Sequence
 
 import pytest
 
-from tests.mcp.helpers import SVG
+from tests.mcp.helpers import fresh
 from vectrify.document import StaleRevisionError, import_svg
 from vectrify.ui import agent as agent_module
 from vectrify.ui.agent import Agent, RefusedError
 from vectrify.ui.session import Session
-
-
-def fresh() -> tuple[Agent, list]:
-    agent = Agent(Session(import_svg(SVG)))
-    hello = agent.call("hello").data
-    return agent, [hello["epoch"], hello["revision"]]
 
 
 def test_renders_of_an_unchanged_revision_and_region_are_cached(monkeypatch):
