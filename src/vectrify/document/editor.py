@@ -19,8 +19,6 @@ from vectrify.document.editor_handles import (
     carry_handles,
     moved_handle,
     node_location,
-    on_chord,
-    toward,
     with_handle_alignment,
     with_node_handles,
     with_straightened_handles,
@@ -132,23 +130,6 @@ def _transform_text(matrix: tuple[float, ...]) -> str | None:
     return " ".join(parts) or None
 
 
-def _on_chord(
-    h: tuple[float, ...], a: tuple[float, float], b: tuple[float, float]
-) -> bool:
-    return on_chord(h, a, b)
-
-
-def _toward(
-    a: tuple[float, float], b: tuple[float, float], share: float
-) -> tuple[float, float]:
-    return toward(a, b, share)
-
-
-def _carry_handles(before: Document, after: Document) -> Document:
-    """Carry unchanged controls and closed-contour twins with moved endpoints."""
-    return carry_handles(before, after)
-
-
 # Elements that paint their own geometry, and so can take a gradient fill.
 DRAWN = frozenset({"path", "rect", "circle", "ellipse", "line"})
 
@@ -191,6 +172,38 @@ class PinnedDeletionError(EditRejectedError):
 
 class StaleRevisionError(EditRejectedError):
     """The editor changed after the transaction captured its snapshot."""
+
+
+def _in_definitions(ancestry: Iterable[Element]) -> bool:
+    """Whether an ancestry runs through ``defs`` or a ``clipPath``."""
+    return any(a.tag in {"defs", "clipPath"} for a in ancestry)
+
+
+def _require_unpinned(subpaths: Iterable[Subpath], message: str) -> None:
+    if any(n.pinned for s in subpaths for n in s.nodes):
+        raise EditRejectedError(message)
+
+
+def _source_index(paths: list[Element], source: str | None) -> int | None:
+    """The position of the path *source* among *paths*, if it is one."""
+    return next((i for i, p in enumerate(paths) if p.id == source), None)
+
+
+def _require_unshared(document: Document, geometry_id: str, when: str) -> None:
+    """Refuse unless exactly one element holds the geometry."""
+    if sum(e.geometry_id == geometry_id for e in document.elements()) != 1:
+        raise EditRejectedError(f"Detach shared geometry {when}")
+
+
+def _require_sole_owners(
+    document: Document, owners: set[str], geometry_ids: set[str], when: str
+) -> None:
+    """Refuse unless *owners* hold *geometry_ids* one each, and nothing else."""
+    if len(geometry_ids) != len(owners) or any(
+        e.geometry_id in geometry_ids and e.id not in owners
+        for e in document.elements()
+    ):
+        raise EditRejectedError(f"Detach shared geometry {when}")
 
 
 @dataclass(frozen=True)
@@ -772,9 +785,7 @@ class Transaction:
         visible = {
             item
             for item in affected
-            if not any(
-                e.tag in {"defs", "clipPath"} for e in self._working.ancestry(item)
-            )
+            if not _in_definitions(self._working.ancestry(item))
         }
         required = visible or set(affected)
         if not required <= self._ids:
@@ -784,6 +795,24 @@ class Transaction:
             )
         for item in affected:
             self._check_locks(item, kind, attribute)
+
+    def _authorize_topology(self, affected: frozenset[str]) -> None:
+        """Authorize adding or removing nodes: structure, then geometry."""
+        self._authorize(affected, EditKind.STRUCTURE)
+        self._authorize(affected, EditKind.GEOMETRY)
+
+    def _authorize_paint_change(
+        self,
+        document: Document,
+        paths: list[Element],
+        styles: list[dict[str, str]],
+        paint: dict[str, str],
+    ) -> None:
+        """Authorize each paint key that differs from a path's own style."""
+        for path, style in zip(paths, styles, strict=True):
+            for key, value in paint.items():
+                if value != style.get(key):
+                    self._authorize(document.dependents({path.id}), EditKind.PAINT, key)
 
     def set_attributes(self, object_id: str, changes: dict[str, str | None]) -> None:
         with self._change():
@@ -867,9 +896,7 @@ class Transaction:
         with self._change():
             element = self._working.element(object_id)
             ancestry = self._working.ancestry(object_id)
-            if element.tag not in HIDEABLE or any(
-                a.tag in {"defs", "clipPath"} for a in ancestry
-            ):
+            if element.tag not in HIDEABLE or _in_definitions(ancestry):
                 raise EditRejectedError(
                     "Only drawing objects and groups can be hidden, not "
                     "definitions or clipping boundaries"
@@ -916,8 +943,8 @@ class Transaction:
         self._whole_objects()
         document = self._working
         target = document.element(object_id)
-        if target.tag not in DRAWN | {"g", "use"} or any(
-            a.tag in {"defs", "clipPath"} for a in document.ancestry(object_id)
+        if target.tag not in DRAWN | {"g", "use"} or _in_definitions(
+            document.ancestry(object_id)
         ):
             raise EditRejectedError("Clip a drawn object or group")
         self._authorize(document.dependents({object_id}), EditKind.STRUCTURE)
@@ -1074,7 +1101,7 @@ class Transaction:
             if updated == node:
                 return
             candidate = self._working.replace_geometry(geometry.replace_node(updated))
-            candidate = _carry_handles(self._working, candidate)
+            candidate = carry_handles(self._working, candidate)
             self._authorize_geometry_change(candidate)
             self._working = candidate
 
@@ -1174,8 +1201,7 @@ class Transaction:
                 )
             geometry = self._working.geometry_for(object_id)
             affected = self._working.geometry_users(geometry.id)
-            self._authorize(affected, EditKind.STRUCTURE)
-            self._authorize(affected, EditKind.GEOMETRY)
+            self._authorize_topology(affected)
             if self._selection.node_ids and node_id not in self._selection.node_ids:
                 raise EditRejectedError("Edge is outside the selected nodes")
             candidate, added = split_edges(
@@ -1208,8 +1234,7 @@ class Transaction:
             self._whole_objects()
             geometry = self._working.geometry_for(object_id)
             affected = self._working.geometry_users(geometry.id)
-            self._authorize(affected, EditKind.STRUCTURE)
-            self._authorize(affected, EditKind.GEOMETRY)
+            self._authorize_topology(affected)
             updated, removed = redrawn(
                 geometry,
                 contour_id,
@@ -1259,8 +1284,7 @@ class Transaction:
                 self._delete_contour(object_id, subpath)
                 return
             affected = self._working.geometry_users(geometry.id)
-            self._authorize(affected, EditKind.STRUCTURE)
-            self._authorize(affected, EditKind.GEOMETRY)
+            self._authorize_topology(affected)
             kept = [n for n in nodes if n.id not in removed]
             if nodes[0].id in removed:
                 start = kept[0]
@@ -1291,12 +1315,10 @@ class Transaction:
             self._delete_contour(object_id, subpath)
 
     def _delete_contour(self, object_id: str, subpath: Subpath) -> None:
-        if any(n.pinned for n in subpath.nodes):
-            raise EditRejectedError("Unpin the contour's endpoints to delete it")
+        _require_unpinned((subpath,), "Unpin the contour's endpoints to delete it")
         geometry = self._working.geometry_for(object_id)
         affected = self._working.geometry_users(geometry.id)
-        self._authorize(affected, EditKind.STRUCTURE)
-        self._authorize(affected, EditKind.GEOMETRY)
+        self._authorize_topology(affected)
         if len(geometry.subpaths) == 1:
             owners = {
                 e.id for e in self._working.elements() if e.geometry_id == geometry.id
@@ -1322,13 +1344,11 @@ class Transaction:
             if target.tag != "path" or self._selection.node_ids:
                 raise EditRejectedError("Sharing requires a whole path selection")
             original = self._working.geometry_for(object_id)
-            if any(n.pinned for s in original.subpaths for n in s.nodes):
-                raise EditRejectedError(
-                    "Cannot replace geometry containing pinned endpoints"
-                )
+            _require_unpinned(
+                original.subpaths, "Cannot replace geometry containing pinned endpoints"
+            )
             affected = self._working.dependents({object_id})
-            self._authorize(affected, EditKind.STRUCTURE)
-            self._authorize(affected, EditKind.GEOMETRY)
+            self._authorize_topology(affected)
             source = self._working.geometry_for(source_id)
             self._working = self._working.replace_element(
                 replace(target, geometry_id=source.id)
@@ -1444,10 +1464,10 @@ class Transaction:
             self._whole_objects()
             original = self._working.geometry_for(object_id)
             affected = self._working.geometry_users(original.id)
-            self._authorize(affected, EditKind.STRUCTURE)
-            self._authorize(affected, EditKind.GEOMETRY)
-            if any(n.pinned for s in original.subpaths for n in s.nodes):
-                raise EditRejectedError("Unpin endpoints before replacing a contour")
+            self._authorize_topology(affected)
+            _require_unpinned(
+                original.subpaths, "Unpin endpoints before replacing a contour"
+            )
             updated = replace(geometry, id=original.id)
             self._working = self._working.replace_geometry(updated)
             retained = {n.id for sub in updated.subpaths for n in sub.nodes}
@@ -1637,9 +1657,7 @@ class Transaction:
                 for e in document.elements()
                 if e.tag == "path"
                 and e.id in members
-                and not any(
-                    a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id)
-                )
+                and not _in_definitions(document.ancestry(e.id))
             ]
             if ends:
                 paths = [p for p in paths if p.id in {oid for oid, _ in ends}]
@@ -1697,12 +1715,7 @@ class Transaction:
             changed = {owners[c] for c in used}
             for oid in changed:
                 geometry = document.geometry_for(oid)
-                self._authorize(
-                    self._working.geometry_users(geometry.id), EditKind.STRUCTURE
-                )
-                self._authorize(
-                    self._working.geometry_users(geometry.id), EditKind.GEOMETRY
-                )
+                self._authorize_topology(self._working.geometry_users(geometry.id))
             moved = {n.id for c in used for n in contours[c]}
             emptied = set()
             for oid in changed:
@@ -1743,21 +1756,17 @@ class Transaction:
             self._whole_objects()
             document = self._working
             element = document.element(object_id)
-            if element.tag != "path" or any(
-                e.tag in {"defs", "clipPath"} for e in document.ancestry(object_id)
-            ):
+            if element.tag != "path" or _in_definitions(document.ancestry(object_id)):
                 raise EditRejectedError(
                     "Select a drawing path to split, not a definition or instance"
                 )
-            self._authorize(document.dependents({object_id}), EditKind.STRUCTURE)
-            self._authorize(document.dependents({object_id}), EditKind.GEOMETRY)
+            self._authorize_topology(document.dependents({object_id}))
             geometry = document.geometry_for(object_id)
             if any(object_id in references(e) for e in document.elements()):
                 raise EditRejectedError(
                     "This path is referenced; detach its instances before splitting"
                 )
-            if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
-                raise EditRejectedError("Detach shared geometry before splitting")
+            _require_unshared(document, geometry.id, "before splitting")
             paint = {}
             for ancestor in document.ancestry(object_id):
                 paint.update(dict(ancestor.attributes))
@@ -1839,7 +1848,7 @@ class Transaction:
                 if element.id not in self._ids or element.tag != "path":
                     continue
                 ancestry = document.ancestry(element.id)
-                if any(e.tag in {"defs", "clipPath"} for e in ancestry):
+                if _in_definitions(ancestry):
                     continue
                 style = path_style(document, element)
                 if style["fill"] == "none" and style["stroke"] == "none":
@@ -1860,14 +1869,12 @@ class Transaction:
                     )
                 if cut is None:
                     continue
-                self._authorize(document.dependents({element.id}), EditKind.STRUCTURE)
-                self._authorize(document.dependents({element.id}), EditKind.GEOMETRY)
+                self._authorize_topology(document.dependents({element.id}))
                 if any(element.id in references(e) for e in document.elements()):
                     raise EditRejectedError(
                         "This path is referenced; detach its instances before cutting"
                     )
-                if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
-                    raise EditRejectedError("Detach shared geometry before cutting")
+                _require_unshared(document, geometry.id, "before cutting")
                 cut = preserve_cut_pins(geometry, cut)
                 if cut is None:
                     raise EditRejectedError(
@@ -1939,8 +1946,7 @@ class Transaction:
                 raise EditRejectedError(
                     "Detach references to these groups before joining"
                 )
-            self._authorize(document.dependents(groups), EditKind.STRUCTURE)
-            self._authorize(document.dependents(groups), EditKind.GEOMETRY)
+            self._authorize_topology(document.dependents(groups))
             joined = self._join_paths(
                 frozenset(e.id for e in members.values() if e.tag == "path"),
                 color_source,
@@ -1996,11 +2002,10 @@ class Transaction:
         parent = document.element(next(iter(parents)))
         path_ids = {p.id for p in paths}
         paths = [p for p in parent.children if p.id in path_ids]
-        if any(e.tag in {"defs", "clipPath"} for e in document.ancestry(paths[0].id)):
+        if _in_definitions(document.ancestry(paths[0].id)):
             raise EditRejectedError("Join drawing paths, not definitions or instances")
         removed = path_ids
-        self._authorize(document.dependents(removed), EditKind.STRUCTURE)
-        self._authorize(document.dependents(removed), EditKind.GEOMETRY)
+        self._authorize_topology(document.dependents(removed))
         if any(set(references(e)) & removed for e in document.elements()):
             raise EditRejectedError("Detach references to these objects before joining")
         attrs = dict(paths[-1].attributes)
@@ -2012,41 +2017,24 @@ class Transaction:
             return self._join_across_groups(paths, color_source, combine=combine)
         styles = [path_style(document, p) for p in paths]
         if combine:
-            source_index = next(
-                (i for i, p in enumerate(paths) if p.id == color_source),
-                len(paths) - 1,
-            )
-            paint = dict(styles[source_index])
-            for path, style in zip(paths, styles, strict=True):
-                for key, value in paint.items():
-                    if value != style.get(key):
-                        self._authorize(
-                            document.dependents({path.id}), EditKind.PAINT, key
-                        )
+            index = _source_index(paths, color_source)
+            paint = dict(styles[-1 if index is None else index])
+            self._authorize_paint_change(document, paths, styles, paint)
             attrs.update(paint)
         elif any(style != styles[-1] for style in styles):
             paint = join_paint(
                 styles,
                 painted_weights(document, paths),
-                next((i for i, p in enumerate(paths) if p.id == color_source), None),
+                _source_index(paths, color_source),
                 document,
             )
-            for path, style in zip(paths, styles, strict=True):
-                for key, value in paint.items():
-                    if value != style[key]:
-                        self._authorize(
-                            document.dependents({path.id}), EditKind.PAINT, key
-                        )
+            self._authorize_paint_change(document, paths, styles, paint)
             attrs.update(paint)
         else:
             paint = styles[-1]
         originals = [document.geometry_for(p.id) for p in paths]
         old_ids = {g.id for g in originals}
-        if len(old_ids) != len(paths) or any(
-            e.geometry_id in old_ids and e.id not in path_ids
-            for e in document.elements()
-        ):
-            raise EditRejectedError("Detach shared geometry before joining")
+        _require_sole_owners(document, path_ids, old_ids, "before joining")
         geometry = Geometry(
             new_id("geometry"), tuple(s for g in originals for s in g.subpaths)
         )
@@ -2058,20 +2046,14 @@ class Transaction:
                 for part in disconnected_parts(geometry, filled=True)
             )
             if contact or len({s["fill-rule"] for s in styles}) > 1:
-                if any(
-                    n.pinned for g in originals for s in g.subpaths for n in s.nodes
-                ):
-                    raise EditRejectedError(
-                        "Unpin selected regions before joining overlapping contours"
-                    )
+                _require_unpinned(
+                    (s for g in originals for s in g.subpaths),
+                    "Unpin selected regions before joining overlapping contours",
+                )
                 geometry = union_geometry(originals, styles)
-                for path, style in zip(paths, styles, strict=True):
-                    if style["fill-rule"] != "nonzero":
-                        self._authorize(
-                            document.dependents({path.id}),
-                            EditKind.PAINT,
-                            "fill-rule",
-                        )
+                self._authorize_paint_change(
+                    document, paths, styles, {"fill-rule": "nonzero"}
+                )
                 attrs["fill-rule"] = "nonzero"
                 self._record_remap(
                     {
@@ -2113,15 +2095,14 @@ class Transaction:
 
     def _join_contours(self, path: Element) -> str:
         document = self._working
-        if any(a.tag in {"defs", "clipPath"} for a in document.ancestry(path.id)):
+        if _in_definitions(document.ancestry(path.id)):
             raise EditRejectedError("Join drawing paths, not definitions or instances")
         style = path_style(document, path)
         if style["fill"] == "none":
             raise EditRejectedError("Select a filled path to union its contours")
         original = document.geometry_for(path.id)
         affected = document.dependents({path.id})
-        self._authorize(affected, EditKind.STRUCTURE)
-        self._authorize(affected, EditKind.GEOMETRY)
+        self._authorize_topology(affected)
         if len(document.geometry_users(original.id)) > 1:
             raise EditRejectedError("Detach shared geometry before joining")
         if any(path.id in references(e) for e in document.elements()):
@@ -2129,10 +2110,10 @@ class Transaction:
         geometry = union_contours(original, style["fill-rule"])
         if geometry is original:
             return path.id
-        if any(n.pinned for s in original.subpaths for n in s.nodes):
-            raise EditRejectedError(
-                "Unpin selected regions before joining overlapping contours"
-            )
+        _require_unpinned(
+            original.subpaths,
+            "Unpin selected regions before joining overlapping contours",
+        )
         if style["fill-rule"] != "nonzero":
             self._authorize(affected, EditKind.PAINT, "fill-rule")
             attrs = dict(path.attributes)
@@ -2162,20 +2143,15 @@ class Transaction:
             if len({a.id for a in ancestors}) != 1:
                 break
             common = ancestors[0]
-        if any(a.tag in {"defs", "clipPath"} for chain in ancestries for a in chain):
+        if any(_in_definitions(chain) for chain in ancestries):
             raise EditRejectedError("Join drawing paths, not definitions or instances")
         affected = document.dependents(path_ids)
-        self._authorize(affected, EditKind.STRUCTURE)
-        self._authorize(affected, EditKind.GEOMETRY)
+        self._authorize_topology(affected)
         if any(set(references(e)) & path_ids for e in document.elements()):
             raise EditRejectedError("Detach references to these objects before joining")
         originals = [document.geometry_for(p.id) for p in paths]
         old_ids = {g.id for g in originals}
-        if len(old_ids) != len(paths) or any(
-            e.geometry_id in old_ids and e.id not in path_ids
-            for e in document.elements()
-        ):
-            raise EditRejectedError("Detach shared geometry before joining")
+        _require_sole_owners(document, path_ids, old_ids, "before joining")
         # Combine keeps contours exact. Stroke-only paths cannot have their
         # clipping cut into a filled outline, so they also retain a source clip.
         carry_clip = combine or any(
@@ -2187,16 +2163,13 @@ class Transaction:
         ]
         styles = [style for _, style, _ in baked]
         if combine:
-            source_index = next(
-                (i for i, p in enumerate(paths) if p.id == color_source),
-                len(paths) - 1,
-            )
-            paint = dict(styles[source_index])
+            index = _source_index(paths, color_source)
+            paint = dict(styles[-1 if index is None else index])
         else:
             paint = join_paint(
                 styles,
                 painted_weights(document, paths),
-                next((i for i, p in enumerate(paths) if p.id == color_source), None),
+                _source_index(paths, color_source),
                 document,
             )
         normalized = []
@@ -2221,12 +2194,11 @@ class Transaction:
             paths, originals, baked, strict=True
         ):
             if changed:
-                if not combine and any(
-                    n.pinned for s in original.subpaths for n in s.nodes
-                ):
-                    raise EditRejectedError(
+                if not combine:
+                    _require_unpinned(
+                        original.subpaths,
                         "Unpin selected paths before resolving "
-                        "group transforms or clipping"
+                        "group transforms or clipping",
                     )
                 surviving = {n.id for s in geometry.subpaths for n in s.nodes}
                 self._record_remap(
@@ -2347,8 +2319,7 @@ class Transaction:
                     "This path is referenced; detach its instances first"
                 )
             geometry = document.geometry_for(object_id)
-            if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
-                raise EditRejectedError("Detach shared geometry first")
+            _require_unshared(document, geometry.id, "first")
             holes = self._remove_holes(object_id, hole_ids, "turn into shapes")
             order = [s.id for s in geometry.subpaths]
             # A hole inside a chosen hole's island already goes with it.
@@ -2413,8 +2384,10 @@ class Transaction:
         self._authorize(document.geometry_users(geometry.id), EditKind.GEOMETRY)
         self._authorize(document.geometry_users(geometry.id), EditKind.STRUCTURE)
         removed = set().union(*(holes[hid].subpath_ids for hid in hole_ids))
-        if any(n.pinned for s in geometry.subpaths if s.id in removed for n in s.nodes):
-            raise EditRejectedError(f"Unpin the selected hole contours to {verb}")
+        _require_unpinned(
+            (s for s in geometry.subpaths if s.id in removed),
+            f"Unpin the selected hole contours to {verb}",
+        )
         updated = replace(
             geometry,
             subpaths=tuple(s for s in geometry.subpaths if s.id not in removed),
@@ -2440,8 +2413,7 @@ class Transaction:
             if len(object_ids) != 2 or len(elements) != 2:
                 raise EditRejectedError("Select two paths: a shape and one to cut out")
             if any(
-                e.tag != "path"
-                or any(a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id))
+                e.tag != "path" or _in_definitions(document.ancestry(e.id))
                 for e in elements
             ):
                 raise EditRejectedError("Select two drawing paths to cut a hole")
@@ -2470,11 +2442,7 @@ class Transaction:
                     "This path is referenced; detach its instances "
                     "before cutting a hole"
                 )
-            if (
-                sum(e.geometry_id == outer_geometry.id for e in document.elements())
-                != 1
-            ):
-                raise EditRejectedError("Detach shared geometry before cutting a hole")
+            _require_unshared(document, outer_geometry.id, "before cutting a hole")
             rule, cutter_rule = styles[outer]["fill-rule"], styles[inner]["fill-rule"]
             cutter = transformed_geometry(
                 inner_geometry,
@@ -2555,9 +2523,7 @@ class Transaction:
                     raise EditRejectedError(
                         f"{path.id} is a basic shape: use Convert to path first"
                     )
-                if path.tag != "path" or any(
-                    a.tag in {"defs", "clipPath"} for a in document.ancestry(path.id)
-                ):
+                if path.tag != "path" or _in_definitions(document.ancestry(path.id)):
                     raise EditRejectedError(
                         "Select drawing paths, not groups, instances or definitions"
                     )
@@ -2567,15 +2533,16 @@ class Transaction:
                     )
             ids = {p.id for p in paths}
             affected = document.dependents(ids)
-            self._authorize(affected, EditKind.STRUCTURE)
-            self._authorize(affected, EditKind.GEOMETRY)
+            self._authorize_topology(affected)
             if any(set(references(e)) & ids for e in document.elements()):
                 raise EditRejectedError("Detach references to these paths first")
             geometries = [document.geometry_for(p.id) for p in paths]
             if any(len(document.geometry_users(g.id)) > 1 for g in geometries):
                 raise EditRejectedError("Detach shared geometry first")
-            if any(n.pinned for g in geometries for s in g.subpaths for n in s.nodes):
-                raise EditRejectedError("Unpin the points of these paths first")
+            _require_unpinned(
+                (s for g in geometries for s in g.subpaths),
+                "Unpin the points of these paths first",
+            )
             target, cutters = paths[0], paths[1:]
             ancestries = [document.ancestry(p.id) for p in paths]
             common = document.root
@@ -2656,9 +2623,7 @@ class Transaction:
             for element in document.elements():
                 if element.id not in self._ids or element.tag not in SHAPES | {"path"}:
                     continue
-                if any(
-                    e.tag in {"defs", "clipPath"} for e in document.ancestry(element.id)
-                ):
+                if _in_definitions(document.ancestry(element.id)):
                     continue
                 if contours is not None and element.id not in contours:
                     continue
@@ -2699,20 +2664,17 @@ class Transaction:
                 split = replace(split, outside=(*omitted, *split.outside))
                 if not split.inside:
                     continue
-                self._authorize(document.dependents({element.id}), EditKind.STRUCTURE)
-                self._authorize(document.dependents({element.id}), EditKind.GEOMETRY)
+                self._authorize_topology(document.dependents({element.id}))
                 if any(element.id in references(e) for e in document.elements()):
                     raise EditRejectedError(
                         f"{element.id} is referenced; detach its instances first"
                     )
-                if (
-                    not shape
-                    and sum(e.geometry_id == geometry.id for e in document.elements())
-                    != 1
-                ):
-                    raise EditRejectedError("Detach shared geometry first")
-                if delete and any(n.pinned for s in split.inside for n in s.nodes):
-                    raise EditRejectedError("Unpin the points before deleting them")
+                if not shape:
+                    _require_unshared(document, geometry.id, "first")
+                if delete:
+                    _require_unpinned(
+                        split.inside, "Unpin the points before deleting them"
+                    )
                 if not split.outside:
                     if delete:
                         self._remove_objects(frozenset({element.id}))
@@ -2910,9 +2872,7 @@ class Transaction:
         for object_id in object_ids:
             chain(object_id)
         target = chain(parent_id)
-        if target[-1].tag not in {"svg", "g"} or any(
-            a.tag in {"defs", "clipPath"} for a in target
-        ):
+        if target[-1].tag not in {"svg", "g"} or _in_definitions(target):
             raise EditRejectedError("Move objects into a group or the drawing")
         if any(a.id in object_ids for a in target):
             raise EditRejectedError("Cannot move a group into itself")
@@ -2923,7 +2883,7 @@ class Transaction:
             if e.id in object_ids
             and not any(a.id in object_ids for a in chain(e.id)[:-1])
         ]
-        if any(a.tag in {"defs", "clipPath"} for e in moved for a in chain(e.id)):
+        if any(_in_definitions(chain(e.id)) for e in moved):
             raise EditRejectedError(
                 "Definitions and clipping boundaries cannot be restacked"
             )
@@ -3028,7 +2988,7 @@ class Transaction:
             ancestry = document.ancestry(object_id)
             if any(a.id in object_ids for a in ancestry[:-1]):
                 continue
-            if any(a.tag in {"defs", "clipPath"} for a in ancestry):
+            if _in_definitions(ancestry):
                 raise EditRejectedError(
                     f"Definitions and clipping boundaries cannot be "
                     f"{VERBED.get(verb, 'transformed')}"
