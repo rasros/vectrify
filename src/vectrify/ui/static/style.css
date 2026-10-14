@@ -3,6 +3,8 @@
 #overlay .selection-contour{fill:none;stroke:#66d9ff;stroke-width:calc(1.75px * var(--selection-scale,1));stroke-opacity:1;fill-opacity:0;vector-effect:non-scaling-stroke;stroke-dasharray:none;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 #overlay .selection-filled{fill:#35caff;fill-opacity:.28}
 #overlay .selection-halo .selection-contour{fill:none;fill-opacity:0;stroke:#163b50;stroke-width:calc(3.75px * var(--selection-scale,1));stroke-opacity:.85}
+#stage.reference-only-visible #overlay .selection-contour{fill:none;fill-opacity:0;stroke-width:calc(1.25px * var(--selection-scale,1));stroke-opacity:.5}
+#stage.reference-only-visible #overlay .selection-halo .selection-contour{stroke-width:calc(2.75px * var(--selection-scale,1));stroke-opacity:.2}
 
 .object-row{scroll-margin-block:8px}
 .object-row { cursor: pointer; }

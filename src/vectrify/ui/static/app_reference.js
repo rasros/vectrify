@@ -64,8 +64,11 @@ export function createReferenceController(editor, {
     const enabled = !!editor.reference && editor.referenceView !== 'drawing';
     const visible = enabled && (only || error || editor.reference.opacity > 0);
     $('reference-image').hidden=!(only || (enabled && !error));
-    $('drawing').style.visibility = only ? 'hidden' : '';
-    $('drawing').style.opacity = error ? '0' : '';
+    // Keep SVG clipping resources visible to the selection overlay, even when
+    // the artwork is hidden. Visibility would also hide the clips' geometry.
+    $('drawing').style.opacity = only || error ? '0' : '';
+    $('drawing').style.pointerEvents = only ? 'none' : '';
+    stage.classList.toggle('reference-only-visible', only);
     stage.classList.toggle('reference-error-visible', error);
     const toggle = $('reference-toggle');
     toggle.hidden=!editor.reference;
