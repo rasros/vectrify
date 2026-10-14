@@ -195,6 +195,9 @@
 .drawing-paint label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .drawing-paint input[type=color] { width: 24px; height: 22px; padding: 2px; border-radius: 4px; cursor: pointer; }
 .shape-size input { width: 58px; }
+.pencil-controls { align-items: center; }
+.pencil-controls input { width: 48px; }
+#pencil-close[aria-pressed=true] { background: #3e5948; border-color: #66816e; color: #c2e7cd; }
 #draw-width { width: 44px; padding: 4px 6px; font-size: 10px; }
 .command-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .command-list button { font-size: 10px; padding: 7px 8px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

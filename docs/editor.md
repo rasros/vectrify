@@ -35,8 +35,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   **Reference** panel. The rail holds the object tools **Select** (`A`),
   **Move** (`V`), **Knife** (`C`), **Region** (`X`) and **Gradient** (`G`), the point tools **Nodes** (`S`) and
   **Redraw outline** (`R`), the drawing tools **Draw path** (`D`),
-  **Rectangle** (`M`), **Ellipse** (`E`) and **Line** (`L`), which create and
-  ignore the selection, the **Eyedropper** (`I`), and **Pan** (hold Space). The Reference panel holds the reference
+  **Rectangle** (`M`), **Ellipse** (`E`), **Line** (`L`) and **Pencil** (`P`),
+  which create and ignore the selection, the **Eyedropper** (`I`), and **Pan** (hold Space). The Reference panel holds the reference
   image and the tools that match the drawing to it (see Operations); its heading folds it
   away, and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
@@ -49,8 +49,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   shape**, which run when the points are on holes. Numbered controls show their digit, and the keys 1-9 press them (see
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel; Rectangle
   and Ellipse have W and H, Line has Length and Angle, and Rectangle has
-  Corners; all four drawing tools end with the drawing paint (Fill, Stroke and
-  Width). The Eyedropper has **Artwork** / **Reference** (what it samples),
+  Corners; Pencil has Close shape and Smoothing; all the drawing tools end
+  with the drawing paint (Fill, Stroke and Width). The Eyedropper has **Artwork** / **Reference** (what it samples),
   **Fill** / **Stroke** (what the sample sets) and a status saying where the
   next sample goes. Knife, Region, Gradient, Redraw outline, the drawing
   tools, the Eyedropper and Pan show a
@@ -498,7 +498,25 @@ and saved projects restore it.
   the next. Shapes are native `rect`, `circle` (an ellipse with Shift),
   `ellipse` and `line` elements: they save and export as such and stay shapes
   until **Convert to path** (Path) gives them points to edit.
-- **Drawing paint**: the strip's **Fill**, **Stroke** and **Width** in all four
+- **Pencil (P)**: drag to draw a freehand path. As it is drawn the stroke is
+  fitted to a few cubic curves, previewed painted as the path will be, with a
+  dashed outline and its points, and the status line counts them ("Pencil · 6
+  points"); the path added on release is exactly the one previewed. The pointer
+  is sampled every screen pixel, the samples the browser gathers between
+  events included, so a fast stroke is followed as closely as a slow one.
+  **Smoothing** (1-20, by default 2) is how far, in screen pixels, the curves
+  may stray from the stroke: more gives smoother curves and fewer points.
+  Being in screen pixels, it fits alike at any zoom. Sharp turns stay corners;
+  elsewhere the curves meet smoothly. **Close shape** (1), remembered with the
+  smoothing, closes each stroke back to where it started, as a shape that
+  takes the fill; it may be pressed mid-stroke. A click, or a stroke too short
+  to fit, draws nothing. Escape (or a tool key) cancels a stroke under way,
+  and a stroke started while an edit runs waits for it, as in the other
+  tools. Each stroke is one undoable edit, selected afterwards, into the
+  drawing container with the drawing paint, and the tool stays on for the
+  next. Pencil only creates paths; Redraw outline is the tool that redraws a
+  stretch of an existing outline.
+- **Drawing paint**: the strip's **Fill**, **Stroke** and **Width** in all the
   drawing tools, remembered in this browser. Closed shapes and paths take the
   fill and the stroke (each can be off, never both); lines and open paths take
   the stroke colour, or the fill colour when the stroke is off. Width is in
@@ -784,13 +802,13 @@ and saved projects restore it.
 Keyboard shortcuts are available from the `?` button. They come in three
 layers that never collide. Tool and view keys: `A`
 Select, `V` Move, `S` Nodes, `D` Draw path, `M` Rectangle, `E` Ellipse, `L` Line,
-`I` Eyedropper, `C` Knife, `X` Region, `G` Gradient and `R` Redraw outline switch
+`P` Pencil, `I` Eyedropper, `C` Knife, `X` Region, `G` Gradient and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
 controls (in Nodes: 1-3 handles, 4 Break, 5 Join points, 6 Add node, 7 Straighten; in Select or Move: 1-4
 the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel; in
-the Eyedropper: 1 Artwork, 2 Reference, 3 Fill, 4 Stroke),
+Pencil: 1 Close shape; in the Eyedropper: 1 Artwork, 2 Reference, 3 Fill, 4 Stroke),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins what the
 selection allows (Join points, Merge shapes or Join line ends). Drag with

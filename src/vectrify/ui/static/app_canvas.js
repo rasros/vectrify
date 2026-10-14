@@ -238,6 +238,11 @@ export function createCanvasController(editor, {
       common.deselectOutside = false;
       startGesture('shape', event, common, {tool: editor.tool}); return;
     }
+    // A pencil stroke starts wherever it is pressed, as a shape does.
+    if (editor.tool === 'pencil') {
+      common.deselectOutside = false;
+      startGesture('pencil', event, common); return;
+    }
     // The eyedropper samples wherever it is pressed, the selection staying.
     if (editor.tool === 'eyedropper') {
       common.deselectOutside = false;

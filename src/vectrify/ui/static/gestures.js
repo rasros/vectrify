@@ -1,6 +1,8 @@
+import {SAMPLE_STEP} from './pencil.js';
+
 // Canvas gestures own their previews and completion. Hit testing, pointer
 // capture and queued-input replay stay with the canvas event handlers.
-export function canvasGestures({view, path, shapes, selection, nodes, resize, moving, rotate, gradient, knife, region, eyedropper, redraw, point, drawOverlay}) {
+export function canvasGestures({view, path, shapes, pencil, selection, nodes, resize, moving, rotate, gradient, knife, region, eyedropper, redraw, point, drawOverlay}) {
   const inspectPoints = () => { nodes.renderInspector(); drawOverlay(); };
   const restoreTransforms = gesture => {
     for (const member of gesture.members) {
@@ -69,6 +71,26 @@ export function canvasGestures({view, path, shapes, selection, nodes, resize, mo
       },
       async release(gesture) { drawOverlay(); await shapes.finish(gesture); },
       cancel: () => shapes.cancel(),
+    },
+    // A Pencil stroke: every pointer sample a screen pixel or more from the
+    // last, those the browser coalesced between events included, so a fast
+    // stroke is followed as closely as a slow one. The fit is previewed as
+    // it is drawn.
+    pencil: {
+      press(gesture, event) {
+        const p = point(event);
+        gesture.points = [[p.x, p.y]];
+      },
+      move(gesture, event) {
+        const samples = event.getCoalescedEvents?.() ?? [];
+        for (const sample of samples.length ? samples : [event]) {
+          const p = point(sample), last = gesture.points.at(-1);
+          if (Math.hypot(p.x - last[0], p.y - last[1]) * view.zoom() >= SAMPLE_STEP) gesture.points.push([p.x, p.y]);
+        }
+        if (gesture.moved) { pencil.preview(gesture); drawOverlay(); }
+      },
+      async release(gesture) { drawOverlay(); await pencil.finish(gesture); },
+      cancel: () => drawOverlay(),
     },
     knife: {
       press(gesture, event) {
