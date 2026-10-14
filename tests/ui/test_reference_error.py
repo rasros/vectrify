@@ -40,7 +40,7 @@ def test_reference_error_in_browser():
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
+        timeout=75,
     )
     if result.returncode == 77:
         pytest.skip("needs Node.js with native WebSocket support")

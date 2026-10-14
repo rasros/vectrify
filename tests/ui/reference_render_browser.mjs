@@ -23,10 +23,11 @@ const timeout = (promise, ms) => {
   return Promise.race([promise, new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('Browser test timed out')), ms);})]).finally(() => clearTimeout(timer));
 };
 try {
-  chrome = spawn(process.argv[2], ['--headless', '--no-sandbox', '--disable-gpu', '--disable-extensions', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {stdio: ['ignore', 'ignore', 'pipe']});
+  chrome = spawn(process.argv[2], ['--headless', '--no-sandbox', '--disable-gpu', '--disable-extensions', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], {stdio: ['ignore', 'ignore', 'pipe']});
   chrome.stderr.on('data', chunk => {diagnostics = (diagnostics + chunk).slice(-8000);});
   let port;
-  for (let i = 0; i < 200; i++) {
+  // Loaded CI runners can take longer than ten seconds to start Chrome.
+  for (let i = 0; i < 600; i++) {
     try { port = (await readFile(resolve(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; }
     catch {
       port = /DevTools listening on ws:\/\/[^/:]+:(\d+)\//.exec(diagnostics)?.[1];
@@ -71,5 +72,6 @@ try {
     const exited = new Promise(resolve => chrome.once('exit', resolve)); chrome.kill(); await exited;
   }
   server.closeAllConnections(); server.close();
-  await rm(profile, {recursive: true, force: true});
+  // Chrome's child processes can finish writing after the parent has exited.
+  await rm(profile, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
 }
