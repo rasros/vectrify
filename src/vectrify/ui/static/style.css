@@ -198,7 +198,6 @@
 .strip-coordinates { display: flex; gap: 6px; }
 .strip-coordinates label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .strip-coordinates input { width: 66px; padding: 4px 6px; font-size: 10px; }
-#strip-hole { display: flex; gap: 5px; }
 .drawing-paint { display: flex; align-items: center; gap: 6px; }
 .drawing-paint label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .drawing-paint input[type=color] { width: 24px; height: 22px; padding: 2px; border-radius: 4px; cursor: pointer; }
@@ -319,7 +318,7 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 #overlay .gradient-handle.locked, #overlay .gradient-line.locked { fill: #889690; stroke-dasharray: none; }
 #overlay .gradient-line.locked { stroke: #889690; }
 
-/* The Reference panel, below the objects: the image, the view and the tools that match the drawing to it. */
+/* The Reference panel, above the objects: the image, the view and the tools that match the drawing to it. */
 .reference-panel { flex: none; padding: 0 12px 14px; }
 .reference-panel.folded { padding-bottom: 0; }
 .reference-panel .panel-heading { height: 44px; padding: 0 3px; }
@@ -455,3 +454,82 @@ button[data-command="straighten-handles"][aria-pressed=mixed] { border-color: #6
 .object-row .tree-eye[aria-disabled="true"] { cursor: not-allowed; opacity: .3; }
 .object-row.concealed .swatch, .object-row.concealed .object-label { opacity: .45; }
 .object-row.concealed .object-label { font-style: italic; }
+
+/* The inspector has three stable workspaces; selection only changes values. */
+.inspector { display: flex; flex-direction: column; overflow: hidden; }
+.inspector > .panel-heading { flex: none; }
+#properties { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.inspector-tabs { display: flex; gap: 4px; padding: 0 10px 10px; border-bottom: 1px solid var(--line); flex: none; }
+.inspector-tabs button { display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 9px 4px; background: transparent; border-color: transparent; color: var(--muted); font-size: 11px; }
+.inspector-tabs button[aria-selected=true] { background: #344b3d; border-color: #526e5b; color: #d7ecde; }
+.inspector-tabs button:hover { color: #e2e7e4; background: #2a372e; }
+.inspector [role=tabpanel] { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #4a584f transparent; outline-offset: -2px; }
+.inspector [role=tabpanel] > :first-child { border-top: 0; }
+.inspector button:focus-visible, .inspector summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.command-icon, [data-icon] { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; vertical-align: middle; }
+.command-icon svg, [data-icon] svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.command-list button { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 34px; white-space: normal; line-height: 1.35; }
+.command-list .command-icon { color: #9fbaaa; }
+.command-list .danger .command-icon { color: inherit; }
+.command-label { min-width: 0; }
+.inspector-disclosure > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #cad9cf; font-size: 11px; font-weight: 600; list-style: none; }
+.inspector-disclosure > summary::-webkit-details-marker, .point-advanced > summary::-webkit-details-marker, .point-help > summary::-webkit-details-marker { display: none; }
+.inspector-disclosure > summary::after, .point-advanced > summary::after, .point-help > summary::after { content: '›'; margin-left: auto; color: var(--muted); font-size: 16px; line-height: 14px; }
+.inspector-disclosure[open] > summary::after, .point-advanced[open] > summary::after, .point-help[open] > summary::after { transform: rotate(90deg); }
+.inspector-disclosure[open] > summary { margin-bottom: 14px; }
+.inspector-disclosure:not([open]) { padding-top: 16px; padding-bottom: 16px; }
+.point-selection { color: var(--muted); font-size: 10px; line-height: 1.5; height: 30px; margin: 0 0 10px; }
+.point-advanced, .point-help { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+.point-advanced > summary, .point-help > summary { display: flex; align-items: center; color: #a3bcac; font-size: 10px; list-style: none; cursor: pointer; }
+.point-advanced[open] > summary, .point-help[open] > summary { margin-bottom: 10px; }
+#point-properties input:disabled { opacity: .45; }
+.tool-controls button, .strip-more-menu button[data-command] { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.tool-controls [data-icon-only] .command-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tool-controls [data-icon-only] { min-width: 32px; }
+.tool-controls[data-tools=nodes] .strip-item + .strip-item { margin-left: 4px; }
+.strip-more-menu [data-icon-only] .command-label { position: static; width: auto; height: auto; clip-path: none; }
+.strip-more-menu [data-icon-only] { justify-content: flex-start; }
+
+.empty-inspector { overflow-y: auto; }
+.actions-hint { color: var(--muted); font-size: 10px; padding: 4px 18px 12px; margin: 10px 0 0; }
+#point-properties [data-command] { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+/* Reserve status space so point counts do not move controls into overflow. */
+.tool-strip[data-tool=nodes] .selection-level { flex: 0 0 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#point-section .command-list button { min-height: 42px; }
+@media (max-width: 560px) { .inspector { display: none; } }
+
+/* Drawing types share one rail slot; the picker only appears while drawing. */
+.draw-type { display: inline-flex; align-items: center; gap: 6px; flex: none; color: #c2d7ca; padding: 0 4px; }
+.draw-type select { max-width: 135px; padding: 5px 22px 5px 7px; }
+.tool[data-tool=draw] .tool-key { font-size: 8px; }
+.tool[data-tool=draw].active { color: #d1f5dd; background: #345b43; border-color: #a9cfb4; }
+
+/* Reference work stays visible; general illustration tools live in More. */
+.rail-label { color: #839e8c; font-size: 8px; letter-spacing: .4px; text-align: center; margin-bottom: -2px; }
+.general-tools-toggle { height: 44px; padding: 5px 6px; }
+.general-tools-toggle svg { display: block; width: 21px; height: 21px; }
+.general-tools-toggle .tool-key { font-size: 8px; }
+.general-tools-toggle.active { color: #d1f5dd; background: #345b43; border-color: #a9cfb4; }
+.general-tools-menu { position: fixed; z-index: 40; width: 260px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; padding: 6px; border: 1px solid #435a4b; border-radius: 8px; background: #1f2a24; box-shadow: 0 10px 40px #0008; }
+.general-tools-menu .tool[data-tool] { display: flex; align-items: center; gap: 10px; width: 100%; height: 38px; padding: 7px 10px; border-color: transparent; color: #c6d8cc; }
+.general-tools-menu .tool[data-tool] svg { width: 18px; height: 18px; flex: none; }
+.general-tool-label { flex: 1; text-align: left; font-size: 11px; }
+.general-tools-menu kbd { font-size: 9px; padding: 2px 4px; background: transparent; border: none; color: var(--muted); }
+.general-tools-menu .tool.active { background: #344b3d; border-color: #526e5b; }
+.general-tools-menu .tool:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.reference-panel { border-top: 0; border-bottom: 1px solid var(--line); background: #202c24; }
+.reference-panel .panel-heading h2 { color: #d5e9dc; }
+.reference-tools > button { display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-height: 34px; }
+.reference-tools > .primary { justify-content: center; }
+.reference-advanced { grid-column: 1 / -1; margin-top: 5px; }
+.reference-advanced summary { color: var(--muted); font-size: 10px; cursor: pointer; padding: 4px 0; }
+.reference-advanced button { display: flex; align-items: center; gap: 6px; margin-top: 6px; width: 100%; font-size: 10px; padding: 7px; }
+.secondary-tools-note { margin-top: 30px; }
+
+/* Short context menus leave advanced commands to search and the inspector. */
+.context-menu { min-width: 242px; }
+.context-menu .menu-item { gap: 9px; min-height: 32px; }
+.context-menu .menu-label { flex: 1; text-align: left; }
+.context-menu .command-icon { color: #a3bcac; }
+.context-menu .menu-item.danger, .context-menu .menu-item.danger .command-icon { color: #d5a995; }
+.context-menu [data-context-more] { color: #bed7c7; }

@@ -153,7 +153,16 @@ selection.nudge(-10, 0);
 const [command, data, label] = actions.pop();
 assert.deepEqual([command, data.dx, data.dy, label], ['move', -10, 0, 'Moving selection…']);
 assert.equal(typeof data.nudge, 'string');
-// A locked position and definitions refuse, and nothing is sent.
+// Nodes with an object but no points selected moves that object too.
+pointLevel = true;
+selection.nudge(0, 1);
+assert.equal(actions.pop()[0], 'move');
+// An unresolved server point selection must not move the entire object.
+editor.state.selection.nodes = ['missing'];
+selection.nudge(1, 0); await settle();
+assert.equal(actions.length, 0);
+editor.state.selection.nodes = [];
+// A locked position and definitions refuse in Nodes too, and nothing is sent.
 object('free').inherited_locks = ['transform'];
 selection.nudge(1, 0); await settle();
 assert.deepEqual(toasts.pop(), {message: 'Free: position is locked; unlock it to move', error: true});

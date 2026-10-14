@@ -175,6 +175,11 @@ export function createCanvasEventsController(editor, {
      $('zoom-in').onclick=()=>zoomAt(1.25);
      $('zoom-out').onclick=()=>zoomAt(.8);
 
+    $('draw-type').onchange = event => {
+      const tool = event.target.value;
+      later(() => setTool(tool));
+    };
+
     document.querySelectorAll('.tool[data-tool]').forEach(button=>button.onclick=()=>later(()=>setTool(button.dataset.tool)));
       return api;
   }

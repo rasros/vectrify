@@ -4,6 +4,8 @@
 // draws from the centre, alike in every shape tool. Pure, so it can be checked
 // outside the browser.
 
+export const DRAW_TOOLS = ['path', 'rect', 'ellipse', 'line', 'pencil'];
+
 export const SHAPE_TOOLS = ['rect', 'ellipse', 'line'];
 
 // What each tool's shapes are called, by tag.

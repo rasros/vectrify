@@ -108,7 +108,7 @@ assert.equal(toasts.at(-1).message, 'Inner is hidden with Layer: show it to edit
 // The canvas: Select all, the browser's hits, snapping and the point tools
 // leave hidden objects out; edits that need their place refuse.
 const selection = createSelectionController(editor, {
-  object, level: () => 'objects', action: async (...args) => { actions.push(args); return true; },
+  object, level: () => 'objects', selectedPoints: () => [], action: async (...args) => { actions.push(args); return true; },
   topSelection: () => editor.state.selection.objects, toast: (message, error) => toasts.push({message, error: !!error}),
   moveLockRefusal: () => '',
 });

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 const fields = new Map();
 const field = id => {
-  if (!fields.has(id)) fields.set(id, {value: '', style: {}, children: [], querySelector: () => ({}), replaceChildren() {this.children = [];}, append(child) {this.children.push(child);}});
+  if (!fields.has(id)) fields.set(id, {value: '', style: {}, children: [], focus() {}, querySelector: () => ({}), replaceChildren() {this.children = [];}, append(child) {this.children.push(child);}});
   return fields.get(id);
 };
 const directions = ['horizontal', 'vertical', 'diagonal'].map(direction => ({dataset: {gradientDirection: direction}}));
@@ -17,7 +17,7 @@ let value = '#33669980';
 const edits = [], queued = [], errors = [];
 const context = Object.assign(createEditorState(), {
   $: field,
-  document: {querySelectorAll: () => directions, createElement: () => ({children: [], setAttribute() {}, append(...children) {this.children.push(...children);}, querySelectorAll() {return this.children.slice(0, 3);}})},
+  document: {querySelectorAll: selector => selector === '[data-gradient-direction]' ? directions : [], createElement: () => ({children: [], setAttribute() {}, append(...children) {this.children.push(...children);}, querySelectorAll() {return this.children.slice(0, 3);}})},
   state: {selection: {objects: ['shape']}},
   oneObject: () => item,
   svgElement: () => ({getBBox: () => bounds}),

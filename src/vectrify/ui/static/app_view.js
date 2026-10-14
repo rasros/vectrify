@@ -1,7 +1,10 @@
+import {GENERAL_TOOLS} from './tool_menu.js';
+import {iconMarkup} from './icons.js';
+import {selectInspectorTab} from './inspector.js';
 import {clippingFrames} from './clipping.js';
 import {MAX_ZOOM, hints, names} from './app_config.js';
 import {pointOwners, splitKey, switchTool} from './selection.js';
-import {SHAPE_TOOLS} from './shapes.js';
+import {DRAW_TOOLS, SHAPE_TOOLS} from './shapes.js';
 
 // View owns its controls; editor contains the live state shared with other controllers.
 export function createViewController(editor, {
@@ -88,20 +91,31 @@ export function createViewController(editor, {
   // the same.
   async function setTool(value) {
     if (!editor.state) return;
+    if (value === 'draw') value = editor.drawTool || 'path';
+    if (DRAW_TOOLS.includes(value)) editor.drawTool = value;
     const from = editor.tool;
     const switched = switchTool({objects: editor.state.selection.objects, points: selectedPoints(), memory: editor.pointMemory}, from, value);
     editor.activeHandle = null;
     editor.clickCycle = null; editor.lastPick = null; editor.pathDraft=[]; editor.pathHover=null; editor.region=null; editor.regionHover=null; editor.eyedropperHover=null; editor.redrawHover=null; editor.hoverPath = null; editor.tool=value; editor.pointMemory = switched.memory;
     reportView();
     document.querySelectorAll('.tool[data-tool]').forEach(button => {
-      const active = button.dataset.tool === editor.tool;
+      const active = button.dataset.tool === editor.tool || (button.dataset.tool === 'draw' && DRAW_TOOLS.includes(editor.tool));
       button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', String(active));
+      button.setAttribute(button.dataset.secondary ? 'aria-checked' : 'aria-pressed', String(active));
     });
+    const general = GENERAL_TOOLS.includes(value);
+    $('general-tools').classList.toggle('active', general);
+    $('general-tools').title = general ? `More tools · ${DRAW_TOOLS.includes(value) ? 'Draw' : names[value]}` : 'More tools: drawing, cutting, gradients and pan';
+    $('general-tools-menu').hidden = true;
+    $('general-tools').setAttribute('aria-expanded', 'false');
+    if (value === 'gradient') $('paint-section').open = true;
+    if (from !== value) selectInspectorTab(document, ['nodes', 'redraw'].includes(value) ? 'points' : 'object');
+    $('draw-type').value = editor.drawTool || 'path';
+    $('draw-type-icon').innerHTML = iconMarkup(`draw-${editor.drawTool || 'path'}`);
     $('active-tool').dataset.tool = editor.tool;
     $('tool-strip').dataset.tool = editor.tool;
     $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', pencil: 'P', eyedropper: 'I', knife: 'C', region: 'X', gradient: 'G', redraw: 'R', hand: 'Space'}[editor.tool];
-    $('tool-name').textContent = editor.tool === 'select' ? 'Select objects' : editor.tool === 'nodes' ? 'Edit points' : names[editor.tool];
+    $('tool-name').textContent = editor.tool === 'select' ? 'Select objects' : editor.tool === 'nodes' ? 'Edit points' : DRAW_TOOLS.includes(editor.tool) ? 'Draw' : names[editor.tool];
     $('canvas-hint').textContent=hints[editor.tool];
     stage.style.cursor = editor.tool === 'hand' ? 'grab' : ['path','pencil','knife','region','redraw','eyedropper',...SHAPE_TOOLS].includes(editor.tool) ? 'crosshair' : 'default';
     renderInspector();

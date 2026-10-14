@@ -207,9 +207,7 @@ export function createPaintController(editor, {
     button.title = reason || button.dataset.title;
   }
 
-  // The right panel shows the selection's properties: with points selected their
-  // coordinates and handles first, then the objects' name, paint and locks, and
-  // the actions on them.
+  // Refresh values without changing the chosen inspector tab or disclosures.
   function renderInspector() {
     const selected = editor.state.selection.objects, item = oneObject();
     $('object-name-section').hidden = !item;

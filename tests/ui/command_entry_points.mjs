@@ -9,6 +9,7 @@ import {createJoinController} from '../../src/vectrify/ui/static/app_join.js';
 import {createClippingController} from '../../src/vectrify/ui/static/app_clipping.js';
 import {createRegionController} from '../../src/vectrify/ui/static/app_region.js';
 import {createAlignController} from '../../src/vectrify/ui/static/app_align.js';
+import {createKeysController} from '../../src/vectrify/ui/static/app_keys.js';
 import {createBooleansController} from '../../src/vectrify/ui/static/app_booleans.js';
 
 // Just enough DOM: elements with attributes, children and simple selectors
@@ -91,7 +92,8 @@ const objects = [
   {id: 'clipped', tag: 'g', label: 'Group 1', paint: {}, attributes: {'clip-path': 'url(#c)'}},
 ];
 for (const item of objects) Object.assign(item, {locks: [], inherited_locks: []});
-let selectedPoints = [], pointLevel = false, turnLock = '';
+let selectedPoints = [], pointLevel = false, turnLock = '', selectedHandle = null;
+const pinned = new Set();
 const actions = [], toasts = [];
 const editor = Object.assign(createEditorState(), {
   state: {epoch: 'e', revision: 0, selection: {objects: ['line'], nodes: []}, objects, undo: [], redo: [], clipboard: null, reference: null, bounds: [0, 0, 100, 100]},
@@ -104,13 +106,14 @@ const context = {
   actions: {action: (...args) => { actions.push(args); return true; }},
   session: {object, oneObject: () => editor.state.selection.objects.length === 1 ? object(editor.state.selection.objects[0]) : null},
   geometry: {
-    level: () => pointLevel ? 'points' : 'objects', selectedPoints: () => selectedPoints, nodeAt: () => ({}),
+    level: () => pointLevel ? 'points' : 'objects', selectedPoints: () => selectedPoints, nodeAt: key => ({pinned: pinned.has(key)}),
     contourAt: () => ({closed: false, nodes: [{id: 'a'}, {id: 'b'}, {id: 'c'}]}),
   },
   selection: {
-    selectedHandle: () => null, pointPairs: () => selectedPoints.map(key => key.split(' ')), holeContours: () => null,
+    selectedHandle: () => selectedHandle, pointPairs: () => selectedPoints.map(key => key.split(' ')), holeContours: () => null,
     selectAll: () => { actions.push(['select-all']); return true; }, selectAllRefusal: () => '',
   },
+  eyedropper: {targetRefusal: () => '', sourceRefusal: () => ''},
   gradients: {gradientRefusal: () => ''}, dialogs: {tidyTargets: () => 0},
   transform: {fieldRefusal: () => turnLock},
   rotating: {turnRefusal: verb => turnLock && `${turnLock}; unlock it to ${verb}`, flip: axis => { actions.push(['flip', axis]); return true; }},
@@ -123,7 +126,7 @@ context.commands = {...createCommandsController(editor, {
   action: (...args) => { actions.push(args); return true; },
   later: run => run(), level: () => pointLevel ? 'points' : 'objects', selectedPoints: () => selectedPoints,
   resolvedPaint: (id, kind, fallback) => object(id)?.paint[kind] ?? fallback,
-  pointPairs: () => selectedPoints.map(key => key.split(' ')), pointContours: () => [], selectedHandle: () => null,
+  pointPairs: () => selectedPoints.map(key => key.split(' ')), pointContours: () => [], selectedHandle: () => selectedHandle,
   toast: (message, error) => toasts.push({message, error: !!error}), stage: new Node('div'), window: new Node('window'),
 }), segmentPicked: () => false};
 context.join = createJoinController(editor, {
@@ -171,32 +174,49 @@ assert.deepEqual(path.children.map(child => child.textContent), ['Merge shapes',
 assert.deepEqual(points.children.map(child => child.textContent), ['Break', 'Join points', 'Delete points']);
 assert.equal(stripJoin.textContent, 'Join points', 'a strip button takes the registry name');
 
-// The context menu: object commands for objects, by group, none hidden for
-// being unavailable.
+// Quick menus have a small, stable set of actions; full commands stay in search.
 const menuItem = id => $('context-menu').querySelector(`.menu-item[data-command=${id}]`);
+const menuIds = () => $('context-menu').querySelectorAll('[data-command]').map(item => item.dataset.command);
 openContextMenu(10, 10);
-const headings = $('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent);
-assert.deepEqual(headings, ['Select', 'Object', 'Transform', 'Arrange', 'Path', 'Clipping', 'Repair']);
-// Select all is in the menu with its shortcut, and runs from there.
-assert.equal(menuItem('select-all').querySelector('span').textContent, 'Select all');
+assert.deepEqual(menuIds(), ['enter', 'tidy', 'fit-colours', 'copy', 'paste', 'rename', 'delete']);
+assert.equal($('context-menu').querySelectorAll('.menu-item').length, 8);
+assert.equal($('context-menu').querySelectorAll('.menu-heading').length, 0);
+assert.equal(menuItem('enter').querySelector('.menu-label').textContent, 'Edit points');
+assert.ok(!menuItem('flip-vertical'));
+assert.ok(!menuItem('merge-shapes'));
+assert.ok(!menuItem('join-points'));
+const quickIds = menuIds();
+editor.state.selection.objects = ['box']; openContextMenu(10, 10);
+assert.deepEqual(menuIds(), quickIds, 'unavailable actions stay in their fixed positions');
+assert.equal(menuItem('enter').getAttribute('aria-disabled'), 'true');
+editor.state.selection.objects = [];
+openContextMenu(-10, 10);
+assert.deepEqual(menuIds(), ['undo', 'redo', 'paste', 'select-all', 'generate', 'load-reference']);
+assert.equal($('context-menu').style.left, '8px');
+assert.equal(menuItem('select-all').querySelector('.menu-label').textContent, 'Select all');
 assert.equal(menuItem('select-all').querySelector('kbd').textContent, 'Ctrl/⌘ A');
 menuItem('select-all').onclick();
 assert.deepEqual(actions.pop(), ['select-all']);
-// Flips are offered beside the Transform fields and in the menu, and say
-// why they cannot run as the rest do.
+editor.state.selection.objects = ['line'];
+openContextMenu(10, 10);
+$('context-menu').querySelector('[data-context-more]').onclick();
+assert.equal($('context-menu').hidden, true);
+assert.equal($('palette').open, true, 'More actions opens command search');
+assert.equal($('palette-input').value, '');
+assert.ok($('palette-list').querySelectorAll('.palette-row').some(row => row.querySelector('.palette-name').textContent === 'Flip vertical'));
+$('palette').close();
+
+// Advanced transforms remain available in their inspector and command registry.
 const transformList = Object.assign(new Node('div'), {className: 'command-list'});
 transformList.dataset.commands = 'flip-horizontal flip-vertical';
 document.append(transformList); buildCommandLists(); renderCommands();
 assert.deepEqual(transformList.children.map(child => child.textContent), ['Flip horizontal', 'Flip vertical']);
-assert.equal(menuItem('flip-vertical').querySelector('kbd').textContent, 'Shift V');
 await commandById.get('flip-horizontal').run();
 assert.deepEqual(actions.pop(), ['flip', 'horizontal']);
 turnLock = 'Line: position is locked';
 assert.equal(commandRefusal(commandById.get('flip-vertical')), 'Line: position is locked; unlock it to flip');
 assert.equal(commandRefusal(commandById.get('rotate')), 'Line: position is locked');
 turnLock = '';
-assert.ok(!menuItem('join'), 'the Ctrl/⌘ J shortcut is not a menu entry of its own');
-assert.ok(!menuItem('join-points'), 'point operations stay with Nodes');
 
 // The palette row for a command, found by typing its name.
 function paletteRow(id) {
@@ -219,7 +239,7 @@ function agrees(id, list, reason) {
   if (item) {
     assert.equal(item.getAttribute('aria-disabled'), String(!!reason), `${id} in the context menu`);
     assert.equal(item.title, inspector.title, `${id} tooltip in the context menu`);
-    assert.equal(item.querySelector('span').textContent, inspector.textContent);
+    assert.equal(item.querySelector('.menu-label').textContent, inspector.textContent);
   }
   const row = paletteRow(id);
   assert.equal(row.getAttribute('aria-disabled'), String(!!reason), `${id} in the palette`);
@@ -263,8 +283,8 @@ const press = target => { for (const handler of document.listeners.get('click'))
 press(button(path, 'merge-shapes'));
 assert.deepEqual(toasts.at(-1), {message: commandRefusal(commandById.get('merge-shapes')), error: true});
 openContextMenu(10, 10);
-menuItem('merge-shapes').onclick();
-assert.deepEqual(toasts.at(-1), {message: commandRefusal(commandById.get('merge-shapes')), error: true});
+menuItem('paste').onclick();
+assert.deepEqual(toasts.at(-1), {message: commandRefusal(commandById.get('paste')), error: true});
 assert.equal($('context-menu').hidden, true);
 press(stripJoin);
 assert.deepEqual(toasts.at(-1), {message: 'Select points in Nodes (S) first', error: true});
@@ -277,10 +297,11 @@ assert.deepEqual(actions, []);
 // An available command runs the same edit from each.
 press(button(path, 'stroke-to-path'));
 openContextMenu(10, 10);
-menuItem('stroke-to-path').onclick();
+assert.ok(!menuItem('stroke-to-path'), 'advanced operations stay out of quick menus');
+$('context-menu').querySelector('[data-context-more]').onclick();
 paletteRow('stroke-to-path');
 runPaletteRow(0);
-assert.deepEqual(actions.map(([command]) => command), ['line_to_fill', 'line_to_fill', 'line_to_fill']);
+assert.deepEqual(actions.map(([command]) => command), ['line_to_fill', 'line_to_fill']);
 assert.equal($('palette').open, false);
 actions.length = 0;
 
@@ -292,10 +313,11 @@ agrees('convert-to-path', path, '');
 agrees('detach', path, 'A basic shape shares nothing: use Convert to path');
 press(button(path, 'convert-to-path'));
 openContextMenu(10, 10);
-menuItem('convert-to-path').onclick();
+assert.ok(!menuItem('convert-to-path'), 'advanced operations stay out of quick menus');
+$('context-menu').querySelector('[data-context-more]').onclick();
 paletteRow('convert-to-path');
 runPaletteRow(0);
-assert.deepEqual(actions.map(([command]) => command), ['convert_to_path', 'convert_to_path', 'convert_to_path']);
+assert.deepEqual(actions.map(([command]) => command), ['convert_to_path', 'convert_to_path']);
 actions.length = 0;
 
 // An instance is detached, not converted, and a mixed selection converts
@@ -327,10 +349,11 @@ agrees('remove-clip', clipping, '');
 assert.equal(button(clipping, 'set-clip').textContent, 'Set clip…');
 press(button(clipping, 'remove-clip'));
 openContextMenu(10, 10);
-menuItem('remove-clip').onclick();
+assert.ok(!menuItem('remove-clip'), 'advanced operations stay out of quick menus');
+$('context-menu').querySelector('[data-context-more]').onclick();
 paletteRow('remove-clip');
 runPaletteRow(0);
-assert.deepEqual(actions.map(([command]) => command), ['remove_clip', 'remove_clip', 'remove_clip']);
+assert.deepEqual(actions.map(([command]) => command), ['remove_clip', 'remove_clip']);
 actions.length = 0;
 
 // Without a region, Extract region and Delete region pick up the Region
@@ -398,8 +421,9 @@ renderCommands();
 pointLevel = true; selectedPoints = ['line a', 'shape b'];
 renderCommands();
 openContextMenu(10, 10);
-assert.deepEqual($('context-menu').querySelectorAll('.menu-heading').map(heading => heading.textContent), ['Select', 'Nodes']);
-assert.equal(menuItem('select-all').querySelector('span').textContent, 'Select all points');
+assert.deepEqual(menuIds(), ['handles-0', 'handles-2', 'split-edge', 'break-points', 'join-points', 'select-all', 'delete-points']);
+assert.equal($('context-menu').querySelectorAll('.menu-item').length, 8);
+assert.equal(menuItem('select-all').querySelector('.menu-label').textContent, 'Select all points');
 assert.ok(!menuItem('enter'), 'a point tool\'s menu offers only Select all of Select');
 assert.ok(!menuItem('merge-shapes'), 'object operations stay with objects');
 agrees('join-points', points, '');
@@ -446,12 +470,98 @@ agrees('handles-2', handleList, 'Select points first');
 const {readFileSync} = await import('node:fs');
 const html = readFileSync(new URL('../../src/vectrify/ui/static/index.html', import.meta.url), 'utf8');
 for (const [, id] of html.matchAll(/data-command="([^"]+)"/g)) assert.ok(commandById.has(id), `index.html names unknown command ${id}`);
-const lists = [...html.matchAll(/<h3[^>]*>([^<]+)<\/h3><div class="command-list" data-commands="([^"]+)"/g)].map(([, heading, list]) => [heading, list.split(' ')]);
-assert.deepEqual(lists.map(([heading]) => heading), ['Arrange', 'Path', 'Clipping', 'Repair', 'Object']);
-assert.deepEqual(lists.find(([heading]) => heading === 'Clipping')[1], ['set-clip', 'remove-clip', 'show-clips']);
-for (const [heading, list] of lists) for (const id of list) assert.equal(commandById.get(id)?.group, heading, `${id} under ${heading}`);
+for (const [id, heading] of [['arrange', 'Arrange'], ['path', 'Path'], ['clipping', 'Clipping'], ['repair', 'Repair'], ['object', 'Object']]) {
+  const section = html.split(`<details id="${id}-section"`)[1].split('\n')[0];
+  const lists = [...section.matchAll(/data-commands="([^"]+)"/g)].flatMap(([, list]) => list.split(' '));
+  assert.ok(lists.length, `${heading} contains command lists`);
+  for (const command of lists) assert.equal(commandById.get(command)?.group, heading, `${command} under ${heading}`);
+}
+for (const [, list] of html.matchAll(/data-commands="([^"]+)"/g))
+  for (const id of list.split(' ')) assert.ok(commandById.has(id), `unknown listed command ${id}`);
 const flips = html.match(/<div class="command-list transform-commands" data-commands="([^"]+)"/)[1].split(' ');
 assert.deepEqual(flips, ['flip-horizontal', 'flip-vertical']);
 for (const id of flips) assert.equal(commandById.get(id)?.group, 'Transform', `${id} under Transform`);
 const pointList = html.match(/<div class="command-list" data-commands="([^"]+)" role="group" aria-label="Point operations">/)[1].split(' ');
-for (const id of pointList) assert.equal(commandById.get(id)?.group, 'Nodes', `${id} beside the points`);
+for (const id of pointList) assert.equal(commandById.get(id)?.group, id === 'delete-selection' ? 'Edit' : 'Nodes', `${id} beside the points`);
+
+// Moving stacking into Actions retains the Select/Move number shortcuts.
+const stacking = new Node('div'); stacking.dataset.commands = 'to-back backward forward to-front';
+document.append(stacking); buildCommandLists();
+assert.deepEqual(stacking.children.map(child => child.dataset.key), ['1', '2', '3', '4']);
+assert.ok(stacking.children.every(child => child.dataset.strip === 'select move'));
+
+openContextMenu(10, 10, 'objects');
+assert.ok(menuItem('copy'));
+assert.ok(!menuItem('join-points'));
+// Each menu preset has at most seven commands plus the searchable escape hatch.
+for (const kind of ['objects', 'points', 'canvas']) {
+  openContextMenu(10, 10, kind);
+  assert.ok($('context-menu').querySelectorAll('.menu-item').length <= 8);
+}
+// Home/End, arrows and Escape operate on the menu, never on canvas geometry.
+const navigation = $('context-menu').listeners.get('keydown')[0];
+const event = key => ({key, preventDefault() {}, stopPropagation() {}});
+navigation(event('End'));
+assert.equal(document.activeElement, $('context-menu').querySelector('[data-context-more]'));
+navigation(event('Home'));
+assert.equal(document.activeElement, $('context-menu').querySelector('.menu-item'));
+navigation(event('Escape'));
+assert.equal($('context-menu').hidden, true);
+
+// Shared actions follow the selection in A and S, including queued key presses.
+const shared = new Node('div'); shared.dataset.commands = 'delete-selection';
+document.append(shared); buildCommandLists();
+const deferred = [];
+const keys = createKeysController(editor, {
+  document: {activeElement: {tagName: 'BODY'}, querySelector: () => null},
+  input: {waiting: 0}, later: run => deferred.push(run),
+  level: context.geometry.level, selectedPoints: () => selectedPoints,
+  runCommand: context.commands.runCommand,
+});
+const deleteKey = (key = 'Delete', shiftKey = false) => keys.keyDown({key, code: key, shiftKey, preventDefault() {}});
+for (const nodeMode of [false, true]) {
+  pointLevel = nodeMode; selectedPoints = []; editor.state.selection = {objects: ['line'], nodes: []};
+  renderCommands();
+  assert.equal(commandName(commandById.get('delete-selection')), 'Delete objects');
+  assert.equal(button(shared, 'delete-selection').getAttribute('aria-disabled'), 'false');
+  assert.match(button(shared, 'delete-selection').title, /Delete the selected objects/);
+  assert.ok(commandRefusal(commandById.get('delete-points')), 'explicit point deletion never falls back to objects');
+  openContextMenu(10, 10);
+  assert.ok(menuItem('delete'), 'object quick actions are available without selected points, in either tool');
+  assert.ok(!menuItem('delete-points'));
+  assert.equal(registry.joinTarget().id, 'join-line-ends');
+  for (const key of ['Delete', 'Backspace']) {
+    actions.length = 0; deleteKey(key); await deferred.shift()();
+    assert.deepEqual(actions, [['delete']]);
+  }
+}
+pointLevel = true; editor.state.selection.objects = ['line', 'shape'];
+assert.equal(registry.joinTarget().id, 'merge-shapes');
+selectedPoints = ['line a', 'shape b'];
+assert.equal(registry.joinTarget().id, 'join-points');
+// Target resolution happens after earlier edits, when the key's turn comes.
+actions.length = 0; selectedPoints = []; deleteKey(); selectedPoints = ['line a'];
+await deferred.shift()();
+assert.deepEqual(actions.at(-1).slice(0, 2), ['delete_node', {points: [['line', 'a']]}]);
+renderCommands();
+assert.equal(commandName(commandById.get('delete-selection')), 'Delete points');
+assert.match(button(shared, 'delete-selection').title, /reconnecting the line/);
+selectedHandle = {object: 'line', node: 'b', offset: 0};
+renderCommands();
+assert.equal(commandName(commandById.get('delete-selection')), 'Delete handle');
+deleteKey(); await deferred.shift()();
+assert.equal(actions.at(-1)[0], 'delete_handle');
+selectedHandle = null;
+pinned.add('line a'); actions.length = 0;
+deleteKey(); await deferred.shift()();
+assert.deepEqual(actions, [], 'pinned points refuse, never deleting the object instead');
+assert.match(toasts.at(-1).message, /Unpin/);
+pinned.clear(); selectedPoints = []; editor.state.selection.nodes = ['a'];
+deleteKey(); await deferred.shift()();
+assert.deepEqual(actions, [], 'unresolved point geometry never falls back to deleting objects');
+editor.state.selection.nodes = [];
+deleteKey('Delete', true); await deferred.shift()();
+assert.deepEqual(actions, [], 'Shift+Delete without points never deletes objects');
+selectedPoints = ['line a'];
+deleteKey('Delete', true); await deferred.shift()();
+assert.equal(actions.at(-1)[0], 'delete_contour');
