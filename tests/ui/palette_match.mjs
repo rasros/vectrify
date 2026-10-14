@@ -7,7 +7,7 @@ const commands = [
   {name: 'Send to back', group: 'Arrange'},
   {name: 'Bring to front', group: 'Arrange'},
   {name: 'Tidy (Optimize nodes)…', group: 'Reference', keywords: 'simplify snap'},
-  {name: 'Join paths…', group: 'Actions', keywords: 'merge union'},
+  {name: 'Merge shapes…', group: 'Path', keywords: 'join union'},
   {name: 'Export SVG', group: 'File'},
 ];
 const names = query => matchCommands(commands, query).map(c => c.name);
@@ -18,10 +18,10 @@ assert.deepEqual(names(''), commands.map(c => c.name));
 assert.deepEqual(names('to'), ['Select tool', 'Send to back', 'Bring to front', 'Tidy (Optimize nodes)…']);
 assert.deepEqual(names('optim'), ['Tidy (Optimize nodes)…']);
 assert.deepEqual(names('EXPORT'), ['Export SVG']);
-assert.deepEqual(names('jp'), ['Join paths…']);
+assert.deepEqual(names('mrg'), ['Merge shapes…']);
 // Words in any order, and keywords and groups.
 assert.deepEqual(names('front bring'), ['Bring to front']);
-assert.deepEqual(names('merge'), ['Join paths…']);
+assert.deepEqual(names('join'), ['Merge shapes…']);
 assert.deepEqual(names('arrange'), ['Send to back', 'Bring to front']);
 assert.deepEqual(names('zzz'), []);
 assert.equal(matchScore('Fit colours…', 'fit colours…'), 100);

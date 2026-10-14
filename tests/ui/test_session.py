@@ -357,7 +357,7 @@ def test_join_button_command_combines_split_parts_and_undo_restores_selection():
     split = send(session, "split_disconnected")
     joined = send(session, "join_paths")
     assert len(joined["selection"]["objects"]) == 1
-    assert joined["undo"][-1] == "Join outlines"
+    assert joined["undo"][-1] == "Merge shapes"
     oid = joined["selection"]["objects"][0]
     assert len(session.editor.snapshot.document.geometry_for(oid).subpaths) == 2
     assert send(session, "undo")["selection"] == split["selection"]
@@ -374,7 +374,7 @@ def test_join_single_path_unions_its_contours_in_one_undoable_step():
     before = session.editor.snapshot
     result = send(session, "join_paths")
     assert result["selection"]["objects"] == ["a"]
-    assert result["undo"] == ["Join outlines"]
+    assert result["undo"] == ["Merge shapes"]
     assert len(session.editor.snapshot.document.geometry_for("a").subpaths) == 1
     after = session.editor.snapshot.document
     send(session, "undo")
@@ -427,7 +427,7 @@ def test_join_options_choose_source_and_validate_before_applying():
     )
     oid = result["selection"]["objects"][0]
     assert session.editor.snapshot.document.element(oid).get("fill") == "red"
-    assert result["undo"] == ["Join outlines"]
+    assert result["undo"] == ["Merge shapes"]
     send(session, "undo")
     assert session.editor.snapshot.document == before.document
 
@@ -447,7 +447,7 @@ def test_ui_join_mixed_group_and_path_uses_descendant_color_and_single_undo():
     assert len(result["selection"]["objects"]) == 1
     oid = result["selection"]["objects"][0]
     assert session.editor.snapshot.document.element(oid).get("fill") == "red"
-    assert result["undo"] == ["Join outlines"]
+    assert result["undo"] == ["Merge shapes"]
     send(session, "undo")
     assert session.editor.snapshot.document == before.document
     assert session.editor.snapshot.selection == before.selection

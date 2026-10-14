@@ -353,7 +353,7 @@ export function createCanvasController(editor, {
     } else if (item?.tag === 'path') {
       if (editor.state.selection.objects.length !== 1 || editor.state.selection.objects[0] !== id) await action('select', {objects: [id]}, 'Selecting…');
       await setTool('nodes');
-    } else if (item?.tag === 'use') toast('Detach this instance to edit its points (Detach, under Actions).');
+    } else if (item?.tag === 'use') toast('Detach this instance to edit its points (Detach to editable path, under Path).');
   }
 
   // Escape steps up one level: points to their paths, objects to their group,

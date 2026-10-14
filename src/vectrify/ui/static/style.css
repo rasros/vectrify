@@ -171,8 +171,12 @@
 .strip-coordinates label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
 .strip-coordinates input { width: 66px; padding: 4px 6px; font-size: 10px; }
 #strip-hole { display: flex; gap: 5px; }
-.action-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.action-list button { font-size: 10px; padding: 7px 8px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.command-list button { font-size: 10px; padding: 7px 8px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#point-section .command-list { margin-top: 2px; }
+/* A command that cannot run now stays in place, dimmed; pressing it says why. */
+button[aria-disabled=true] { opacity: .4; cursor: help; }
+button[aria-disabled=true]:hover { background: #2a332e; border-color: #3b4740; }
 .two-fields.compact { align-items: flex-end; margin-top: 0; }
 .two-fields.compact button { flex: none; padding: 7px 12px; font-size: 10px; }
 .field-label.first { margin-top: 0; }
@@ -181,9 +185,11 @@
 #point-properties .toggle { margin: 12px 0 0; }
 .inspector-section h3 { margin-bottom: 12px; }
 .inspector-section { padding: 14px 18px 16px; }
-.context-menu { position: fixed; z-index: 40; min-width: 220px; background: #1f2a24; border: 1px solid #435a4b; border-radius: 8px; padding: 5px; box-shadow: 0 10px 40px #0008; }
+.context-menu { position: fixed; z-index: 40; min-width: 220px; max-height: calc(100dvh - 16px); overflow-y: auto; background: #1f2a24; border: 1px solid #435a4b; border-radius: 8px; padding: 5px; box-shadow: 0 10px 40px #0008; }
 .menu-item { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 18px; background: none; border: 0; border-radius: 5px; padding: 6px 10px; font-size: 11px; text-align: left; color: #dce4df; }
-.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: #344c3d; outline: none; }
+.menu-item:hover:not([aria-disabled=true]), .menu-item:focus-visible { background: #344c3d; outline: none; }
+.menu-item[aria-disabled=true] { background: none; }
+.menu-heading { padding: 5px 10px 2px; font-size: 9px; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
 .menu-item kbd { background: none; border: 0; padding: 0; min-width: 0; color: var(--muted); font-size: 10px; }
 .menu-divider { height: 1px; background: var(--line); margin: 4px 6px; }
 .canvas-footer #reference-toggle { padding: 3px 8px; }

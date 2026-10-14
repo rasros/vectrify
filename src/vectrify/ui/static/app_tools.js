@@ -121,7 +121,7 @@ export function createToolsController(editor, {
     // With nothing selected the knife cuts what it crosses, in the entered group.
     if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y],within:editor.scope},'Cutting…')) {
       const pieces = editor.state.selection.objects.length, lines = editor.state.selection.objects.every(id => !filledPath(id));
-      toast(lines ? `Cut the line${pieces > 1 ? ` into ${pieces} paths` : ' open'} where the knife crosses it; Join ends joins it again.` : `Cut into ${pieces} pieces. They meet exactly along the cut; Join merges them again.`);
+      toast(lines ? `Cut the line${pieces > 1 ? ` into ${pieces} paths` : ' open'} where the knife crosses it; Join line ends joins it again.` : `Cut into ${pieces} pieces. They meet exactly along the cut; Merge shapes merges them again.`);
     }
   }
 

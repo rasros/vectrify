@@ -8,20 +8,17 @@ export function createJoinController(editor, {
   linePaths,
   openJoin,
   plural,
-  pointPairs,
   toast,
-  twoEnds,
 } = {}) {
 
-  // Join: two selected points join each other; lines join the ends that
-  // continue them nearby; a filled path unions its contours; multiple filled
-  // paths merge by area, after choosing colours.
-  const joinOpensDialog = () => !twoEnds() && joinCandidates().length > 1 && linePaths().length < joinCandidates().length;
+  // Merge shapes: a filled path unions its own contours; two or more paths
+  // merge by area, after choosing colours. (Join points joins two selected
+  // points, and Join line ends the lines that continue each other.)
+  const joinOpensDialog = () => joinCandidates().length > 1;
 
-  function join() {
-    if (twoEnds()) return action('join_two_ends', {points: pointPairs()}, 'Joining ends…');
-    if (joinCandidates().length === 1 && fillPaths().length === 1) return action('join_paths', {}, 'Joining overlapping contours…');
-    return joinOpensDialog() ? openJoin() : joinEnds();
+  function mergeShapes() {
+    if (joinCandidates().length === 1 && fillPaths().length === 1) return action('join_paths', {}, 'Merging overlapping contours…');
+    return openJoin();
   }
 
   // Every selected line joins the ends that continue it nearby.
@@ -33,6 +30,6 @@ export function createJoinController(editor, {
   function wire() {
       return api;
   }
-  const api = {joinOpensDialog, join, joinEnds, wire};
+  const api = {joinOpensDialog, mergeShapes, joinEnds, wire};
   return api;
 }

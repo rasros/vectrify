@@ -71,41 +71,63 @@ assert.ok(!group.disabled());
 const combine = registry.commandById.get('combine-paths');
 assert.ok(!combine.disabled());
 
-// A filled compound path can already be one object: Join must remain visible
-// and union its contours directly, without routing to line ends or a colour dialog.
+// Each join names what it does. A filled compound path can already be one
+// object: Merge shapes unions its contours directly, without a colour dialog;
+// two or more paths merge through the dialog. Lines join at their ends, and
+// two selected points join each other, each from a command of its own.
 const edits = [];
-let candidates = [{id: 'a'}], fills = candidates, lines = [], points = false;
+let candidates = [{id: 'a'}], fills = candidates, lines = [], points = [], pointLevel = false;
 const joinContext = ({
   joinCandidates: () => candidates,
   fillPaths: () => fills,
   linePaths: () => lines,
-  twoEnds: () => points,
-  level: () => 'objects',
+  twoEnds: () => points.length === 2,
+  selectedPoints: () => points,
+  noPoints: () => !points.length && 'Select points first',
+  level: () => pointLevel ? 'points' : 'objects',
   action: (...args) => edits.push(args),
-  pointPairs: () => [['a', 'n1'], ['a', 'n2']],
-  joinEnds: () => edits.push(['join_ends']),
+  pointPairs: () => points.map(key => key.split(' ')),
   openJoin: () => edits.push(['dialog']),
+  state: {selection: {objects: ['a']}},
 });
 joinContext.zoom = 1;
 const joining = createJoinController(joinContext, {
   action:joinContext.action, fillPaths:joinContext.fillPaths, joinCandidates:joinContext.joinCandidates,
-  linePaths:joinContext.linePaths, openJoin:joinContext.openJoin, twoEnds:joinContext.twoEnds,
-  pointPairs:joinContext.pointPairs, plural:() => '', toast() {},
+  linePaths:joinContext.linePaths, openJoin:joinContext.openJoin, plural:() => '', toast() {},
 });
 const joinRegistry = createCommandRegistryController(joinContext, {
-  ...joinContext, join:joining.join, joinOpensDialog:joining.joinOpensDialog,
+  ...joinContext, joinEnds:joining.joinEnds, mergeShapes:joining.mergeShapes, joinOpensDialog:joining.joinOpensDialog,
 });
-const joinCommand = joinRegistry.commandById.get('join');
-assert.ok(!joinCommand.disabled());
-assert.equal(joinCommand.label(), 'Join');
-joinCommand.run();
+const merge = joinRegistry.commandById.get('merge-shapes');
+const lineEnds = joinRegistry.commandById.get('join-line-ends');
+const joinPoints = joinRegistry.commandById.get('join-points');
+const shortcut = joinRegistry.commandById.get('join');
+assert.equal(joinRegistry.commandRefusal(merge), '');
+assert.equal(joinRegistry.commandName(merge), 'Merge shapes');
+merge.run();
 assert.equal(edits.at(-1)[0], 'join_paths');
+assert.equal(joinRegistry.commandRefusal(lineEnds), 'Select stroked lines without a fill, or groups that contain them');
 candidates = [{id: 'a'}, {id: 'b'}]; fills = candidates;
-assert.equal(joinCommand.label(), 'Join…');
-joinCommand.run(); assert.equal(edits.at(-1)[0], 'dialog');
-candidates = [{id: 'a'}]; fills = []; lines = candidates;
-joinCommand.run(); assert.equal(edits.at(-1)[0], 'join_ends');
-points = true;
-joinCommand.run(); assert.equal(edits.at(-1)[0], 'join_two_ends');
-points = false; candidates = []; lines = [];
-assert.ok(joinCommand.disabled());
+assert.equal(joinRegistry.commandName(merge), 'Merge shapes…');
+merge.run(); assert.equal(edits.at(-1)[0], 'dialog');
+assert.equal(joinRegistry.commandName(shortcut), 'Merge shapes…');
+// Lines alone do not merge by area: Join line ends joins them, and Ctrl/⌘ J
+// picks it.
+candidates = [{id: 'a'}, {id: 'b'}]; fills = []; lines = candidates;
+assert.equal(joinRegistry.commandRefusal(merge), 'These are lines without a fill: use Join line ends');
+assert.equal(joinRegistry.commandRefusal(lineEnds), '');
+assert.equal(joinRegistry.commandName(shortcut), 'Join line ends');
+shortcut.run(); assert.equal(edits.at(-1)[0], 'join_ends');
+// Two selected points join in a point tool, whatever paths hold them.
+pointLevel = true;
+assert.equal(joinRegistry.commandRefusal(joinPoints), 'Select points first');
+assert.equal(joinRegistry.commandRefusal(shortcut), 'Select points first');
+points = ['a n1', 'b n2'];
+assert.equal(joinRegistry.commandRefusal(joinPoints), '');
+assert.equal(joinRegistry.commandName(shortcut), 'Join points');
+shortcut.run(); assert.deepEqual(edits.at(-1).slice(0, 2), ['join_two_ends', {points: [['a', 'n1'], ['b', 'n2']]}]);
+points = ['a n1'];
+assert.equal(joinRegistry.commandRefusal(joinPoints), 'Select exactly two points to join');
+// With nothing to join, the shortcut says what would be.
+pointLevel = false; points = []; candidates = []; lines = []; fills = [];
+assert.equal(joinRegistry.commandRefusal(shortcut), 'Select paths to merge, or lines whose ends to join');
