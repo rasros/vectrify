@@ -18,7 +18,7 @@ from vectrify.refine.cel_plan.band_fit import BandFit, opaque_core, painted_cont
 from vectrify.refine.cel_plan.band_plans import BandPlans
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
-from vectrify.refine.cel_plan.local import Box, _native_raster
+from vectrify.refine.cel_plan.local import Box, native_raster
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_bands import SourceBands
@@ -144,7 +144,7 @@ def test_atomic_fit_preserves_materials_ports_explicit_width_and_native_crop(
     actual = render(export_svg(candidate), evidence.source_size)
     context = painted_context(candidate, seed.bounds, work, keep=("ink",))
     np.testing.assert_array_equal(
-        _native_raster(context, evidence.source_size).crop(Box(*seed.bounds)),
+        native_raster(context, evidence.source_size).crop(Box(*seed.bounds)),
         actual[seed.bounds[1] : seed.bounds[3], seed.bounds[0] : seed.bounds[2]],
     )
     reloaded, _ = load_project(save_project(candidate))
@@ -219,7 +219,7 @@ def test_parent_field_cells_have_exact_native_support_in_the_original_frame(diag
                 "transform": "matrix(" + " ".join(map(str, frame)) + ")",
             },
         )
-        return _native_raster(root, (96, 96)).root[..., 3]
+        return native_raster(root, (96, 96)).root[..., 3]
 
     # The original opaque background supplies the common parent's coverage.
     # Every returned cell is fully covered and belongs to the old field's native
@@ -259,7 +259,7 @@ def test_nonzero_native_crop_preserves_fractional_frame_and_viewport():
     context = painted_context(candidate, seed.bounds, work, keep=("ink",))
     assert float(required(context.get("width"))) == 240
     np.testing.assert_array_equal(
-        _native_raster(context, evidence.source_size).crop(Box(*seed.bounds)),
+        native_raster(context, evidence.source_size).crop(Box(*seed.bounds)),
         actual[seed.bounds[1] : seed.bounds[3], seed.bounds[0] : seed.bounds[2]],
     )
 

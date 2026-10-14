@@ -372,14 +372,14 @@ def bow_tie(document):
 @pytest.fixture
 def snap_twists(monkeypatch):
     """Snap turns the square into a bow-tie and claims a perfect match."""
-    run_step = nodes_method._run_step
+    run_step = nodes_method.run_step
 
     def twisting(step, task, stop=None, progress=None):
         if step == "snap":
             return bow_tie(task.document), np.asarray(task.region.image), {}
         return run_step(step, task, stop, progress)
 
-    monkeypatch.setattr(nodes_method, "_run_step", twisting)
+    monkeypatch.setattr(nodes_method, "run_step", twisting)
 
 
 def test_a_step_that_makes_a_path_cross_itself_is_not_kept(monkeypatch):
@@ -418,7 +418,7 @@ def test_a_step_that_makes_a_path_cross_itself_is_not_kept(monkeypatch):
     assert not state["result"]["changed"]
     metrics = state["result"]["metrics"]
     assert metrics["steps"] == []
-    assert nodes_method._crossings(ed.snapshot.document, ["p"]) == {"p": 0}
+    assert nodes_method.crossings(ed.snapshot.document, ["p"]) == {"p": 0}
     assert metrics["after"]["difference"] == metrics["before"]["difference"]
 
 
@@ -471,7 +471,7 @@ def test_detail_fit_keeps_source_points_and_adds_local_curve_controls():
     before_ids = {n.id for s in original.geometry_for("p").subpaths for n in s.nodes}
     after_ids = {n.id for s in after.geometry_for("p").subpaths for n in s.nodes}
     assert before_ids < after_ids
-    assert nodes_method._crossings(after, ["p"]) == {"p": 0}
+    assert nodes_method.crossings(after, ["p"]) == {"p": 0}
     assert (
         state["result"]["metrics"]["after"]["difference"]
         < state["result"]["metrics"]["before"]["difference"]
@@ -498,7 +498,7 @@ def test_detail_fit_holds_new_knots_where_the_curve_leaves_the_view(monkeypatch)
 
     monkeypatch.setattr(selected, "fit_selected_path", fitting)
     target = Image.new("RGB", (64, 64), "white")
-    task = nodes_method._Task(
+    task = nodes_method.Task(
         document,
         Region(0, 0, 64, 64, target),
         read_settings(
@@ -507,7 +507,7 @@ def test_detail_fit_holds_new_knots_where_the_curve_leaves_the_view(monkeypatch)
         ("p",),
         target,
     )
-    result, skipped = nodes_method._fit(task, None, None)
+    result, skipped = nodes_method.fit(task, None, None)
     assert seen
     assert not skipped
     assert result == document
@@ -532,9 +532,9 @@ def test_a_small_local_fix_on_a_large_selection_is_kept(monkeypatch):
         document = moved(
             task.document, lambda v: (136.0, 16.0) if v == (136.0, 18.0) else v
         )
-        return document, nodes_method._pixels(document, task.region), {}
+        return document, nodes_method.region_pixels(document, task.region), {}
 
-    monkeypatch.setattr(nodes_method, "_run_step", fixing)
+    monkeypatch.setattr(nodes_method, "run_step", fixing)
     ed = Editor(
         import_svg(
             '<svg width="256" height="256"><path id="p" fill="#000000" '
@@ -572,10 +572,10 @@ def test_a_step_is_judged_by_the_pixels_it_changed():
     fixed, worse = start.copy(), start.copy()
     fixed[10:14, 20:24] = 0
     worse[10:14, 10:14] = 255
-    now = nodes_method._Scored.of(start, region)
-    assert nodes_method._Scored.of(fixed, region).fixed(now) > 0.3
-    assert nodes_method._Scored.of(worse, region).fixed(now) < 0
-    assert nodes_method._Scored.of(start, region).fixed(now) == 0
+    now = nodes_method.Scored.of(start, region)
+    assert nodes_method.Scored.of(fixed, region).fixed(now) > 0.3
+    assert nodes_method.Scored.of(worse, region).fixed(now) < 0
+    assert nodes_method.Scored.of(start, region).fixed(now) == 0
 
 
 def test_white_paint_and_a_transparent_gap_have_different_tidy_scores():
@@ -589,15 +589,15 @@ def test_white_paint_and_a_transparent_gap_have_different_tidy_scores():
     spill[0:10, 10:30, 3] = 255
     gap = correct.copy()
     gap[15:25, 15:25, 3] = 0
-    best = nodes_method._Scored.of(correct, region)
+    best = nodes_method.Scored.of(correct, region)
     assert best.difference == 0
-    assert nodes_method._Scored.of(spill, region).difference > 0
-    assert nodes_method._Scored.of(gap, region).difference > 0
+    assert nodes_method.Scored.of(spill, region).difference > 0
+    assert nodes_method.Scored.of(gap, region).difference > 0
     wrong_colour = correct.copy()
     wrong_colour[15:25, 15:25, :3] = 0
     # A transparent hole in opaque white is as wrong as black paint there.
-    assert nodes_method._Scored.of(gap, region).difference == pytest.approx(
-        nodes_method._Scored.of(wrong_colour, region).difference
+    assert nodes_method.Scored.of(gap, region).difference == pytest.approx(
+        nodes_method.Scored.of(wrong_colour, region).difference
     )
 
 
@@ -668,9 +668,9 @@ def test_the_time_limit_ends_the_run_and_keeps_the_best_so_far(monkeypatch):
     def nearer(_step, task, _stop=None, _progress=None):
         time.sleep(0.2)
         document = moved(task.document, lambda v: tuple(x + 1 for x in v))
-        return document, nodes_method._pixels(document, task.region), {}
+        return document, nodes_method.region_pixels(document, task.region), {}
 
-    monkeypatch.setattr(nodes_method, "_run_step", nearer)
+    monkeypatch.setattr(nodes_method, "run_step", nearer)
     ed = Editor(
         import_svg(
             '<svg width="64" height="64"><path id="p" fill="#000000" '
@@ -703,11 +703,11 @@ def cutting(_step, task, _stop=None, _progress=None):
         for s in geometry.subpaths
     )
     document = task.document.replace_geometry(replace(geometry, subpaths=subpaths))
-    return document, nodes_method._pixels(document, task.region), {}
+    return document, nodes_method.region_pixels(document, task.region), {}
 
 
 def test_a_step_that_makes_the_match_worse_is_not_kept(monkeypatch):
-    monkeypatch.setattr(nodes_method, "_run_step", cutting)
+    monkeypatch.setattr(nodes_method, "run_step", cutting)
     job = Job(
         method("improve", "nodes"),
         request(editor("p"), shape=False, snap=False, simplify=True),
@@ -1047,14 +1047,14 @@ def test_a_slow_fill_cannot_spend_the_later_fills_time(first_spends, monkeypatch
     monkeypatch.setattr(selected, "fit_selected_path", slow)
     document = import_svg(NEIGHBOURS)
     target = neighbours_reference()
-    task = nodes_method._Task(
+    task = nodes_method.Task(
         document,
         Region(0, 0, 64, 64, target),
         read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("left", "right"),
         target,
     )
-    after, skipped = nodes_method._fit(task, nodes_method._Until(10), None)
+    after, skipped = nodes_method.fit(task, nodes_method.Until(10), None)
     assert calls == [("left", 5), ("right", 10)]
     assert not skipped
     assert after == document
@@ -1084,8 +1084,8 @@ def test_fitting_a_later_path_sees_the_already_followed_shared_edge(monkeypatch)
     monkeypatch.setattr(selected, "fit_selected_path", fit)
     document = import_svg(NEIGHBOURS)
     target = neighbours_reference()
-    shared = nodes_method._shared_edges(document, ("left", "right"))
-    task = nodes_method._Task(
+    shared = nodes_method.shared_edges(document, ("left", "right"))
+    task = nodes_method.Task(
         document,
         Region(0, 0, 64, 64, target),
         read_settings({}, nodes_method.SETTINGS, "Tidy"),
@@ -1094,12 +1094,12 @@ def test_fitting_a_later_path_sees_the_already_followed_shared_edge(monkeypatch)
         held=frozen_points(document, shared),
         shared=tuple(shared),
     )
-    after, skipped = nodes_method._fit(task, None, None)
+    after, skipped = nodes_method.fit(task, None, None)
     assert not skipped
     assert after != document
     assert (
-        nodes_method._pixels(after, task.region).tolist()
-        != nodes_method._pixels(document, task.region).tolist()
+        nodes_method.region_pixels(after, task.region).tolist()
+        != nodes_method.region_pixels(document, task.region).tolist()
     )
 
 
@@ -1129,7 +1129,7 @@ def test_a_bad_later_fit_does_not_discard_an_earlier_improvement(monkeypatch):
         )
     )
     region = Region(0, 0, 64, 64, Image.new("RGB", (64, 64)))
-    target = Image.fromarray(nodes_method._pixels(target_document, region))
+    target = Image.fromarray(nodes_method.region_pixels(target_document, region))
 
     def misplaced(current, selection, *_args, **_kwargs):
         oid = next(iter(selection.object_ids))
@@ -1143,14 +1143,14 @@ def test_a_bad_later_fit_does_not_discard_an_earlier_improvement(monkeypatch):
         )
 
     monkeypatch.setattr(selected, "fit_selected_path", misplaced)
-    task = nodes_method._Task(
+    task = nodes_method.Task(
         document,
         replace(region, image=target),
         read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("first", "last"),
         target,
     )
-    after, skipped = nodes_method._fit(task, None, None)
+    after, skipped = nodes_method.fit(task, None, None)
     assert not skipped
     assert after.geometry_for("first") == target_document.geometry_for("first")
     assert after.geometry_for("last") == document.geometry_for("last")
@@ -1301,7 +1301,7 @@ def test_without_pytorch_the_default_tidy_runs_without_the_fit(monkeypatch):
 def test_fitting_reclaims_time_unused_by_simplify(monkeypatch):
     document = editor("p").snapshot.document
     region = Region(0, 0, 64, 64, reference())
-    task = nodes_method._Task(
+    task = nodes_method.Task(
         document, region, {}, ("p",), reference(), deadline=10, share=3
     )
     now = [0.0]
@@ -1314,8 +1314,8 @@ def test_fitting_reclaims_time_unused_by_simplify(monkeypatch):
         now[0] += 0.2
         return document, np.asarray(region.image), {}
 
-    monkeypatch.setattr(nodes_method, "_run_step", step)
-    result = nodes_method._round(["shape", "simplify"], task, None, None, None)
+    monkeypatch.setattr(nodes_method, "run_step", step)
+    result = nodes_method.run_round(["shape", "simplify"], task, None, None, None)
     assert calls == [("simplify", 3), ("shape", 9.55)]
     # Candidate priority stays identical to the parallel execution order.
     assert list(result) == ["shape", "simplify"]
@@ -1328,7 +1328,7 @@ def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
     original = document.geometry_for("p")
     expected = moved(document, lambda v: tuple(x + 2 for x in v))
     region = Region(0, 0, 64, 64, reference())
-    target = Image.fromarray(nodes_method._pixels(expected, region))
+    target = Image.fromarray(nodes_method.region_pixels(expected, region))
 
     def fitting(current, _selection, *_args, **_kwargs):
         return SimpleNamespace(
@@ -1341,16 +1341,16 @@ def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
 
     monkeypatch.setattr(selected, "fit_selected_path", fitting)
     monkeypatch.setattr(simplify, "straightened", lambda *_args: original)
-    task = nodes_method._Task(
+    task = nodes_method.Task(
         document,
         replace(region, image=target),
         read_settings({}, nodes_method.SETTINGS, "Tidy"),
         ("p",),
         target,
     )
-    after, skipped = nodes_method._fit(task, None, None)
+    after, skipped = nodes_method.fit(task, None, None)
     assert not skipped
-    assert np.array_equal(nodes_method._pixels(after, region), np.asarray(target))
+    assert np.array_equal(nodes_method.region_pixels(after, region), np.asarray(target))
     assert after.geometry_for("p") != original
 
 
@@ -1519,10 +1519,10 @@ def test_simplifys_budget_includes_an_unselected_shared_neighbour():
     )
     target = render_image(export_svg(document), alpha=True)
     region = Region(0, 0, 64, 64, on_white(target), np.asarray(target)[:, :, 3] / 255)
-    shared = nodes_method._shared_edges(document, ("ghost",))
+    shared = nodes_method.shared_edges(document, ("ghost",))
     assert shared
     assert shared[0].neighbour == "visible"
-    task = nodes_method._Task(
+    task = nodes_method.Task(
         document,
         region,
         read_settings({"tolerance": 3}, nodes_method.SETTINGS, "Tidy"),
@@ -1531,7 +1531,7 @@ def test_simplifys_budget_includes_an_unselected_shared_neighbour():
         shared=tuple(shared),
     )
     original = Paths({"ghost": document.geometry_for("ghost")})
-    result = nodes_method._simplified(
+    result = nodes_method.simplified(
         task, original, Frozen(frozen_points(document, shared)), float("inf")
     )
     # The selected transparent path's pixels cannot expose the budget violation;
@@ -1769,9 +1769,11 @@ def test_tidy_scores_linked_artwork_outside_the_selection(monkeypatch, region):
             ),
         )
         candidate = task.document.replace_geometry(moved)
-        return {"shape": (candidate, nodes_method._pixels(candidate, task.region), {})}
+        return {
+            "shape": (candidate, nodes_method.region_pixels(candidate, task.region), {})
+        }
 
-    monkeypatch.setattr(nodes_method, "_round", propose)
+    monkeypatch.setattr(nodes_method, "run_round", propose)
     job = Job(
         method("improve", "nodes"),
         replace(

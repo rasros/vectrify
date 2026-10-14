@@ -300,7 +300,7 @@ def needed_permissions(settings) -> set[str]:
 
 
 @dataclass(frozen=True)
-class _Task:
+class Task:
     """What a step needs, sent to a worker whole."""
 
     document: Document
@@ -328,7 +328,7 @@ class _Task:
     junctions: frozenset[str] = frozenset()
 
 
-class _Until(threading.Event):
+class Until(threading.Event):
     """Set once *stop* is, or once *deadline* passes: a step's own stop."""
 
     def __init__(self, deadline: float, stop: threading.Event | None = None):
@@ -387,7 +387,7 @@ def _paths(document: Document, oids):
     return Paths({oid: document.geometry_for(oid) for oid in oids})
 
 
-def _pixels(document: Document, region: Region) -> np.ndarray:
+def region_pixels(document: Document, region: Region) -> np.ndarray:
     if region.alpha is not None:
         return np.asarray(
             render_image(
@@ -401,7 +401,7 @@ def _pixels(document: Document, region: Region) -> np.ndarray:
 
 
 @dataclass(frozen=True)
-class _Scored:
+class Scored:
     """A render of the region and how far each of its pixels is off."""
 
     pixels: np.ndarray
@@ -411,7 +411,7 @@ class _Scored:
     normalizer: int = 3
 
     @classmethod
-    def of(cls, pixels: np.ndarray, region: Region) -> _Scored:
+    def of(cls, pixels: np.ndarray, region: Region) -> Scored:
         target = np.asarray(region.image.convert("RGB"), dtype=np.float64) / 255
         rgb = (
             np.asarray(on_white(Image.fromarray(pixels)))
@@ -432,7 +432,7 @@ class _Scored:
         """The mean squared difference over the region, as generate.error."""
         return float(self.off.sum() / (self.normalizer * self.off.size))
 
-    def fixed(self, before: _Scored) -> float:
+    def fixed(self, before: Scored) -> float:
         """The share of *before*'s difference fixed where the two differ.
 
         Only the pixels whose colour changed, and a band of BAND pixels
@@ -451,7 +451,7 @@ class _Scored:
 
 
 @cached_rendering()
-def _run_step(step: str, task: _Task, stop=None, progress=None):
+def run_step(step: str, task: Task, stop=None, progress=None):
     """(document after *step*, its render of the region, why paths were
     skipped). The step stops at its share of the time, keeping how far it
     got."""
@@ -465,7 +465,7 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         if settings["snap"] and initial:
             # Edge-seeking is the initializer of the fit, not a competing
             # round result. A stopped gradient fit still retains this proposal.
-            proposed, pixels, _ = _run_step(
+            proposed, pixels, _ = run_step(
                 "snap",
                 replace(task, oids=initial, deadline=deadline, share=task.share / 4),
                 stop,
@@ -474,12 +474,12 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
             watched = tuple(set(task.oids) | {link.neighbour for link in task.shared})
             if not _folding(
                 {"initial": (proposed, pixels, {})},
-                _crossings(document, watched),
+                crossings(document, watched),
                 watched,
             ):
                 document = proposed
                 task = replace(task, document=document, pixels=pixels)
-        document, skipped = _fit(task, _Until(deadline, stop), progress)
+        document, skipped = fit(task, Until(deadline, stop), progress)
     else:
         from vectrify.refine.frozen import Frozen, frozen
 
@@ -505,8 +505,10 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
             )
             candidate = _with(document, dict(paths.geometries))
             document = task.document
-            current = _Scored.of(
-                task.pixels if task.pixels is not None else _pixels(document, region),
+            current = Scored.of(
+                task.pixels
+                if task.pixels is not None
+                else region_pixels(document, region),
                 region,
             )
             # One badly snapped fill must not discard improvements to other
@@ -518,7 +520,7 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
                     proposed = proposed.replace_element(candidate.element(oid))
                 document, current = _improvement(task, document, proposed, current)
         else:
-            paths = _simplified(task, paths, fixed, deadline)
+            paths = simplified(task, paths, fixed, deadline)
             document = _with(document, dict(paths.geometries))
     if task.shared:
         from vectrify.refine.shared import follow
@@ -531,12 +533,12 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
     pixels = (
         task.pixels
         if task.pixels is not None and document == task.document
-        else _pixels(document, region)
+        else region_pixels(document, region)
     )
     return document, pixels, skipped
 
 
-def _improvement(task: _Task, before: Document, candidate: Document, current: _Scored):
+def _improvement(task: Task, before: Document, candidate: Document, current: Scored):
     """Keep a path's actual improvement after shared edges have followed."""
     from vectrify.refine.shared import follow
 
@@ -550,19 +552,19 @@ def _improvement(task: _Task, before: Document, candidate: Document, current: _S
         for oid in watched
         if before.geometry_for(oid) != candidate.geometry_for(oid)
     ]
-    crossings_before = _crossings(before, changed)
+    crossings_before = crossings(before, changed)
     if any(
         count > crossings_before[oid]
-        for oid, count in _crossings(candidate, changed).items()
+        for oid, count in crossings(candidate, changed).items()
     ):
         return before, current
-    after = _Scored.of(_pixels(candidate, task.region), task.region)
+    after = Scored.of(region_pixels(candidate, task.region), task.region)
     if after.difference < current.difference and after.fixed(current) >= 0:
         return candidate, after
     return before, current
 
 
-def _fit_shared(task: _Task, document: Document):
+def _fit_shared(task: Task, document: Document):
     """Retain external links and selected edges that still match exactly."""
     from vectrify.refine.shared import intact
 
@@ -583,7 +585,7 @@ LADDER = 8
 NO_REFERENCE = 1.0
 
 
-def _simplified(task: _Task, paths, fixed, deadline: float):
+def simplified(task: Task, paths, fixed, deadline: float):
     """*paths* simplified within the tolerance and, with a reference, within
     the error budget: at the largest of LADDER tolerances up to the set one
     whose result raises the difference where it acted by no more than the
@@ -610,8 +612,9 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
     if task.reference is None or top <= 0:
         return at(top)
     budget = settings["budget"] / 100
-    start = _Scored.of(
-        task.pixels if task.pixels is not None else _pixels(document, region), region
+    start = Scored.of(
+        task.pixels if task.pixels is not None else region_pixels(document, region),
+        region,
     )
     judged = []
 
@@ -627,7 +630,7 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
             _with(document, dict(candidate.geometries)), list(task.shared)
         )
         proposed = _pinned_handles(document, proposed)
-        after = _Scored.of(_pixels(proposed, region), region)
+        after = Scored.of(region_pixels(proposed, region), region)
         allowed = after.fixed(start) >= -budget
         judged.append((candidate, allowed))
         return allowed
@@ -662,7 +665,7 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
     return candidate if complexity(candidate) < complexity(best) else best
 
 
-def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
+def fit(task: Task, stop, progress) -> tuple[Document, dict[str, str]]:
     """Fit paths in order, then jointly polish compatible sibling paths.
 
     Straight segments are fitted as curves, so the fit can bend one where
@@ -689,8 +692,10 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
     from vectrify.refine.paths import UnsupportedPathError
 
     pending = list(task.oids)
-    current = _Scored.of(
-        task.pixels if task.pixels is not None else _pixels(document, task.region),
+    current = Scored.of(
+        task.pixels
+        if task.pixels is not None
+        else region_pixels(document, task.region),
         task.region,
     )
     for index, oid in enumerate(pending):
@@ -706,9 +711,9 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # Every remaining fill gets a share of the shape step's remaining
         # time. One expensive early path must not starve the rest of a selection.
         path_stop = stop
-        if isinstance(stop, _Until):
+        if isinstance(stop, Until):
             now = time.monotonic()
-            path_stop = _Until(
+            path_stop = Until(
                 now + (stop.deadline - now) / (len(pending) - index), stop
             )
         before = document
@@ -733,7 +738,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             task = replace(task, held=task.held | _outside(document, (oid,), polygon))
             movable -= task.held
         try:
-            fit = fit_selected_path(
+            outcome = fit_selected_path(
                 document,
                 Selection(
                     object_ids=frozenset({oid}),
@@ -762,7 +767,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             else:
                 skipped[oid] = str(exc)
             continue
-        if not fit.values:
+        if not outcome.values:
             document = document.replace_geometry(original)
             continue
         geometry = document.geometry_for(oid)
@@ -772,7 +777,9 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 replace(
                     s,
                     nodes=tuple(
-                        replace(n, values=fit.values[n.id]) if n.id in fit.values else n
+                        replace(n, values=outcome.values[n.id])
+                        if n.id in outcome.values
+                        else n
                         for n in s.nodes
                     ),
                 )
@@ -790,15 +797,15 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # Judge the actual curves and followed neighbours before fitting the
         # next path. Straightening and copying an edge can change the result
         # the single-path fitter judged in its frozen surrounding artwork.
-        simplified, simplified_score = _improvement(task, before, document, current)
-        if simplified == before and raw != document:
+        straight, straight_score = _improvement(task, before, document, current)
+        if straight == before and raw != document:
             fitted_document, fitted_score = _improvement(task, before, raw, current)
-            if fitted_score.difference < simplified_score.difference:
+            if fitted_score.difference < straight_score.difference:
                 document, current = fitted_document, fitted_score
                 continue
-        document, current = simplified, simplified_score
+        document, current = straight, straight_score
     if settings["snap"]:
-        document, current = _span_lines(task, document, current, stop)
+        document, current = span_lines(task, document, current, stop)
     if stop is None or not stop.is_set():
         from vectrify.refine.joint import polish
 
@@ -813,7 +820,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             overlaps=True,
             junctions=task.junctions,
             score=lambda candidate: (
-                _Scored.of(_pixels(candidate, task.region), task.region).difference
+                Scored.of(region_pixels(candidate, task.region), task.region).difference
             ),
             stop=stop,
             progress=progress,
@@ -835,7 +842,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
     return document, skipped
 
 
-def _context_fit(task: _Task, document, oid, current, stop, progress):
+def _context_fit(task: Task, document, oid, current, stop, progress):
     """Bounded coordinate search judged in the complete SVG context.
 
     Unlike the differentiable single-path response, exact rendering includes
@@ -846,7 +853,7 @@ def _context_fit(task: _Task, document, oid, current, stop, progress):
     from vectrify.refine.lines import fit_lines, is_line
     from vectrify.refine.snap import snap
 
-    stop = stop or _Until(task.deadline)
+    stop = stop or Until(task.deadline)
     original = document.geometry_for(oid)
     origins = {
         n.id: np.asarray(n.values).reshape(-1, 2)
@@ -959,7 +966,7 @@ def _context_fit(task: _Task, document, oid, current, stop, progress):
     return document, current
 
 
-def _span_lines(task: _Task, document: Document, current: _Scored, stop):
+def span_lines(task: Task, document: Document, current: Scored, stop):
     """Try whole-curve ink readings after the individual fits, before polish.
 
     Unlike the midpoint initializer, these readings can separate opposite
@@ -1128,7 +1135,7 @@ class OptimizeNodes(SettingsMethod):
                 else drawing_region(score_request, settings["resolution"], margin)
             )
             held = frozenset()
-        shared = _shared_edges(start, oids) if settings["shared"] else []
+        shared = shared_edges(start, oids) if settings["shared"] else []
         from vectrify.document.features import held_nodes
 
         held |= frozenset(
@@ -1154,7 +1161,7 @@ class OptimizeNodes(SettingsMethod):
         began = time.monotonic()
         deadline = began + settings["seconds"]
         document = start
-        current = _Scored.of(_pixels(document, region), region)
+        current = Scored.of(region_pixels(document, region), region)
         start_score = current
         first, before = current.pixels, current.difference
         points = _count(document, oids)
@@ -1190,7 +1197,7 @@ class OptimizeNodes(SettingsMethod):
                 def report(_step, message, done=done, heading=heading):
                     context.progress(done, f"{heading} · {message}")
 
-                task = _Task(
+                task = Task(
                     document,
                     region,
                     settings,
@@ -1210,14 +1217,14 @@ class OptimizeNodes(SettingsMethod):
                     current.pixels,
                     held - region_held,
                 )
-                results = _round(steps, task, pool, context.stop, report)
+                results = run_round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():
                     skipped.update(why)
-                for step in _folding(results, _crossings(document, watched), watched):
+                for step in _folding(results, crossings(document, watched), watched):
                     del results[step]
                     folded[step] = folded.get(step, 0) + 1
                 scored = {
-                    step: (after, _Scored.of(pixels, region))
+                    step: (after, Scored.of(pixels, region))
                     for step, (after, pixels, _why) in results.items()
                 }
                 from vectrify.document.features import violations
@@ -1331,7 +1338,7 @@ class OptimizeNodes(SettingsMethod):
         )
 
 
-def _shared_edges(document: Document, oids) -> list:
+def shared_edges(document: Document, oids) -> list:
     """The edges *oids* share with other paths whose geometry may change:
     their own, unlocked, filled or stroked."""
     from vectrify.document.model import EditKind
@@ -1371,11 +1378,11 @@ def _handles(document: Document, oids) -> int:
     )
 
 
-def _crossings(document: Document, oids) -> dict[str, int]:
+def crossings(document: Document, oids) -> dict[str, int]:
     """How many times each path's outline crosses itself."""
-    from vectrify.refine.crossings import crossings
+    from vectrify.refine.crossings import crossings as count_crossings
 
-    return {oid: crossings(document.geometry_for(oid)) for oid in oids}
+    return {oid: count_crossings(document.geometry_for(oid)) for oid in oids}
 
 
 def _folding(results, before: dict[str, int], oids) -> list[str]:
@@ -1386,23 +1393,23 @@ def _folding(results, before: dict[str, int], oids) -> list[str]:
     """
     return [
         step
-        for step, (document, _pixels, _why) in results.items()
-        if any(n > before[oid] for oid, n in _crossings(document, oids).items())
+        for step, (document, _rendered, _why) in results.items()
+        if any(n > before[oid] for oid, n in crossings(document, oids).items())
     ]
 
 
-def _round(steps, task: _Task, pool, stop, report):
+def run_round(steps, task: Task, pool, stop, report):
     """Each step's outcome from the same start. The path fit runs here, the
     others on the workers alongside it."""
     pending: dict[str, Future] = {}
     if pool is not None:
         for step in steps:
             if step != "shape":
-                pending[step] = pool.submit(_run_step, step, task)
+                pending[step] = pool.submit(run_step, step, task)
     results = {}
     for step in steps:
         if step != "shape" and step not in pending:
-            results[step] = _run_step(step, task, stop, report)
+            results[step] = run_step(step, task, stop, report)
     if "shape" in steps:
         # Cheap steps often finish well before their share. Give the fit the
         # remaining run time rather than reserving unused shares for them.
@@ -1410,7 +1417,7 @@ def _round(steps, task: _Task, pool, stop, report):
         # together. Leave a small interval for the final render and scoring.
         remaining = max(0.0, task.deadline - time.monotonic() - 0.25)
         fitting = replace(task, share=remaining)
-        results["shape"] = _run_step("shape", fitting, stop, report)
+        results["shape"] = run_step("shape", fitting, stop, report)
     for step, future in pending.items():
         results[step] = future.result()
     return {step: results[step] for step in steps}
@@ -1418,11 +1425,11 @@ def _round(steps, task: _Task, pool, stop, report):
 
 def _choose(
     scored,
-    current: _Scored,
+    current: Scored,
     points: int,
     oids,
     gain: float,
-    start: _Scored | None = None,
+    start: Scored | None = None,
     allowance: float = 0.0,
     *,
     handles: int | None = None,
@@ -1436,7 +1443,7 @@ def _choose(
     never makes the match worse than that, however many points it saves.
     """
 
-    def allowed(after: _Scored) -> bool:
+    def allowed(after: Scored) -> bool:
         return start is None or after.fixed(start) >= -allowance
 
     helping = [
