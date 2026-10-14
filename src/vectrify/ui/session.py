@@ -507,37 +507,51 @@ class Session:
             fillcolor=(0, 0, 0, 0),
         )
 
-    def reference_error(self) -> Image.Image:
+    def _reference_error_key(self) -> tuple | None:
+        if not self.reference:
+            return None
+        return (
+            self.epoch,
+            self.editor.snapshot.revision,
+            self.reference["data_url"],
+            tuple(
+                self.reference.get("box") or self.editor.snapshot.document.artboard()
+            ),
+        )
+
+    def reference_error(self, expected: dict | None = None) -> Image.Image:
         """One error map shared by the canvas and MCP's current-view render."""
         import numpy as np
 
         from vectrify.image_utils import on_white
-        from vectrify.ui.agent import _size, crop_reference, heat_map, render_document
+        from vectrify.svg_render import render_image
+        from vectrify.ui.agent import _size, crop_reference, heat_map
 
         with self.lock:
-            if not self.reference:
+            if expected is not None:
+                self.check_revision(expected)
+            key = self._reference_error_key()
+            if key is None:
                 raise DocumentError("Load a reference image first")
             document = self.editor.snapshot.document
-            key = (
-                self.epoch,
-                self.editor.snapshot.revision,
-                self.reference["data_url"],
-            )
             if self._reference_error and self._reference_error[0] == key:
                 return self._reference_error[1]
             reference = self.reference_image()
-            assert reference is not None
-            bounds = document.artboard()
-            size = _size(bounds, min(2048, max(reference.size)))
-            drawing = render_document(export_svg(document), bounds, size)
-            expected = crop_reference(on_white(reference), bounds, bounds, size)
-            difference = (
-                np.asarray(drawing, dtype=np.float64)
-                - np.asarray(expected, dtype=np.float64)
-            ) / 255
-            image = heat_map(np.sqrt((difference**2).mean(axis=2)))
-            self._reference_error = (key, image)
-            return image
+        # Documents are immutable snapshots. Compare the captured pair without
+        # blocking edits, selection, or polling on the rasterizer and PNG work.
+        assert reference is not None
+        bounds = document.artboard()
+        size = _size(bounds, min(2048, max(reference.size)))
+        drawing = render_image(export_svg(document), bounds, size)
+        target = crop_reference(on_white(reference), bounds, bounds, size)
+        difference = (
+            np.asarray(drawing, dtype=np.float64) - np.asarray(target, dtype=np.float64)
+        ) / 255
+        image = heat_map(np.sqrt((difference**2).mean(axis=2)))
+        with self.lock:
+            if self._reference_error_key() == key:
+                self._reference_error = (key, image)
+        return image
 
     def sample(self, payload: dict) -> dict:
         """The Eyedropper's colour at *payload*'s point: the artwork's or

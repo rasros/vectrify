@@ -25,9 +25,9 @@ def finite(value: Any, what: str) -> float:
     return result
 
 
-def png(image: Image.Image) -> bytes:
+def png(image: Image.Image, *, compress_level: int = 6) -> bytes:
     buffer = io.BytesIO()
-    image.save(buffer, "PNG")
+    image.save(buffer, "PNG", compress_level=compress_level)
     return buffer.getvalue()
 
 

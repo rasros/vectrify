@@ -88,6 +88,10 @@ class Backend:
             session = self.sessions.get(session_id or "")
             if session is None:
                 return 401, {"error": "Editor session expired; reload this page"}
+            # The comparison captures its own snapshot under the lock, then
+            # rasterizes it without holding up the person's next edit.
+            if path == "/api/reference-error":
+                return 200, self._reference_error(session, data, session_id or "")
             with session.lock:
                 route = ROUTES.get(path)
                 if route is None:
@@ -151,12 +155,15 @@ class Backend:
         return {**session.content_version(), "reference": session.reference}
 
     def _reference_error(self, session: Session, data: dict, _session_id: str) -> dict:
-        session.check_revision(data)
-        if data.get("view") is not None:
-            session.set_view(data["view"])
+        with session.lock:
+            session.check_revision(data)
+            if data.get("view") is not None:
+                session.set_view(data["view"])
         return {
             "image": "data:image/png;base64,"
-            + base64.b64encode(png(session.reference_error())).decode(),
+            + base64.b64encode(
+                png(session.reference_error(data), compress_level=1)
+            ).decode(),
         }
 
 
