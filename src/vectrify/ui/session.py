@@ -46,7 +46,13 @@ from vectrify.document.redraw import attachment
 from vectrify.document.regions import SHAPES, region_polygon
 from vectrify.document.svg import SOLID, parse_path
 from vectrify.document.topology import inverse_matrix
-from vectrify.document.transforms import ancestry_matrix, multiply, object_matrix
+from vectrify.document.transforms import (
+    REFLECTIONS,
+    ancestry_matrix,
+    multiply,
+    object_matrix,
+    rotation,
+)
 from vectrify.operations import (
     Budget,
     Job,
@@ -153,6 +159,9 @@ ACTION_COMMANDS = {
     "align": Command("_command_align", "Align objects", True),
     "distribute": Command("_command_align", "Distribute objects", True),
     "resize": Command("_command_resize", "Resize", True),
+    "rotate": Command("_command_rotate", "Rotate", True),
+    "flip_horizontal": Command("_command_flip", "Flip horizontal", True),
+    "flip_vertical": Command("_command_flip", "Flip vertical", True),
     "group": Command("_command_group", "Group objects", True),
     "ungroup": Command("_command_ungroup", "Ungroup objects", True),
     "delete": Command("_command_delete", "Delete selection", True),
@@ -1713,6 +1722,34 @@ class Session:
             if len(anchor) != 2 or len(scale) != 2:
                 raise DocumentError("A resize needs an anchor and two scales")
             tx.scale_objects(selected, (anchor[0], anchor[1]), (scale[0], scale[1]))
+
+    def _pivot(self, payload: dict) -> tuple[float, float]:
+        pivot = tuple(number(v) for v in payload["pivot"])
+        if len(pivot) != 2:
+            raise DocumentError("A pivot is a point [x, y]")
+        return pivot[0], pivot[1]
+
+    def _command_rotate(self, payload: dict) -> None:
+        """Rotate the selection by *angle* degrees, clockwise on screen, about
+        *pivot* in document coordinates."""
+        selected = self._object_selection().object_ids
+        angle = number(payload["angle"])
+        if angle % 360 == 0:
+            raise DocumentError("Rotate by an angle that is not a whole turn")
+        with self._object_transaction(payload["command"]) as tx:
+            tx.transform_objects(
+                selected, self._pivot(payload), rotation(angle), verb="rotate"
+            )
+
+    def _command_flip(self, payload: dict) -> None:
+        """Mirror the selection across the vertical (flip_horizontal) or
+        horizontal (flip_vertical) line through *pivot*."""
+        selected = self._object_selection().object_ids
+        axis = payload["command"].removeprefix("flip_")
+        with self._object_transaction(payload["command"]) as tx:
+            tx.transform_objects(
+                selected, self._pivot(payload), REFLECTIONS[axis], verb="flip"
+            )
 
     def _command_group(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

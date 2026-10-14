@@ -16,6 +16,7 @@ export function createOverlayController(editor, {
   drawPoints,
   drawRedraw,
   drawRegion,
+  drawRotation = () => {},
   drawShape,
   drawSnap,
   drawing,
@@ -128,6 +129,7 @@ export function createOverlayController(editor, {
     drawClippingBoundaries();
     drawFrame();
     drawKeyObject();
+    drawRotation();
     drawPathDraft();
     drawShape();
     drawKnife();
@@ -215,7 +217,8 @@ export function createOverlayController(editor, {
   }
 
   function drawFrame() {
-    if (!editor.selectionBox) return;
+    // While turning, the rotation draws the frame turned with the selection.
+    if (!editor.selectionBox || (editor.drag?.kind === 'rotate' && editor.drag.moved)) return;
     const {left, top, right, bottom} = editor.selectionBox, locked = editor.tool === 'move' && !!resizeRefusal();
     editor.overlayFrame.content.append(xmlElement('rect', {x: left, y: top, width: right - left, height: bottom - top, class: `resize-frame${locked ? ' locked' : ''}`}));
     if (locked || editor.tool !== 'move' || Math.min(right - left, bottom - top) * editor.zoom <= 2 * FRAME_REACH) return;

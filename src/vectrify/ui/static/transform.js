@@ -55,3 +55,63 @@ export function fieldEdit(box, field, value, {keepRatio = false} = {}) {
   }
   return {command: 'resize', data: {anchor: [box.left, box.top], scale: [scale.w, scale.h]}};
 }
+
+// Rotation, in degrees clockwise on the page as SVG's rotate() turns (y is
+// down). Shift turns a rotation drag in steps of this many degrees.
+export const ROTATION_STEP = 15;
+
+// *degrees* as the same turn in (-180, 180].
+export function normalAngle(degrees) {
+  const turn = ((degrees % 360) + 360) % 360;
+  return turn > 180 ? turn - 360 : turn;
+}
+
+// The angle a matrix {a, b, c, d} turns its object by. A mirrored object
+// is measured as flipped horizontally first, so a horizontal flip leaves its
+// angle as it was (and a vertical flip, a horizontal one turned half round,
+// adds 180°).
+export function matrixAngle({a, b, c, d}) {
+  const mirrored = a * d - b * c < 0;
+  const angle = Math.atan2(mirrored ? -b : b, mirrored ? -a : a) * 180 / Math.PI;
+  return normalAngle(+angle.toFixed(9));
+}
+
+// The angle shared by the selected objects' matrices, or null when they are
+// turned differently.
+export function sharedAngle(matrices) {
+  const angles = matrices.map(matrixAngle);
+  if (!angles.length) return null;
+  return angles.every(angle => Math.abs(normalAngle(angle - angles[0])) < 1e-6) ? angles[0] : null;
+}
+
+// The turn that sets the Rotation field to *value*: {angle} in degrees, the
+// difference from the *current* angle, or *value* itself when the objects
+// are turned differently (current is null); {refusal} for no number, or
+// null when nothing turns.
+export function rotationEdit(current, value) {
+  if (!Number.isFinite(value)) return {refusal: 'Rotation needs a number of degrees'};
+  const angle = normalAngle(value - (current ?? 0));
+  return Math.abs(angle) < 1e-9 ? null : {angle};
+}
+
+// How far a drag from *grab* to *point* turns about *pivot*, in degrees; with
+// *snap*, in whole steps of ROTATION_STEP.
+export function dragAngle(pivot, grab, point, {snap = false} = {}) {
+  const at = p => Math.atan2(p.y - pivot.y, p.x - pivot.x);
+  const angle = normalAngle((at(point) - at(grab)) * 180 / Math.PI);
+  return snap ? normalAngle(Math.round(angle / ROTATION_STEP) * ROTATION_STEP) : angle;
+}
+
+// *point* turned by *degrees* about *pivot*.
+export function turnPoint(point, pivot, degrees) {
+  const radians = degrees * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians);
+  const x = point.x - pivot.x, y = point.y - pivot.y;
+  return {x: pivot.x + x * cos - y * sin, y: pivot.y + x * sin + y * cos};
+}
+
+// The corners of *box*, turned by *degrees* about *pivot*, clockwise from
+// the top-left one.
+export function turnedBox(box, pivot, degrees) {
+  return [[box.left, box.top], [box.right, box.top], [box.right, box.bottom], [box.left, box.bottom]]
+    .map(([x, y]) => turnPoint({x, y}, pivot, degrees));
+}

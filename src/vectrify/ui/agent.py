@@ -115,7 +115,7 @@ EDITS: dict[str, tuple[str, ...]] = {
     "protect_features": (),
     "isolate_components": (),
     "properties": ("paint", "rename", "locks"),
-    "transform": ("resize", "move"),
+    "transform": ("resize", "rotate", "flip_horizontal", "flip_vertical", "move"),
     "arrange": ("reorder", "move_objects"),
     "group": ("group", "ungroup"),
     "join": ("join_paths", "join_ends", "join_two_ends"),
@@ -1749,26 +1749,63 @@ class Agent:
         scale: Any = None,
         anchor: Any = "center",
         box: Any = None,
+        rotate: float | None = None,
+        flip: str | None = None,
     ) -> Reply:
-        """Scale the objects *ids* by *scale* about *anchor* (a point, or
-        center, top-left, top-right, bottom-left, bottom-right) and move them
-        by *dx*, *dy*; or fit their painted bounds to *box*."""
+        """Scale the objects *ids* by *scale*, rotate them by *rotate* degrees
+        (clockwise) and mirror them (*flip* horizontal or vertical), all about
+        *anchor* (a point, or center, top-left, top-right, bottom-left,
+        bottom-right), then move them by *dx*, *dy*; or fit their painted
+        bounds to *box*."""
         offset = (
             _finite(dx if dx is not None else 0.0, "dx"),
             _finite(dy if dy is not None else 0.0, "dy"),
         )
         moving = dx is not None or dy is not None
-        if box is not None and (scale is not None or moving):
-            raise DocumentError("Give box alone, or scale and dx, dy")
-        if box is None and scale is None and not moving:
-            raise DocumentError("Give dx, dy to move, scale [sx, sy], or box")
+        turning = rotate is not None or flip is not None
+        if box is not None and (scale is not None or moving or turning):
+            raise DocumentError("Give box alone, or scale, rotate, flip and dx, dy")
+        if box is None and scale is None and not moving and not turning:
+            raise DocumentError(
+                "Give dx, dy to move, scale [sx, sy], rotate, flip, or box"
+            )
+        if flip is not None and flip not in ("horizontal", "vertical"):
+            raise DocumentError("flip is horizontal or vertical")
+        angle = None if rotate is None else _finite(rotate, "rotate")
         moved = {"dx": offset[0], "dy": offset[1]}
+        # The anchor is measured once, before any step changes the bounds.
+        pivot: list[tuple[float, float]] = []
+
+        def anchored() -> tuple[float, float]:
+            if pivot:
+                return pivot[0]
+            if isinstance(anchor, str):
+                bx, by, bw, bh = self._selected_bounds()
+                names = {
+                    "center": (bx + bw / 2, by + bh / 2),
+                    "top-left": (bx, by),
+                    "top-right": (bx + bw, by),
+                    "bottom-left": (bx, by + bh),
+                    "bottom-right": (bx + bw, by + bh),
+                }
+                if anchor not in names:
+                    raise DocumentError(
+                        "anchor is a point [x, y] or one of " + ", ".join(names)
+                    )
+                pivot.append(names[anchor])
+            else:
+                if not isinstance(anchor, list | tuple) or len(anchor) != 2:
+                    raise DocumentError("anchor is a point [x, y]")
+                pivot.append(
+                    (_finite(anchor[0], "anchor"), _finite(anchor[1], "anchor"))
+                )
+            return pivot[0]
 
         def resize() -> dict | None:
             if box is None and scale is None:
                 return None
-            bx, by, bw, bh = self._selected_bounds()
             if box is not None:
+                bx, by, bw, bh = self._selected_bounds()
                 x, y, w, h = _box(box, "The box")
                 if bw <= 0 or bh <= 0:
                     raise DocumentError("The objects have no area to resize")
@@ -1780,38 +1817,43 @@ class Agent:
                 }
             if not isinstance(scale, list | tuple) or len(scale) != 2:
                 raise DocumentError("scale is [sx, sy]")
-            names = {
-                "center": (bx + bw / 2, by + bh / 2),
-                "top-left": (bx, by),
-                "top-right": (bx + bw, by),
-                "bottom-left": (bx, by + bh),
-                "bottom-right": (bx + bw, by + bh),
-            }
-            if isinstance(anchor, str):
-                if anchor not in names:
-                    raise DocumentError(
-                        "anchor is a point [x, y] or one of " + ", ".join(names)
-                    )
-                point = names[anchor]
-            else:
-                if not isinstance(anchor, list | tuple) or len(anchor) != 2:
-                    raise DocumentError("anchor is a point [x, y]")
-                point = (_finite(anchor[0], "anchor"), _finite(anchor[1], "anchor"))
             return {
                 "command": "resize",
-                "anchor": list(point),
+                "anchor": list(anchored()),
                 "scale": [_finite(scale[0], "scale"), _finite(scale[1], "scale")],
             }
+
+        def turn() -> dict | None:
+            if angle is None:
+                return None
+            return {"command": "rotate", "angle": angle, "pivot": list(anchored())}
+
+        def mirror() -> dict | None:
+            if flip is None:
+                return None
+            return {"command": f"flip_{flip}", "pivot": list(anchored())}
 
         def move() -> dict | None:
             if abs(moved["dx"]) < 1e-9 and abs(moved["dy"]) < 1e-9:
                 return None
             return {"command": "move", "dx": moved["dx"], "dy": moved["dy"]}
 
+        kinds = [
+            name
+            for name, given in (
+                ("Resize", box is not None or scale is not None),
+                ("Rotate", angle is not None),
+                (f"Flip {flip}", flip is not None),
+            )
+            if given
+        ]
         label = None
-        if box is not None or scale is not None:
-            label = "Transform" if moving else "Resize"
-        return self._edit(seen, [self._select(_targets(ids)), resize, move], label)
+        if len(kinds) > 1 or (kinds and moving):
+            label = "Transform"
+        elif kinds:
+            label = kinds[0]
+        steps: list[Step] = [self._select(_targets(ids)), resize, turn, mirror, move]
+        return self._edit(seen, steps, label)
 
     def tool_arrange(
         self,

@@ -489,6 +489,34 @@ def test_transform_moves_and_scales_in_one_step():
         call("transform", ids=["a"], dx=1, box=[0, 0, 5, 5])
 
 
+def test_transform_rotates_and_flips_about_the_anchor():
+    call = Calls()
+
+    def bounds():
+        return next(
+            o["bounds"]
+            for o in call.agent.call("describe").data["objects"]
+            if o["id"] == "a"
+        )
+
+    x, y, w, h = bounds()
+    reply = call("transform", ids=["a"], rotate=90, anchor=[0, 0])
+    assert reply["step"] == "Agent: Rotate"
+    # A clockwise quarter turn about the origin takes (x, y) to (-y, x).
+    assert bounds() == pytest.approx([-(y + h), x, h, w], abs=1e-6)
+    reply = call("transform", ids=["a"], flip="horizontal")
+    assert reply["step"] == "Agent: Flip horizontal"
+    assert bounds() == pytest.approx([-(y + h), x, h, w], abs=1e-6)
+    # Turning, mirroring and moving at once is one step, about one anchor.
+    reply = call("transform", ids=["a"], rotate=-90, flip="vertical", dx=5)
+    assert reply["step"] == "Agent: Transform"
+    assert len(call.labels) == 3
+    with pytest.raises(agent_module.DocumentError, match="horizontal or vertical"):
+        call("transform", ids=["a"], flip="diagonal")
+    with pytest.raises(agent_module.DocumentError, match="box alone"):
+        call("transform", ids=["a"], rotate=10, box=[0, 0, 5, 5])
+
+
 def test_transform_moves_in_document_units_inside_a_transformed_group():
     agent = Agent(
         Session(

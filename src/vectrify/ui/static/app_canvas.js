@@ -30,12 +30,14 @@ export function createCanvasController(editor, {
   point,
   pointPaths,
   pressFrame,
+  pressRotation,
   redrawLines,
   regionShape,
   renderDrawing,
   renderInspector,
   renderNodeInspector,
   renderStatus,
+  rotationAt = () => null,
   requestAnimationFrame = globalThis.requestAnimationFrame,
   sameClickSpot,
   screenMatrix,
@@ -254,6 +256,8 @@ export function createCanvasController(editor, {
       if (clip) editor.clipConsumers.set(clip.dataset.objectId, boundary.dataset.clipConsumer);
     }
     common.hits = hits;
+    const turning = editor.tool === 'move' ? rotationAt(event.clientX, event.clientY) : null;
+    if (turning) { pressRotation(event, common, turning); return; }
     const handle = editor.tool === 'move' ? frameAt(event.clientX, event.clientY) : null;
     if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
     const id = hits[0] || null;

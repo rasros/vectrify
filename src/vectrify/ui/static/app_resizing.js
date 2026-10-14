@@ -16,6 +16,7 @@ export function createResizingController(editor, {
   point,
   resizeRefusal = () => selectionResizeRefusal(editor, {topSelection, object}),
   requestAnimationFrame = globalThis.requestAnimationFrame,
+  rotationCursor = () => null,
   stage,
   startGesture,
   svgElement,
@@ -37,8 +38,10 @@ export function createResizingController(editor, {
 
   // The cursor over the frame: a resize arrow on an edge or corner, and the
   // move cursor inside it, except over an unselected object, which a press
-  // picks instead.
+  // picks instead. The rotation handle and pivot have their own.
   function frameCursor(x, y) {
+    const turning = editor.tool === 'move' && !editor.space && rotationCursor(x, y);
+    if (turning) return turning;
     const handle = frameAt(x, y);
     if (!handle || editor.space) return 'default';
     if (handle !== 'inside') return resizeRefusal() ? 'not-allowed' : CURSORS[handle];
@@ -162,10 +165,11 @@ export function createResizingController(editor, {
   return api;
 }
 
-export function selectionResizeRefusal(editor, {topSelection, object}) {
+// Why the selection cannot be resized, or rotated or flipped (*verb*), or ''.
+export function selectionResizeRefusal(editor, {topSelection, object}, verb = 'resize') {
   for (const id of topSelection()) {
     const item = object(id), lock = item?.inherited_locks.find(kind => kind === 'transform' || kind === 'geometry');
-    if (lock) return `${item.label}: ${lock === 'transform' ? 'position' : 'geometry'} is locked; unlock it to resize`;
+    if (lock) return `${item.label}: ${lock === 'transform' ? 'position' : 'geometry'} is locked; unlock it to ${verb}`;
   }
   return '';
 }

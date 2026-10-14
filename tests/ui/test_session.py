@@ -1240,6 +1240,48 @@ def test_numeric_move_keeps_the_position_lock():
     assert session.editor.snapshot.document == before
 
 
+def test_rotate_and_flip_turn_the_selection_about_the_pivot_as_one_edit_each():
+    session = Session(import_svg(NESTED))
+    before = {oid: page_box(session, oid) for oid in ("inner", "plain")}
+    send(session, "select", objects=["inner", "plain"])
+    result = send(session, "flip_horizontal", pivot=[100, 0])
+    assert result["undo"] == ["Flip horizontal"]
+    for oid, (left, top, right, bottom) in before.items():
+        assert page_box(session, oid) == pytest.approx(
+            (200 - right, top, 200 - left, bottom)
+        )
+    send(session, "flip_vertical", pivot=[0, 100])
+    send(session, "rotate", angle=180, pivot=[100, 100])
+    # Both mirrors and a half turn about the same centre cancel out.
+    for oid, box in before.items():
+        assert page_box(session, oid) == pytest.approx(box)
+    assert session.editor.undo_labels[-3:] == (
+        "Flip horizontal",
+        "Flip vertical",
+        "Rotate",
+    )
+    # Strokes keep their width, the child inside the turned group included.
+    document = session.editor.snapshot.document
+    assert document.element("inner").get("stroke-width") == "2"
+    with pytest.raises(DocumentError, match="whole turn"):
+        send(session, "rotate", angle=-360, pivot=[0, 0])
+    with pytest.raises(DocumentError, match="pivot"):
+        send(session, "rotate", angle=10, pivot=[0])
+
+
+def test_rotate_and_flip_keep_the_position_lock():
+    session = Session(import_svg(NESTED))
+    send(session, "select", objects=["turned"])
+    send(session, "locks", object="turned", locks=["transform"])
+    send(session, "select", objects=["inner"])
+    before = session.editor.snapshot.document
+    with pytest.raises(DocumentError, match="unlock it to rotate"):
+        send(session, "rotate", angle=90, pivot=[0, 0])
+    with pytest.raises(DocumentError, match="unlock it to flip"):
+        send(session, "flip_vertical", pivot=[0, 0])
+    assert session.editor.snapshot.document == before
+
+
 def test_a_new_group_is_labelled_by_kind_and_number_not_by_its_id():
     session = Session(import_svg(SVG))
     send(session, "select", objects=["a", "b"])

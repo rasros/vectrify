@@ -1,7 +1,7 @@
 // The Transform section's X, Y, W and H: the edits they make of the selection
 // frame and how the fields show it. Run by test_transform_fields.py.
 import assert from 'node:assert/strict';
-import {MIN_SIZE, boxFields, fieldEdit, formatLength, sizeRefusal} from '../../src/vectrify/ui/static/transform.js';
+import {MIN_SIZE, boxFields, dragAngle, fieldEdit, formatLength, matrixAngle, normalAngle, rotationEdit, sharedAngle, sizeRefusal, turnedBox} from '../../src/vectrify/ui/static/transform.js';
 import {createTransformController} from '../../src/vectrify/ui/static/app_transform.js';
 
 const near = (actual, expected) => {
@@ -51,6 +51,35 @@ assert.match(sizeRefusal(boxFields({left: 3, top: 0, right: 3, bottom: 9}), 'w')
 near(fieldEdit(line, 'w', 160, {keepRatio: true}).data.scale, [2, 1]);
 assert.equal(sizeRefusal(boxFields(line), 'w'), '');
 
+// Angles are clockwise degrees in (-180, 180]; a mirrored object is measured
+// as flipped horizontally first.
+assert.equal(normalAngle(540), 180);
+assert.equal(normalAngle(-190), 170);
+assert.equal(normalAngle(-180), 180);
+const turned = degrees => { const r = degrees * Math.PI / 180; return {a: Math.cos(r), b: Math.sin(r), c: -Math.sin(r), d: Math.cos(r)}; };
+near(matrixAngle(turned(30)), 30);
+near(matrixAngle({a: 2, b: 0, c: 0, d: 3}), 0);
+near(matrixAngle({a: -1, b: 0, c: 0, d: 1}), 0);
+near(matrixAngle({a: 1, b: 0, c: 0, d: -1}), 180);
+const mirroredTurn = {...turned(30), a: -turned(30).a, b: -turned(30).b};
+near(matrixAngle(mirroredTurn), 30);
+near(sharedAngle([turned(45), {...turned(45), a: 2 * turned(45).a, b: 2 * turned(45).b}]), 45);
+assert.equal(sharedAngle([turned(45), turned(46)]), null);
+assert.equal(sharedAngle([]), null);
+// Rotation turns by the difference from the shown angle, the short way.
+near(rotationEdit(30, 75).angle, 45);
+near(rotationEdit(170, -170).angle, 20);
+near(rotationEdit(null, 15).angle, 15);
+assert.equal(rotationEdit(30, 390), null);
+assert.match(rotationEdit(0, NaN).refusal, /number of degrees/);
+// A drag turns by the angle swept about the pivot; Shift snaps it to 15°.
+const pivot = {x: 10, y: 10};
+near(dragAngle(pivot, {x: 20, y: 10}, {x: 10, y: 20}), 90);
+near(dragAngle(pivot, {x: 20, y: 10}, {x: 20, y: 13}), Math.atan2(3, 10) * 180 / Math.PI);
+assert.equal(dragAngle(pivot, {x: 20, y: 10}, {x: 20, y: 13}, {snap: true}), 15);
+assert.equal(dragAngle(pivot, {x: 20, y: 10}, {x: 20, y: 11}, {snap: true}), 0);
+near(turnedBox({left: 0, top: 0, right: 4, bottom: 2}, {x: 0, y: 0}, 90), [{x: 0, y: 0}, {x: 0, y: 4}, {x: -2, y: 4}, {x: -2, y: 0}]);
+
 // The controller: just enough DOM for its fields.
 class Field {
   constructor(id) { this.id = id; this.value = ''; this.dataset = {}; this.disabled = false; this.title = ''; this.parentElement = {title: ''}; this.listeners = new Map(); this.attributes = new Map(); }
@@ -63,7 +92,8 @@ class Field {
 const fields = new Map();
 const $ = id => { if (!fields.has(id)) fields.set(id, new Field(id)); return fields.get(id); };
 const sent = [], toasts = [];
-let frame = {...box}, resizeLock = '';
+let frame = {...box}, resizeLock = '', rotateLock = '', angle = 0;
+const turns = [];
 const items = {a: {id: 'a', label: 'Shape', inherited_locks: []}, b: {id: 'b', label: 'Line', inherited_locks: []}};
 const editor = {state: {selection: {objects: ['a', 'b'], nodes: []}}, keepRatio: false};
 const transform = createTransformController(editor, {
@@ -72,6 +102,9 @@ const transform = createTransformController(editor, {
   later: fn => fn(),
   object: id => items[id],
   resizeRefusal: () => resizeLock,
+  rotateBy: async turn => { turns.push(turn); return true; },
+  rotateRefusal: () => rotateLock,
+  selectionAngle: () => angle,
   selectionBounds: () => frame && {...frame},
   toast: (message, error) => toasts.push({message, error}),
   topSelection: () => editor.state.selection.objects,
@@ -145,6 +178,36 @@ assert.ok(['x', 'y', 'w', 'h'].every(f => $(`transform-${f}`).disabled && $(`tra
 assert.match(transform.fieldRefusal('x'), /no bounds/);
 editor.state.selection.objects = [];
 assert.equal(transform.fieldRefusal('x'), 'Select objects first');
+
+// Rotation shows the shared angle and turns by the difference about the
+// pivot; objects turned differently show Mixed and turn by the value typed.
+editor.state.selection.objects = ['a', 'b']; frame = {...box}; angle = 30;
+transform.renderTransform();
+assert.equal($('transform-angle').value, '30');
+assert.equal($('transform-angle').disabled, false);
+await type('angle', '-45');
+near(turns.pop(), -75);
+await type('angle', '30');
+assert.equal(turns.length, 0);
+angle = null;
+transform.renderTransform();
+assert.equal($('transform-angle').value, '');
+assert.equal($('transform-angle').placeholder, 'Mixed');
+assert.match($('transform-angle').parentElement.title, /turns them all by that many degrees/);
+await type('angle', '90');
+near(turns.pop(), 90);
+await type('angle', 'x');
+assert.equal(turns.length, 0);
+assert.deepEqual(toasts.pop(), {message: 'Rotation needs a number of degrees', error: true});
+// Escape puts the angle back without stepping up; locks disable it with the reason.
+angle = 12.5; $('transform-angle').value = '99'; $('transform-angle').fire('input');
+assert.equal($('transform-angle').fire('keydown', {key: 'Escape'}).stopped, true);
+assert.equal($('transform-angle').value, '12.5');
+rotateLock = 'Line: position is locked; unlock it to rotate';
+transform.renderTransform();
+assert.equal($('transform-angle').disabled, true);
+assert.equal($('transform-angle').parentElement.title, `Rotation: ${rotateLock}`);
+rotateLock = '';
 
 // Move by offsets in document units through the same move command.
 editor.state.selection.objects = ['a'];

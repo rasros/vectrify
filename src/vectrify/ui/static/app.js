@@ -23,6 +23,7 @@ import {createHitsController} from './app_hits.js';
 import {createFramesController} from './app_frames.js';
 import {createOverlayController} from './app_overlay.js';
 import {createResizingController} from './app_resizing.js';
+import {createRotatingController} from './app_rotating.js';
 import {createMarkersController} from './app_markers.js';
 import {createLayoutController} from './app_layout.js';
 import {createToolsController} from './app_tools.js';
@@ -166,6 +167,7 @@ export function createApplication({document = globalThis.document, window = glob
     fillPointHoles: (...args) => selectionController.fillPointHoles(...args),
     finishPath: (...args) => toolsController.finishPath(...args),
     fit: (...args) => viewController.fit(...args),
+    flip: (...args) => rotatingController.flip(...args),
     focusSelection: (...args) => viewController.focusSelection(...args),
     gradientRefusal: (...args) => gradientsController.gradientRefusal(...args),
     holeContours: (...args) => selectionController.holeContours(...args),
@@ -211,6 +213,7 @@ export function createApplication({document = globalThis.document, window = glob
     toggleAgents: (...args) => agent_controlsController.toggleAgents(...args),
     toggleClipping: (...args) => overlayController.toggleClipping(...args),
     transformRefusal: (...args) => transformController.fieldRefusal(...args),
+    turnRefusal: (...args) => rotatingController.turnRefusal(...args),
     twoEnds: (...args) => commandsController.twoEnds(...args),
     visiblePaths: (...args) => commandsController.visiblePaths(...args),
     zoomAt: (...args) => viewController.zoomAt(...args),
@@ -311,6 +314,9 @@ export function createApplication({document = globalThis.document, window = glob
     later: (...args) => transportController.later(...args),
     object: (...args) => sessionController.object(...args),
     resizeRefusal: (...args) => resizingController.resizeRefusal(...args),
+    rotateBy: (...args) => rotatingController.rotateBy(...args),
+    rotateRefusal: (...args) => rotatingController.turnRefusal(...args),
+    selectionAngle: (...args) => rotatingController.selectionAngle(...args),
     selectionBounds: (...args) => overlayController.selectionBounds(...args),
     toast: (...args) => transportController.toast(...args),
     topSelection: (...args) => canvasController.topSelection(...args),
@@ -373,6 +379,7 @@ export function createApplication({document = globalThis.document, window = glob
     drawPoints: (...args) => markersController.drawPoints(...args),
     drawRedraw: (...args) => toolsController.drawRedraw(...args),
     drawRegion: (...args) => regionController.drawRegion(...args),
+    drawRotation: (...args) => rotatingController.drawRotation(...args),
     drawShape: (...args) => shapesController.drawShape(...args),
     drawSnap: (...args) => toolsController.drawSnap(...args),
     drawing,
@@ -397,10 +404,24 @@ export function createApplication({document = globalThis.document, window = glob
     overlay,
     parents: (...args) => geometryController.parents(...args),
     point: (...args) => viewController.point(...args),
+    rotationCursor: (...args) => rotatingController.rotationCursor(...args),
     stage,
     startGesture: (...args) => canvas_eventsController.startGesture(...args),
     svgElement: (...args) => sessionController.svgElement(...args),
     topSelection: (...args) => canvasController.topSelection(...args),
+  });
+  const rotatingController = createRotatingController(editor, {
+    action: (...args) => actionsController.action(...args),
+    drawOverlay: (...args) => framesController.drawOverlay(...args),
+    localToOverlay: (...args) => framesController.localToOverlay(...args),
+    object: (...args) => sessionController.object(...args),
+    overlay,
+    point: (...args) => viewController.point(...args),
+    selectionBounds: (...args) => overlayController.selectionBounds(...args),
+    startGesture: (...args) => canvas_eventsController.startGesture(...args),
+    svgElement: (...args) => sessionController.svgElement(...args),
+    topSelection: (...args) => canvasController.topSelection(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
   });
   const markersController = createMarkersController(editor, {
     $,
@@ -418,6 +439,7 @@ export function createApplication({document = globalThis.document, window = glob
     $,
     document,
     frameSize: (...args) => resizingController.frameSize(...args),
+    rotationStatus: (...args) => rotatingController.rotationStatus(...args),
     level: (...args) => geometryController.level(...args),
     object: (...args) => sessionController.object(...args),
     parents: (...args) => geometryController.parents(...args),
@@ -475,7 +497,9 @@ export function createApplication({document = globalThis.document, window = glob
     point: (...args) => viewController.point(...args),
     pressStage: (...args) => canvasController.pressStage(...args),
     previewPointDrag: (...args) => canvasController.previewPointDrag(...args),
+    placePivot: (...args) => rotatingController.placePivot(...args),
     previewResize: (...args) => resizingController.previewResize(...args),
+    previewRotate: (...args) => rotatingController.previewRotate(...args),
     previewShape: (...args) => shapesController.preview(...args),
     redrawOutline: (...args) => toolsController.redrawOutline(...args),
     regionCorner: (...args) => regionController.corner(...args),
@@ -485,7 +509,10 @@ export function createApplication({document = globalThis.document, window = glob
     renderInspector: (...args) => paintController.renderInspector(...args),
     renderNodeInspector: (...args) => selectionController.renderNodeInspector(...args),
     resizeDrag: (...args) => resizingController.resizeDrag(...args),
+    restorePivot: (...args) => rotatingController.restorePivot(...args),
     restoreValues: (...args) => canvasController.restoreValues(...args),
+    rotateDrag: (...args) => rotatingController.rotateDrag(...args),
+    rotateSelection: (...args) => rotatingController.finishRotate(...args),
     selectAtPoint: (...args) => selectionController.selectAtPoint(...args),
     selectPoints: (...args) => geometryController.selectPoints(...args),
     setTool: (...args) => viewController.setTool(...args),
@@ -522,12 +549,14 @@ export function createApplication({document = globalThis.document, window = glob
     point: (...args) => viewController.point(...args),
     pointPaths: (...args) => geometryController.pointPaths(...args),
     pressFrame: (...args) => resizingController.pressFrame(...args),
+    pressRotation: (...args) => rotatingController.pressRotation(...args),
     redrawLines: (...args) => toolsController.redrawLines(...args),
     regionShape: () => regionController.options.shape,
     renderDrawing: (...args) => drawingController.renderDrawing(...args),
     renderInspector: (...args) => paintController.renderInspector(...args),
     renderNodeInspector: (...args) => selectionController.renderNodeInspector(...args),
     renderStatus: (...args) => layoutController.renderStatus(...args),
+    rotationAt: (...args) => rotatingController.rotationAt(...args),
     sameClickSpot: (...args) => selectionController.sameClickSpot(...args),
     screenMatrix: (...args) => framesController.screenMatrix(...args),
     selectPoints: (...args) => geometryController.selectPoints(...args),
@@ -709,6 +738,7 @@ export function createApplication({document = globalThis.document, window = glob
       framesController.wire();
       overlayController.wire();
       resizingController.wire();
+      rotatingController.wire();
       markersController.wire();
       layoutController.wire();
       toolsController.wire();
@@ -749,6 +779,7 @@ export function createApplication({document = globalThis.document, window = glob
     frames: framesController,
     overlay: overlayController,
     resizing: resizingController,
+    rotating: rotatingController,
     markers: markersController,
     layout: layoutController,
     tools: toolsController,

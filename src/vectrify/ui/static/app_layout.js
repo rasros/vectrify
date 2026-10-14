@@ -14,6 +14,7 @@ export function createLayoutController(editor, {
   parents,
   pointPaths,
   reportView,
+  rotationStatus = () => '',
   requestAnimationFrame = globalThis.requestAnimationFrame,
   selectedPoints,
   window = globalThis.window,
@@ -133,6 +134,7 @@ export function createLayoutController(editor, {
     $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
     // Show the selection's size, and the new size while resizing in Move.
     if (editor.drag?.kind === 'resize' && editor.drag.result) $('selection-level').textContent = `Resize · ${frameSize(editor.drag.result.box)}`;
+    else if (editor.drag?.kind === 'rotate' && editor.drag.moved && editor.drag.result) $('selection-level').textContent = rotationStatus(editor.drag.result);
     else if (editor.drag?.kind === 'shape' && editor.drag.moved && editor.drag.shape) $('selection-level').textContent = shapeStatus(editor.drag.shape);
     else if (editor.selectionBox) $('selection-level').textContent += ` · ${frameSize(editor.selectionBox)}`;
     const trail = $('scope-trail');

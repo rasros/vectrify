@@ -123,6 +123,8 @@ export function createKeysController(editor, {
     // Tools and the view are on the left hand. A tool key switches at once,
     // even while an edit runs, and cancels a gesture under way.
     if(TOOL_KEYS[key]&&!event.shiftKey){event.preventDefault();if(!event.repeat){cancelGesture();setTool(TOOL_KEYS[key]);}return;}
+    // Shift H and Shift V flip the selection; V alone is the Move tool.
+    if(event.shiftKey&&(key==='h'||key==='v')){event.preventDefault();if(!event.repeat)later(()=>runCommand(key==='h'?'flip-horizontal':'flip-vertical'));return;}
     if(key==='w'){event.preventDefault();if(!event.repeat)cycleReference(event.shiftKey?-1:1);return;}
     if(key==='f'&&!event.shiftKey){fit();return;}
     if(key==='z'&&!event.shiftKey){event.preventDefault();if(editor.state?.selection.objects.length)focusSelection();return;}
