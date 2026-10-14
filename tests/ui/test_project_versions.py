@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.ui.test_session import SVG, png_url, send
+from tests.ui.helpers import SVG, png_url, send
 from vectrify.document import DocumentError, Selection, import_svg
 from vectrify.ui.agent import Agent
 from vectrify.ui.server import Backend

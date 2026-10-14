@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_source_absence import observed_gap
+from tests.refine.cel_helpers import observed_gap
 from vectrify.document import export_svg, import_svg
 from vectrify.document.join import transformed_geometry
 from vectrify.document.svg import parse_path

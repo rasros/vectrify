@@ -6,20 +6,14 @@ import numpy as np
 import pytest
 from scipy.ndimage import map_coordinates
 
-from tests.refine.test_cel_plan_ink_models import drawing
-from tests.refine.test_cel_plan_source_links import drawing as junction
+from tests.refine.cel_helpers import drawing, observed_gap
+from tests.refine.cel_helpers import junction_drawing as junction
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import ink_models, source_absence
-from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard, SourceProfile
+from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_absence import SourceAbsence
-
-
-def observed_gap():
-    evidence, _mask = drawing(gap=True)
-    points = np.column_stack((np.arange(20.25, 76.26, 4), np.full(15, 28.25)))
-    return evidence, [SourceProfile.at(points, 3)]
 
 
 def test_absence_positions_are_independent_copied_source_observations():
@@ -103,7 +97,7 @@ def test_native_query_tiles_match_full_stroke_including_seams_and_caps(
 @pytest.mark.parametrize(
     "bound",
     [
-        "MAX_NATIVE_PIXELS",
+        "RASTER_PIXELS",
         "MAX_PROFILE_SAMPLES",
         "MAX_POINTS",
         "MAX_TILES",

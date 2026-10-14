@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import pytest
 from shapely.geometry import Point
 
-from tests.ui.test_session import send
+from tests.ui.helpers import send
 from vectrify.document import DocumentError, HitIndex, import_svg
 from vectrify.document.arrows import END, OWNER, START, triangles
 from vectrify.document.project import load_project, save_project

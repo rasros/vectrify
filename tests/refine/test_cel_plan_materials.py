@@ -5,8 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import prepared, stripes
 from vectrify.document import export_svg, import_svg, load_project, save_project
 from vectrify.refine.cel_plan import materials
 from vectrify.refine.cel_plan.export import export

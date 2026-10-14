@@ -5,17 +5,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.document.test_document import render, select
+from tests.document.helpers import drawing, render, select
 from vectrify.document import Editor, EditRejectedError, export_svg, import_svg
-
-RINGS = "M0 0H30V30H0Z M5 5V25H25V5Z M60 0H90V30H60Z"
-
-
-def drawing(data=RINGS, attrs=""):
-    return import_svg(
-        '<svg width="120" height="80"><g fill="red" transform="translate(5 8)">'
-        f'<path id="p" d="{data}" {attrs}/></g></svg>'
-    )
 
 
 @pytest.mark.parametrize("rule", ["evenodd", "nonzero"])
@@ -156,7 +147,7 @@ def test_object_bounding_box_clip_keeps_original_combined_bounds():
     editor = Editor(doc, selection=select("p"))
     with editor.transaction("Split") as tx:
         assert len(tx.split_disconnected("p")) == 2
-    from tests.document.test_hit_test import hits
+    from tests.document.helpers import hits
     from vectrify.document import HitIndex
 
     before, after = HitIndex(doc), HitIndex(editor.snapshot.document)

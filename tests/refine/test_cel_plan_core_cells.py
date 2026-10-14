@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_piecewise_surfaces import marked_step, step
+from tests.refine.cel_helpers import marked_step, material, prepared, step
 from vectrify.document import (
     Editor,
     Element,
@@ -48,23 +47,6 @@ def test_expired_component_seal_does_not_escape_discovery_or_count_a_proposal(
     assert factory.diagnostics["proposals"] == 0
     assert factory.diagnostics["cells"] == 0
     assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
-
-
-def material(alpha=128, hole=False):
-    evidence = step(alpha, hole=hole)
-    target, rgba = evidence.target.copy(), evidence.rgba.copy()
-    _y, x = np.indices(evidence.labels.shape)
-    target[(x >= 70) & ~evidence.empty] = (60, 100, 200)
-    target[(x >= 35) & (x < 70) & ~evidence.empty] = (180, 100, 60)
-    rgba[~evidence.empty, :3] = target[~evidence.empty] / 255
-    return replace(
-        evidence,
-        target=target,
-        smooth=target,
-        coarse=target,
-        rgba=rgba,
-        opacity=rgba[..., 3],
-    )
 
 
 def test_multiway_atoms_replay_exact_complete_support_in_one_namespace():

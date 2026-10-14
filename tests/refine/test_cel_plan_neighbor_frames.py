@@ -5,9 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ink_contours import rims, ring
-from tests.refine.test_cel_plan_ink_replace import source
+from tests.refine.cel_helpers import prepared, rims, ring, source
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.join import transformed_geometry
 from vectrify.document.model import paint_server

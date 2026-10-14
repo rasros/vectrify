@@ -6,17 +6,12 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import capacity_source, one_atom
 from vectrify.refine.cel_plan import atoms as module
 from vectrify.refine.cel_plan.atoms import AtomLimitError, Atoms, Cut
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-
-
-def one_atom():
-    evidence = stripes(hole=True)
-    return replace(evidence, labels=np.where(evidence.empty, 0, 1).astype(np.int32))
 
 
 def test_exact_support_new_canonical_edge_and_immutable_parent():
@@ -135,35 +130,6 @@ def test_malformed_metadata_is_rejected(change):
     root = Atoms.original(build(one_atom()))
     with pytest.raises(ValueError, match=r"schema|runs"):
         Atoms.from_metadata({**root.metadata(), **change})
-
-
-def capacity_source():
-    """54 mixed parents need 66 binary cuts, but only 120 direct children."""
-    shape = (24, 162)
-    target = np.full((*shape, 3), 180, dtype=np.float32)
-    rgba = np.concatenate((target / 255, np.full((*shape, 1), 0.5)), axis=-1)
-    zero = np.zeros(shape, np.float32)
-    evidence = replace(
-        stripes(),
-        rgba=rgba,
-        target=target,
-        smooth=target,
-        coarse=target,
-        empty=zero.astype(bool),
-        drawn=zero.astype(bool),
-        line=zero.astype(bool),
-        foreground=np.ones(shape, bool),
-        darkness=zero,
-        texture=zero,
-        labels=np.broadcast_to(np.arange(162)[None, :] // 3, shape)
-        .copy()
-        .astype(np.int32),
-        source_size=(162, 24),
-        opacity=rgba[..., 3],
-    )
-    y, x = np.indices(shape)
-    classes = np.where(x < 36, y // 8, np.where(y < 12, 0, 2)).astype(np.int32)
-    return evidence, classes
 
 
 def test_direct_partition_retains_source_pixels_without_raising_capacity():

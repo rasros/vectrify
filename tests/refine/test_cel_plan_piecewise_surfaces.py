@@ -7,8 +7,12 @@ import pathops
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import (
+    indented_family,
+    marked_step,
+    prepared,
+    step,
+)
 from vectrify.document import (
     Editor,
     Element,
@@ -40,36 +44,6 @@ from vectrify.refine.cel_plan.piecewise_surfaces import PiecewiseSurfaces
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import search
-
-
-def step(alpha=255, hole=False, diagonal=False, gradient=False):
-    evidence = stripes(alpha=alpha, gradient=True, hole=hole)
-    y, x = np.indices(evidence.labels.shape)
-    side = (x + 0.5 + y + 0.5) / np.sqrt(2) < 56 if diagonal else x < 43
-    target = evidence.target.copy()
-    target[(~evidence.empty) & side] = (32, 100, 60)
-    target[(~evidence.empty) & ~side] = (180, 100, 60)
-    if gradient:
-        target[(~evidence.empty) & side, 0] += 0.8 * x[(~evidence.empty) & side]
-        target[(~evidence.empty) & ~side, 0] += 0.6 * y[(~evidence.empty) & ~side]
-    rgba = evidence.rgba.copy()
-    rgba[~evidence.empty, :3] = target[~evidence.empty] / 255
-    return replace(evidence, target=target, smooth=target, coarse=target, rgba=rgba)
-
-
-def marked_step(alpha=255):
-    evidence = step(alpha)
-    labels, target, rgba = (
-        evidence.labels.copy(),
-        evidence.target.copy(),
-        evidence.rgba.copy(),
-    )
-    labels[24:40, 32:56] = 9
-    target[24:40, 32:56] = (250, 220, 30)
-    rgba[24:40, 32:56, :3] = np.array((250, 220, 30)) / 255
-    return replace(
-        evidence, labels=labels, target=target, smooth=target, coarse=target, rgba=rgba
-    )
 
 
 @pytest.mark.parametrize("alpha", [255, 128])
@@ -517,7 +491,7 @@ def test_actual_rgba_core_and_limits_are_required(monkeypatch):
     factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
     assert list(factory(changed, Work.start(10))) == []
     assert factory.diagnostics["core_exclusions"] > 0
-    monkeypatch.setattr(piecewise_surfaces, "MAX_PIXELS", 1)
+    monkeypatch.setattr(piecewise_surfaces, "SURFACE_BOX_PIXELS", 1)
     assert list(factory(state, Work.start(10))) == []
     assert factory.diagnostics["group_limits"] > 0
 
@@ -612,42 +586,6 @@ def test_stop_during_complete_screen_does_not_publish_partial_family(monkeypatch
     assert list(factory(state, work)) == []
     assert state.partition is not None
     assert state.partition.atoms is None
-
-
-def indented_family(state):
-    points = [(8.0, 56.0), (8.0, 10.0)]
-    points.extend((float(x), 10.0 if x % 2 == 0 else 11.0) for x in range(9, 89))
-    points.append((88.0, 56.0))
-    wave = Geometry(
-        "indentations",
-        (
-            Subpath(
-                "indentations-loop",
-                tuple(
-                    PathNode(f"w{i}", "M" if i == 0 else "L", p)
-                    for i, p in enumerate(points)
-                ),
-                True,
-            ),
-        ),
-    )
-    ids = tuple(
-        s.id
-        for s in state.partition.surfaces
-        if s.role == "surface"
-        and s.id not in state.details.get("paint_constraints", ())
-    )
-    editor = Editor(state.document, selection=Selection(whole_document=True))
-    for oid in ids:
-        clipped = pathops.op(
-            curve_path(state.document.geometry_for(oid)),
-            curve_path(wave),
-            pathops.PathOp.INTERSECTION,
-        )
-        with editor.transaction("Fragment union with incidental dents") as tx:
-            tx.replace_geometry(oid, path_geometry(clipped))
-    changed = replace(state, document=editor.snapshot.document)
-    return replace(changed, svg=export_svg(changed.document)), ids
 
 
 # Keep both stress extremes and every pair of options; avoid a full product.

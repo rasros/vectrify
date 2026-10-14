@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
+from tests.ui.helpers import SVG, png_url, send
 from vectrify.document import (
     Document,
     DocumentError,
@@ -17,22 +18,6 @@ from vectrify.document import (
 )
 from vectrify.ui.agent import Agent
 from vectrify.ui.session import Session
-
-SVG = """<svg width="100" height="100"><g id="layer">
-<path id="a" fill="red" d="M0 0 L20 0 L20 20 Z"/>
-<rect id="b" x="30" width="20" height="20" fill="blue"/>
-</g></svg>"""
-
-
-def send(session, command, **data):
-    return session.action(
-        {
-            "command": command,
-            "epoch": session.epoch,
-            "revision": session.editor.snapshot.revision,
-            **data,
-        }
-    )
 
 
 def test_ui_paint_and_history_leave_original_svg_unchanged_until_applied():
@@ -492,7 +477,7 @@ CONVERTIBLE = """<svg width="100" height="100"><defs>
 
 
 def test_convert_to_path_keeps_shapes_look_identity_and_is_one_undo():
-    from tests.document.test_document import render
+    from tests.document.helpers import render
 
     session = Session(import_svg(CONVERTIBLE))
     before = session.editor.snapshot
@@ -936,7 +921,7 @@ def node_ids(session, oid):
 def test_add_node_at_either_open_endpoint_preserves_the_curve_and_is_undoable(
     position, segment
 ):
-    from tests.document.test_document import render
+    from tests.document.helpers import render
 
     session = Session(
         import_svg(
@@ -1363,12 +1348,6 @@ def test_a_new_group_is_labelled_by_kind_and_number_not_by_its_id():
     assert groups[0]["label"] == "Group 2"
     # A named or hand-written id still shows as itself.
     assert next(o for o in result["objects"] if o["id"] == "layer")["label"] == "layer"
-
-
-def png_url(width, height, colour=(200, 40, 40)):
-    buffer = io.BytesIO()
-    Image.new("RGB", (width, height), colour).save(buffer, "PNG")
-    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
 def kept_reference(session) -> dict:

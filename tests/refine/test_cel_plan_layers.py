@@ -4,45 +4,13 @@ from dataclasses import replace
 
 import numpy as np
 
+from tests.refine.cel_helpers import evidence
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.layers import continued
-from vectrify.refine.cel_plan.model import Evidence, Options, Work
+from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.strokes import strokes
-
-
-def evidence():
-    y, x = np.mgrid[:120, :120]
-    labels = (x >= 60).astype(np.int32)
-    labels[(x - 60) ** 2 + (y - 60) ** 2 <= 12**2] = 2
-    palette = np.array(
-        ((200, 150, 100), (140, 100, 65), (60, 150, 110)), dtype=np.float32
-    )
-    target = palette[labels]
-    rgba = np.concatenate((target / 255, np.ones((120, 120, 1))), axis=-1).astype(
-        np.float32
-    )
-    clear = np.zeros(labels.shape, dtype=bool)
-    zeros = np.zeros(labels.shape, dtype=float)
-    return Evidence(
-        rgba,
-        target,
-        target,
-        target,
-        clear,
-        ~clear,
-        clear,
-        clear,
-        zeros,
-        zeros,
-        labels,
-        (120, 120),
-        (0, 0),
-        (1, 1),
-        None,
-        False,
-    )
 
 
 def test_whole_compact_shape_can_span_multiple_base_shades():

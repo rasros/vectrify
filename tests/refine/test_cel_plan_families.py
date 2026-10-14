@@ -7,46 +7,17 @@ import pytest
 from PIL import Image
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import prepared, stripes
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan import families
-from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.families import Families
-from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import HALO, MAX_CROP_PIXELS, LocalPolicy
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.opacity import fit, fit_samples
 from vectrify.refine.cel_plan.ownership import Partition
-from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.score import render
-from vectrify.refine.cel_plan.search import State, search
-
-
-def prepared(evidence, *, layers=False):
-    options = Options(refine=False)
-    svg, details = export(
-        evidence,
-        evidence.labels,
-        options,
-        Work.start(10),
-        layers=layers,
-        conservative=evidence.opacity is None,
-    )
-    policy = Policy(evidence.rgba)
-    frontier = Frontier(policy)
-    assert frontier.add(svg, "Partitioned", details)
-    frontier.freeze_normalizer()
-    entry = frontier.entries[0]
-    state = State(
-        import_svg(svg),
-        svg,
-        LocalPolicy(policy).start(svg, entry.evaluation),
-        entry.key,
-        details,
-        partition=Partition.from_metadata(details["planning_surfaces"]),
-    )
-    return frontier, state, options
+from vectrify.refine.cel_plan.search import search
 
 
 @pytest.mark.parametrize("alpha", [255, 64])

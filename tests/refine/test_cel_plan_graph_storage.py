@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import stripes
 from vectrify.refine.cel_plan import atoms as atom_module
 from vectrify.refine.cel_plan import proposals
 from vectrify.refine.cel_plan.atoms import Atoms

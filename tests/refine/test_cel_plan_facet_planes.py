@@ -6,9 +6,7 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_core_cells import material
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_piecewise_surfaces import marked_step
+from tests.refine.cel_helpers import marked_step, material, prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.families import Families

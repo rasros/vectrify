@@ -63,6 +63,6 @@ def test_winding_node_bound_retains_unresolved_input(monkeypatch):
     document = seam()
     geometry = document.geometry_for("fill")
     before = export_svg(document)
-    monkeypatch.setattr(fill_winding, "MAX_NODES", 4)
+    monkeypatch.setattr(fill_winding, "DOCUMENT_NODES", 4)
     assert resolved(geometry, (1, 0, 0, 1, 0, 0), "nonzero", Work.start(10)) is None
     assert export_svg(document) == before

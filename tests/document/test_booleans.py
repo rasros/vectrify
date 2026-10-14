@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.document.test_document import select
+from tests.document.helpers import select
 from vectrify.document import Editor, EditRejectedError, import_svg
 from vectrify.document.hit_test import mapped
 from vectrify.document.holes import filled_region, find_holes

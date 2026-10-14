@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from tests.document.test_document import SHARED, SVG, render, select
+from tests.document.helpers import CONTOURS, SHARED, SVG, contour_editor, render, select
 from vectrify.document import (
     DocumentError,
     Editor,
@@ -19,20 +19,10 @@ from vectrify.document import (
 )
 from vectrify.document.topology import EdgeRef, edge
 
-CONTOURS = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
-<path id="fill" fill="red" d="M8 8 C16 4 40 4 48 8 L48 40 L8 40 Z"/>
-<path id="outline" fill="none" stroke="black" d="M48 8 C40 4 16 4 8 8"/>
-<path id="other" fill="none" stroke="blue" d="M48 40 L48 8"/>
-</svg>"""
-
 
 def ref(document, object_id, index, *, reverse=False):
     geometry = document.geometry_for(object_id)
     return EdgeRef(geometry.id, geometry.subpaths[0].nodes[index].id, reverse)
-
-
-def contour_editor():
-    return Editor(import_svg(CONTOURS), selection=select("fill", "outline"))
 
 
 def evaluate(points, t):

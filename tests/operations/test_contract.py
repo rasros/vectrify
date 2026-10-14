@@ -4,61 +4,22 @@ from typing import ClassVar
 
 import pytest
 
+from tests.operations.helpers import Recolour, editor
+from tests.operations.helpers import contract_request as request
 from vectrify.document import (
     DocumentError,
-    Editor,
     Element,
     Selection,
     StaleRevisionError,
-    import_svg,
 )
 from vectrify.operations import (
     Budget,
     Job,
-    OperationRequest,
-    OperationResult,
     Permissions,
-    Proposal,
     RunContext,
-    SettingsMethod,
     available,
     method,
 )
-
-SVG = '<svg width="20" height="20"><path id="a" d="M0 0L10 0L10 10Z"/></svg>'
-
-
-class Recolour(SettingsMethod):
-    action: ClassVar[str] = "improve"
-    name: ClassVar[str] = "recolour"
-    background: ClassVar[bool] = False
-    needs_reference: ClassVar[bool] = False
-    resources: ClassVar[frozenset[str]] = frozenset()
-
-    def validate(self, request):
-        pass
-
-    def run(self, request, context):
-        request = self.prepare(request).request
-        context.progress(1, "Recolouring", total=1)
-        tx = request.transaction("Recolour")
-        tx.set_attributes("a", {"fill": "#ff0000"})
-        unchanged = request.transaction("Recolour")
-        return OperationResult(Proposal(tx, True), [Proposal(unchanged, False)])
-
-
-def request(editor, **permissions):
-    return OperationRequest(
-        action="improve",
-        method="recolour",
-        snapshot=editor.snapshot,
-        editor=editor,
-        permissions=Permissions(**permissions),
-    )
-
-
-def editor():
-    return Editor(import_svg(SVG), selection=Selection(object_ids=frozenset({"a"})))
 
 
 def test_proposal_applies_as_one_undoable_edit():

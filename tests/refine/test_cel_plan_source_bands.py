@@ -7,8 +7,9 @@ import pytest
 from PIL import Image
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_source_absence import observed_gap
-from vectrify.document import export_svg, import_svg, load_project, save_project
+from tests.refine.cel_helpers import bands_fixture as fixture
+from tests.refine.cel_helpers import observed_gap
+from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import transformed_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
@@ -21,48 +22,6 @@ from vectrify.refine.cel_plan.local import Box, _native_raster
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_bands import SourceBands
-
-
-def fixture(*, alpha=1, diagonal=False, larger=False):
-    side = 240 if larger else 96
-    frame = (
-        'transform="translate(70.12345 60.23456)"'
-        if larger
-        else 'transform="matrix(.8 .6 -.6 .8 20 -4)"'
-        if diagonal
-        else ""
-    )
-    source = (
-        f'<svg width="{side}" height="{side}"><g opacity="{alpha}">'
-        f'<path id="bg" d="M0 0H{side}V{side}H0Z" fill="#ad8665"/>'
-        f'<path id="line" {frame} d="M20.25 28.25H76.25" fill="none" '
-        'stroke="#121008" stroke-width="3" stroke-linecap="butt"/></g></svg>'
-    )
-    rgba = render(source, (side, side))
-    evidence = collect(
-        Image.fromarray(np.rint(rgba * 255).astype(np.uint8)),
-        None,
-        Options(),
-        Work.start(10),
-    )
-    document = import_svg(
-        source.replace('id="line"', 'id="ink"')
-        .replace(
-            'd="M20.25 28.25H76.25" fill="none"',
-            'd="M20.25 25.75H76.25V30.75H20.25Z M70 70H72V72H70Z" fill="#121008"',
-        )
-        .replace('stroke="#121008"', 'stroke="none"')
-    )
-    anchors = np.column_stack((np.linspace(20.25, 76.25, 20), np.full(20, 28.25)))
-    if diagonal or larger:
-        a, b, c, d, e, f = root_matrix(document, "ink")
-        anchors = anchors @ np.array([[a, b], [c, d]]) + (e, f)
-    profile = SourceProfile.at(anchors, 3)
-    guard = SourceLineGuard(evidence.rgba, (profile,))
-    geometry = document.geometry_for("ink")
-    main = replace(geometry, subpaths=geometry.subpaths[:1])
-    marks = replace(geometry, subpaths=geometry.subpaths[1:])
-    return evidence, guard, document, main, marks
 
 
 @pytest.mark.parametrize("diagonal", [False, True])

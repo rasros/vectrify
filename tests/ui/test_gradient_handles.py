@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.ui.test_session import send
+from tests.ui.helpers import send
 from vectrify.document import EditRejectedError, import_svg
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.ui.session import Session

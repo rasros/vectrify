@@ -6,9 +6,7 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_final_cells import fragmented
-from tests.refine.test_cel_plan_piecewise_surfaces import step
+from tests.refine.cel_helpers import factory, fragmented, prepared, step
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import core_cells
@@ -22,18 +20,6 @@ from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import Proposal
-
-
-def factory(evidence, options, **kwargs):
-    return CoreCells(
-        Families(evidence, build(evidence), options),
-        options,
-        joint=True,
-        grouping="ward",
-        ink_support="connected",
-        ink_fit="source-intervals",
-        **kwargs,
-    )
 
 
 @pytest.mark.parametrize("alpha", [255, 128])

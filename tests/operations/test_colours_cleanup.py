@@ -1,10 +1,10 @@
 """Closed-form colour fitting and selection-limited geometry cleanup."""
 
 import pytest
-from PIL import Image
 
+from tests.operations.helpers import render, request
 from vectrify.document import DocumentError, Editor, Selection, import_svg
-from vectrify.operations import Job, OperationRequest, Permissions, method
+from vectrify.operations import Job, Permissions, method
 
 DOC = (
     '<svg width="100" height="100"><rect id="bg" width="100" height="100" '
@@ -12,32 +12,6 @@ DOC = (
     'height="40" fill="#000000"/></g><rect id="front" x="30" y="30" width="40" '
     'height="40" fill="#0000ff"/></svg>'
 )
-
-
-def render(svg, size=100):
-    import io
-
-    import cairosvg
-
-    png = cairosvg.svg2png(
-        bytestring=svg.encode(), output_width=size, output_height=size
-    )
-    assert png is not None
-    return Image.open(io.BytesIO(png)).convert("RGB")
-
-
-def request(editor, name, selection, permissions, reference=None, **settings):
-    snapshot = editor.snapshot
-    return OperationRequest(
-        action="improve" if name == "colours" else "simplify",
-        method=name,
-        snapshot=type(snapshot)(snapshot.revision, snapshot.document, selection),
-        editor=editor,
-        permissions=permissions,
-        settings=settings,
-        reference=reference,
-        bounds=(0, 0, 100, 100),
-    )
 
 
 def test_colour_fit_recovers_the_fill_through_opacity_and_occlusion():

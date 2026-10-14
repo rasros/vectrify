@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from tests.mcp.helpers import reference_png
-from tests.mcp.test_agent import fresh
+from tests.mcp.helpers import fresh, reference_png
 from vectrify.document import DocumentError
 from vectrify.ui.agent_edges import compare_edges, feature_checks
 

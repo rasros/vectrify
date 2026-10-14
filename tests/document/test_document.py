@@ -1,14 +1,12 @@
 """Behavioral checks for the SVG editor foundation, without UI or GPU dependencies."""
 
-import io
 import json
 from dataclasses import FrozenInstanceError, replace
 
-import cairosvg
 import numpy as np
 import pytest
-from PIL import Image
 
+from tests.document.helpers import SHARED, SVG, render, select
 from vectrify.document import (
     DocumentError,
     EditKind,
@@ -22,30 +20,6 @@ from vectrify.document import (
     load_project,
     save_project,
 )
-
-SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"
-viewBox="0 0 64 64">
-<g id="layer"><path id="a" fill="red" d="M4 4 L28 4 L28 28 L4 28 Z"/></g>
-<path id="b" fill="blue" d="M36 36 C40 30 54 30 60 36 L60 60 L36 60 Z"/>
-</svg>"""
-SHARED = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
-<defs id="library"><path id="shape" fill-rule="evenodd"
-d="M4 4 H28 V28 H4 Z M10 10 H22 V22 H10 Z"/>
-<clipPath id="clip"><use id="clip-use" href="#shape"/></clipPath></defs>
-<use id="first" href="#shape" fill="red"/>
-<use id="second" href="#shape" fill="blue" transform="translate(30 30)"/>
-<rect id="clipped" width="32" height="32" fill="green" clip-path="url(#clip)"/>
-</svg>"""
-
-
-def render(svg):
-    png = cairosvg.svg2png(bytestring=svg.encode())
-    assert png is not None
-    return np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
-
-
-def select(*ids, nodes=()):
-    return Selection(frozenset(ids), frozenset(nodes))
 
 
 def test_import_export_preserves_rendering_and_shared_dependencies():

@@ -5,8 +5,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_attached_outlines import setup as attached_setup
-from tests.refine.test_cel_plan_attached_spans import fixture as curved_fixture
+from tests.refine.cel_helpers import fixture as curved_fixture
+from tests.refine.cel_helpers import outline_setup as attached_setup
 from vectrify.document import (
     Editor,
     Selection,
@@ -447,7 +447,7 @@ def test_unsupported_budget_or_frame_cannot_publish_a_partial_score(kind, monkey
         name = {
             "queries": "MAX_QUERIES",
             "painters": "MAX_PAINTERS",
-            "pixels": "MAX_NATIVE_PIXELS",
+            "pixels": "RASTER_PIXELS",
         }[kind]
         monkeypatch.setattr(editable_ink, name, 1)
     elif kind == "viewport":

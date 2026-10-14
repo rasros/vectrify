@@ -1,9 +1,8 @@
 """Painted areas follow the drawn geometry, not object bounding boxes."""
 
 import pytest
-from shapely.geometry import box
 
-from tests.document.test_document import select
+from tests.document.helpers import hits, select
 from vectrify.document import (
     DocumentError,
     Editor,
@@ -14,30 +13,6 @@ from vectrify.document import (
 
 def index(body, **kwargs):
     return HitIndex(import_svg(f'<svg width="100" height="100">{body}</svg>'), **kwargs)
-
-
-def hits(hit_index, x, y, w=1, h=1, mode="intersect", candidates=None):
-    """Objects painting in a box: leaf objects by default, or *candidates*.
-
-    A leaf counts when its paint meets the box (with contain, lies inside it);
-    a group only when the box covers all of its paint.
-    """
-    region = box(x, y, x + w, y + h)
-    document = hit_index.document
-    if candidates is None:
-        candidates = {e.id for e in document.elements() if e.tag not in {"svg", "g"}}
-    found = set()
-    for oid in candidates:
-        area = hit_index.area(oid)
-        if area is None:
-            continue
-        group = document.element(oid).tag in {"svg", "g"}
-        meets = (
-            region.intersects if mode == "intersect" and not group else region.covers
-        )
-        if meets(area):
-            found.add(oid)
-    return found
 
 
 def test_intersection_containment_and_group_areas():

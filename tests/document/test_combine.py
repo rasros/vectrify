@@ -3,8 +3,7 @@
 import numpy as np
 import pytest
 
-from tests.document.test_document import render, select
-from tests.document.test_join import pair
+from tests.document.helpers import pair, render, select
 from vectrify.document import DocumentError, Editor, export_svg, import_svg
 from vectrify.document.join import path_style, transformed_geometry
 

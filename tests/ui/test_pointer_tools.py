@@ -3,9 +3,8 @@ narrows that."""
 
 import pytest
 
-from tests.ui.test_redraw import PIXEL, STROKE
-from tests.ui.test_redraw import session as redraw_session
-from tests.ui.test_session import send
+from tests.ui.helpers import PIXEL, STROKE, send
+from tests.ui.helpers import session as redraw_session
 from vectrify.document import DocumentError, import_svg
 from vectrify.ui.session import Session
 

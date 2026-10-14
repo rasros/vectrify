@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from tests.ui.test_session import send
+from tests.ui.helpers import send
 from vectrify.document import DocumentError, import_svg
 from vectrify.document.join import curve_path
 from vectrify.ui.session import Session

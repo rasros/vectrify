@@ -119,7 +119,7 @@ def test_stationary_enclosing_surface_is_excluded_from_inner_mark_order_proof(
 
 def test_moving_geometry_bound_and_stop_keep_the_original_order(monkeypatch):
     document, marks = scene()
-    monkeypatch.setattr(layer_order, "MAX_NODES", 1)
+    monkeypatch.setattr(layer_order, "DOCUMENT_NODES", 1)
     work = Work.start(10)
     measured = diagnostics()
     assert (

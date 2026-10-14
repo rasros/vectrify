@@ -7,8 +7,8 @@ import pytest
 from scipy.ndimage import distance_transform_edt
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_layers import evidence as opaque
+from tests.refine.cel_helpers import evidence as opaque
+from tests.refine.cel_helpers import prepared
 from vectrify.document import (
     Editor,
     Selection,

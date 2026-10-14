@@ -4,13 +4,11 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from PIL import Image
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
+from tests.refine.cel_helpers import circle, perimeter, prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import path_style
-from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.ink import measure_closed
 from vectrify.refine.cel_plan.line_fidelity import SourceProfile
@@ -20,36 +18,6 @@ from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.silhouette_ink import SilhouetteInk
 from vectrify.refine.cel_plan.source_strokes import SourceStrokes
-from vectrify.refine.tracing import _loops
-
-
-def circle(alpha=1, *, opaque=False, gap=False):
-    svg = '<svg width="96" height="96">'
-    if opaque:
-        svg += '<path d="M0 0H96V96H0Z" fill="white"/>'
-    svg += (
-        f'<g opacity="{alpha}"><circle cx="48" cy="48" r="30" '
-        'fill="#c4b79c" stroke="#202020" stroke-width="3"/></g></svg>'
-    )
-    rgba = render(svg, (96, 96))
-    if gap:
-        rgba[14:23, 45:51, :3] = np.array((196, 183, 156)) / 255
-    evidence = collect(
-        Image.fromarray(np.rint(rgba * 255).astype(np.uint8)),
-        None,
-        Options(refine=False),
-        Work.start(10),
-    )
-    ink = ~evidence.empty & (evidence.target.max(-1) < 65)
-    return replace(evidence, drawn=ink, line=ink)
-
-
-def perimeter(evidence):
-    mask = ~evidence.empty & evidence.foreground
-    if evidence.opacity is not None:
-        mask &= evidence.opacity >= evidence.opacity.max() * 0.5
-    loop = _loops(mask)[0]
-    return np.array([*loop, loop[0]], float)
 
 
 @pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
@@ -243,7 +211,7 @@ def test_perimeter_bank_bounds_exclude_work_without_partial_models(monkeypatch):
 
 
 def test_artificial_cycle_chunk_ends_cannot_authorize_facing_gap_probes():
-    from tests.refine.test_cel_plan_line_fidelity import source
+    from tests.refine.cel_helpers import fidelity_source as source
     from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 
     truth = source(gap=True)
@@ -292,7 +260,7 @@ def test_a_complete_outline_outside_the_carrier_is_excluded(monkeypatch):
 def test_new_native_stroke_cursor_gets_a_high_quality_reserved_turn(
     quality, monkeypatch
 ):
-    from tests.refine.test_cel_plan_search import proposal, setup
+    from tests.refine.cel_helpers import proposal, setup
     from vectrify.document import import_svg
     from vectrify.refine.cel_plan.search import State
 

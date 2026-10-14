@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from tests.document.test_document import select
+from tests.document.helpers import select
 from vectrify.document import Editor, EditRejectedError, PathNode, import_svg
 
 SQUARE = (

@@ -5,40 +5,14 @@ from itertools import islice
 
 import pytest
 
-from tests.refine.test_cel_plan_attached_spans import fixture
+from tests.refine.cel_helpers import outline_setup as setup
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.refine.cel_plan.attached_outlines import AttachedOutlines
 from vectrify.refine.cel_plan.attached_spans import AttachedSpans
-from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
-from vectrify.refine.cel_plan.policy import Policy
+from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.proposals import Operators
-from vectrify.refine.cel_plan.search import State, identity, search
-
-
-def setup():
-    document, partition, evidence, guard = fixture()
-    svg = export_svg(document)
-    frontier = Frontier(Policy(evidence.rgba))
-    assert frontier.add(
-        svg, "Material parent", {"planning_surfaces": partition.metadata()}
-    )
-    frontier.freeze_normalizer()
-    entry = frontier.baseline
-    assert entry is not None
-    state = State(
-        document,
-        svg,
-        LocalPolicy(frontier.policy).start(svg, entry.evaluation),
-        identity(svg, partition),
-        entry.details,
-        partition=partition,
-    )
-    options = Options(quality="high", refine=False)
-    operator = AttachedOutlines(evidence, options, guard=lambda _work: guard)
-    return state, frontier, evidence, options, guard, operator
+from vectrify.refine.cel_plan.search import search
 
 
 def test_complete_proposal_seals_every_dependency_and_preserves_native_ownership():

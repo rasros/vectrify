@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 from shapely.geometry import box
 
-from tests.document.test_document import select
+from tests.document.helpers import select
 from vectrify.document import (
     DocumentError,
     Editor,

@@ -5,47 +5,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from tests.refine.cel_helpers import stripes
 from vectrify.document import import_svg
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.model import Evidence, Options, Work
+from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.ownership import Partition, Surface, exported
-
-
-def stripes(*, alpha=255, gradient=False, hole=False):
-    height, width = 64, 96
-    pixels = np.zeros((height, width, 4), dtype=np.uint8)
-    pixels[8:56, 8:88] = (176, 100, 60, alpha)
-    if gradient:
-        pixels[8:56, 8:88, 0] = np.arange(80, dtype=np.uint8)[None, :] + 136
-    if hole:
-        pixels[24:40, 40:56] = 0
-    shown = pixels[..., 3] > 0
-    labels = np.where(shown, 1 + (np.arange(width)[None, :] - 8) // 10, 0).astype(
-        np.int32
-    )
-    rgba = pixels.astype(np.float32) / 255
-    target = np.where(shown[..., None], pixels[..., :3], 255).astype(np.float32)
-    zero = np.zeros((height, width), dtype=np.float32)
-    return Evidence(
-        rgba,
-        target,
-        target.copy(),
-        target.copy(),
-        ~shown,
-        shown,
-        zero.astype(bool),
-        zero.astype(bool),
-        zero.copy(),
-        zero.copy(),
-        labels,
-        (width, height),
-        (0, 0),
-        (1, 1),
-        None,
-        False,
-        rgba[..., 3].copy() if alpha != 255 else None,
-    )
 
 
 def test_export_renumbering_keeps_original_region_ids_and_canonical_edge_owners():

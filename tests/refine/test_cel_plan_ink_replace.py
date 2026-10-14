@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_ownership import stripes
+from tests.refine.cel_helpers import prepared, source
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.refine.cel_plan.graph import build
@@ -17,44 +16,6 @@ from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.score import render, representation
 from vectrify.refine.cel_plan.search import search
-
-
-def source(*, alpha=128, tapered=False, gap=False):
-    evidence = stripes(alpha=alpha)
-    y, x = np.mgrid[:64, :96]
-    labels = (y >= 32).astype(np.int32)
-    width = 2 + (x - 8) / 8 if tapered else 4
-    ink = (np.abs(y - 31.5) < width / 2) & (x >= 8) & (x < 88)
-    if gap:
-        ink &= (x < 38) | (x >= 58)
-    labels[ink] = 2 + (x[ink] - 8) // 10
-    palette = np.array(
-        [
-            (220, 180, 100),
-            (160, 100, 70),
-            *[(12 + i, 8 + i, 5 + i) for i in range(8)],
-        ],
-        dtype=np.float32,
-    )
-    target = palette[labels]
-    opacity = np.full((64, 96), alpha / 255, dtype=np.float32)
-    rgba = np.concatenate((target / 255, opacity[..., None]), axis=-1)
-    empty = np.zeros(labels.shape, dtype=bool)
-    return replace(
-        evidence,
-        rgba=rgba,
-        target=target,
-        smooth=target,
-        coarse=target,
-        labels=labels,
-        empty=empty,
-        foreground=~empty,
-        line=ink,
-        drawn=ink,
-        darkness=ink.astype(float) * 180,
-        texture=empty.astype(float),
-        opacity=opacity,
-    )
 
 
 @pytest.mark.parametrize("alpha", [255, 128, 64])

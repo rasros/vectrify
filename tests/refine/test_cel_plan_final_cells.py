@@ -5,8 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from tests.refine.test_cel_plan_core_cells import material
-from tests.refine.test_cel_plan_families import prepared
+from tests.refine.cel_helpers import fragmented, material, prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.refine.cel_plan import core_cells
 from vectrify.refine.cel_plan.core_cells import CoreCells
@@ -16,33 +15,6 @@ from vectrify.refine.cel_plan.local import LocalPolicy
 from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
-
-
-def fragmented(gap=False):
-    evidence = material(128, hole=False)
-    y, x = np.indices(evidence.labels.shape)
-    ink = (y >= 18) & (y < 24) & (x >= 15) & (x < 81)
-    if gap:
-        ink &= (x < 46) | (x >= 50)
-    rgb, rgba, labels = (
-        evidence.target.copy(),
-        evidence.rgba.copy(),
-        evidence.labels.copy(),
-    )
-    rgb[ink], rgba[ink, :3] = 20, 20 / 255
-    # Each source pixel has independent native ownership. One complete fitted
-    # chain can replace those observations together, preserving real gaps.
-    labels[ink] = np.arange(9, 9 + ink.sum())
-    return replace(
-        evidence,
-        target=rgb,
-        smooth=rgb,
-        coarse=rgb,
-        rgba=rgba,
-        labels=labels,
-        drawn=ink,
-        line=ink,
-    ), ink
 
 
 def factory_for(evidence, options, monkeypatch, cap):

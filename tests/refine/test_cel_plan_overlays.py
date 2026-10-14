@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from tests.helpers import required
-from tests.refine.test_cel_plan_families import prepared
-from tests.refine.test_cel_plan_layers import evidence as opaque
+from tests.refine.cel_helpers import overlay_source as source
+from tests.refine.cel_helpers import prepared
 from vectrify.document import (
     Editor,
     Selection,
@@ -26,34 +26,6 @@ from vectrify.refine.cel_plan.overlays import ClosedOverlays
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.score import render, representation
 from vectrify.refine.cel_plan.search import search
-
-
-def source(*, alpha=128, hole=False, irregular=False, gradient=False):
-    evidence = opaque()
-    y, x = np.mgrid[:120, :120]
-    own = evidence.labels == 2
-    if irregular:
-        own = (np.abs(x - 60) + np.abs(y - 60) <= 14) & ~((x < 60) & (y > 63))
-    if hole:
-        own[57:64, 57:64] = False
-    labels = (x >= 60).astype(np.int32)
-    labels[own] = 2 + np.clip((x[own] - 48) // 6, 0, 3)
-    target = np.array(
-        [(200, 150, 100), (140, 100, 65), *[(60, 150, 110)] * 4], dtype=np.float32
-    )[labels]
-    if gradient:
-        target[own, 0] = 40 + 2 * (x[own] - 48)
-    opacity = np.full(labels.shape, alpha / 255, dtype=np.float32)
-    rgba = np.concatenate((target / 255, opacity[..., None]), axis=-1)
-    return replace(
-        evidence,
-        labels=labels,
-        target=target,
-        smooth=target,
-        coarse=target,
-        rgba=rgba,
-        opacity=opacity,
-    )
 
 
 @pytest.mark.parametrize("alpha", [253, 128, 64])
