@@ -154,6 +154,10 @@ ACTION_COMMANDS = {
     "fill_holes": Command("_command_fill_holes", "Fill holes", True),
     "holes_to_shapes": Command("_command_holes_to_shapes", "Holes to shapes", True),
     "cut_hole": Command("_command_cut_hole", "Cut out as hole", True),
+    "union": Command("_command_boolean", "Union", True),
+    "subtract": Command("_command_boolean", "Subtract", True),
+    "intersect": Command("_command_boolean", "Intersect", True),
+    "exclude": Command("_command_boolean", "Exclude", True),
     "paint": Command("_command_paint", "Change paint", True),
     "move": Command("_command_move", "Move selection", True),
     "align": Command("_command_align", "Align objects", True),
@@ -1615,6 +1619,14 @@ class Session:
         with self._object_transaction(payload["command"]) as tx:
             outer = tx.cut_out_hole(selected)
         self.editor.select(Selection(object_ids=frozenset({outer})))
+
+    def _command_boolean(self, payload: dict) -> None:
+        # The backmost selected path is the target: it keeps its id and
+        # paint, takes the result, and stays selected.
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            target = tx.boolean_paths(selected, payload["command"])
+        self.editor.select(Selection(object_ids=frozenset({target})))
 
     def _command_paint(self, payload: dict) -> None:
         if "gradient" in payload:

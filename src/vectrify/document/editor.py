@@ -2442,6 +2442,106 @@ class Transaction:
             self.delete_objects(frozenset({inner_element.id}))
             return outer_element.id
 
+    def boolean_paths(self, object_ids: frozenset[str], operation: str) -> str:
+        """Union, Subtract, Intersect or Exclude the areas of filled paths.
+
+        The backmost selected path is the target and the ones in front of it
+        are the cutters. The target keeps its ID, name, paint, locks and
+        place in the stacking order, and takes the result as its outline;
+        the cutters are deleted. Union keeps the area inside any path,
+        Subtract the target's area outside every cutter, Intersect the area
+        inside all of them, and Exclude the area inside an odd number of
+        them. Each path's area follows its fill rule, with its own clipping
+        and that of groups the target is not in cut in. The area is worked
+        out in the paths' nearest common group and written in the target's
+        frame, so its transform and group, with that group's clipping, still
+        apply; its own clip is cut in and removed. Curves stay curves and the
+        fill rule becomes nonzero. An edit leaving nothing, or a Subtract
+        whose cutters miss the target, is refused. Returns the target's ID.
+        """
+        from vectrify.document.booleans import BOOLEANS, boolean_area, overlaps
+        from vectrify.document.regions import SHAPES
+
+        if operation not in BOOLEANS:
+            raise EditRejectedError("Choose union, subtract, intersect or exclude")
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            paths = [e for e in document.elements() if e.id in object_ids]
+            if len(object_ids) < 2 or len(paths) != len(object_ids):
+                raise EditRejectedError("Select two or more filled paths")
+            for path in paths:
+                if path.tag in SHAPES:
+                    raise EditRejectedError(
+                        f"{path.id} is a basic shape: use Convert to path first"
+                    )
+                if path.tag != "path" or any(
+                    a.tag in {"defs", "clipPath"} for a in document.ancestry(path.id)
+                ):
+                    raise EditRejectedError(
+                        "Select drawing paths, not groups, instances or definitions"
+                    )
+                if path_style(document, path)["fill"] == "none":
+                    raise EditRejectedError(
+                        f"{path.id} has no fill: these operations combine filled areas"
+                    )
+            ids = {p.id for p in paths}
+            affected = document.dependents(ids)
+            self._authorize(affected, EditKind.STRUCTURE)
+            self._authorize(affected, EditKind.GEOMETRY)
+            if any(set(references(e)) & ids for e in document.elements()):
+                raise EditRejectedError("Detach references to these paths first")
+            geometries = [document.geometry_for(p.id) for p in paths]
+            if any(len(document.geometry_users(g.id)) > 1 for g in geometries):
+                raise EditRejectedError("Detach shared geometry first")
+            if any(n.pinned for g in geometries for s in g.subpaths for n in s.nodes):
+                raise EditRejectedError("Unpin the points of these paths first")
+            target, cutters = paths[0], paths[1:]
+            ancestries = [document.ancestry(p.id) for p in paths]
+            common = document.root
+            for ancestors in zip(*ancestries, strict=False):
+                if len({a.id for a in ancestors}) != 1:
+                    break
+                common = ancestors[0]
+            outlines = []
+            for path in paths:
+                geometry, style, _ = bake_group_path(document, path, common.id)
+                outlines.append(curve_path(geometry, style["fill-rule"]))
+            try:
+                tolerance = 1e-6 * max(pathops.simplify(o).area for o in outlines)
+                if operation == "subtract" and not overlaps(
+                    outlines[0], outlines[1:], tolerance
+                ):
+                    raise EditRejectedError(
+                        "Nothing to subtract: the paths in front miss the back one"
+                    )
+                area = boolean_area(operation, outlines[0], outlines[1:])
+            except pathops.PathOpsError as exc:
+                raise EditRejectedError("Could not resolve these outlines") from exc
+            if area.area <= tolerance:
+                raise EditRejectedError(
+                    f"{operation.capitalize()} would leave nothing of these paths"
+                )
+            chain = ancestries[0]
+            start = next(i for i, a in enumerate(chain) if a.id == common.id) + 1
+            frame = inverse_matrix(ancestry_matrix(chain[start:]))
+            outline = transformed_geometry(path_geometry(area), frame)
+            if (target.get("clip-path", "none") or "none") != "none":
+                self._set_clip(target.id, None)
+            if path_style(document, target)["fill-rule"] != "nonzero":
+                self._authorize(
+                    document.dependents({target.id}), EditKind.PAINT, "fill-rule"
+                )
+                element = self._working.element(target.id)
+                attrs = dict(element.attributes, **{"fill-rule": "nonzero"})
+                self._working = self._working.replace_element(
+                    replace(element, attributes=tuple(attrs.items()))
+                )
+            self.delete_objects(frozenset(c.id for c in cutters))
+            self._record_object_remap({c.id: {target.id} for c in cutters})
+            self.replace_geometry(target.id, outline)
+            return target.id
+
     def extract_region(
         self,
         polygon: Sequence[tuple[float, float]],

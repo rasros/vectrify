@@ -39,6 +39,7 @@ import {createClippingController} from './app_clipping.js';
 import {createRegionController} from './app_region.js';
 import {createEyedropperController} from './app_eyedropper.js';
 import {createAlignController} from './app_align.js';
+import {createBooleansController} from './app_booleans.js';
 
 // Compose controllers with explicit live state and named collaborators.
 export function createApplication({document = globalThis.document, window = globalThis.window, location = globalThis.location} = {}) {
@@ -150,6 +151,8 @@ export function createApplication({document = globalThis.document, window = glob
     align: (...args) => alignController.align(...args),
     alignDescription: (...args) => alignController.alignDescription(...args),
     alignRefusal: (...args) => alignController.alignRefusal(...args),
+    booleanDescription: (...args) => booleansController.description(...args),
+    booleanRefusal: (...args) => booleansController.refusal(...args),
     breakPoints: (...args) => commandsController.breakPoints(...args),
     closeAgentPopover: (...args) => agent_controlsController.closeAgentPopover(...args),
     contourAt: (...args) => geometryController.contourAt(...args),
@@ -203,6 +206,7 @@ export function createApplication({document = globalThis.document, window = glob
     removeClipRefusal: (...args) => clippingController.removeRefusal(...args),
     removeReference: (...args) => referenceController.removeReference(...args),
     renameObject: (...args) => commandsController.renameObject(...args),
+    runBoolean: (...args) => booleansController.run(...args),
     segmentPicked: (...args) => commandsController.segmentPicked(...args),
     selectedHandle: (...args) => selectionController.selectedHandle(...args),
     selectedPoints: (...args) => geometryController.selectedPoints(...args),
@@ -382,6 +386,7 @@ export function createApplication({document = globalThis.document, window = glob
   });
   const overlayController = createOverlayController(editor, {
     $,
+    drawBooleanRoles: (...args) => booleansController.drawRoles(...args),
     drawFlash: (...args) => agentsController.drawFlash(...args),
     drawKeyObject: (...args) => alignController.drawKeyObject(...args),
     drawKnife: (...args) => toolsController.drawKnife(...args),
@@ -652,6 +657,19 @@ export function createApplication({document = globalThis.document, window = glob
     xmlElement: (...args) => sessionController.xmlElement(...args),
   });
 
+  const booleansController = createBooleansController(editor, {
+    action: (...args) => actionsController.action(...args),
+    document,
+    drawOverlay: (...args) => framesController.drawOverlay(...args),
+    filledPath: (...args) => commandsController.filledPath(...args),
+    localToOverlay: (...args) => framesController.localToOverlay(...args),
+    noSelection: (...args) => commandsController.noSelection(...args),
+    selectionContour: (...args) => overlayController.selectionContour(...args),
+    svgElement: (...args) => sessionController.svgElement(...args),
+    toast: (...args) => transportController.toast(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
+  });
+
   const joinController = createJoinController(editor, {
     action: (...args) => actionsController.action(...args),
     fillPaths: (...args) => commandsController.fillPaths(...args),
@@ -785,6 +803,7 @@ export function createApplication({document = globalThis.document, window = glob
       regionController.wire();
       eyedropperController.wire();
       alignController.wire();
+      booleansController.wire();
       joinController.wire();
       referenceController.wire();
       reference_dataController.wire();
@@ -827,6 +846,7 @@ export function createApplication({document = globalThis.document, window = glob
     region: regionController,
     eyedropper: eyedropperController,
     align: alignController,
+    booleans: booleansController,
     join: joinController,
     reference: referenceController,
     reference_data: reference_dataController,

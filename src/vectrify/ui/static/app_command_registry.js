@@ -3,6 +3,7 @@ import {breakable} from './lines.js';
 import {JOIN_REACH} from './app_config.js';
 import {SHAPES} from './clipping.js';
 import {ALIGNMENTS, distributeName} from './align.js';
+import {BOOLEANS} from './booleans.js';
 
 // Command_registry owns its controls; editor contains the live state shared with other controllers.
 export function createCommandRegistryController(editor, {
@@ -11,6 +12,8 @@ export function createCommandRegistryController(editor, {
   align,
   alignDescription,
   alignRefusal,
+  booleanDescription,
+  booleanRefusal,
   breakPoints,
   closeAgentPopover,
   contourAt,
@@ -64,6 +67,7 @@ export function createCommandRegistryController(editor, {
   removeClipRefusal,
   removeReference,
   renameObject,
+  runBoolean,
   segmentPicked,
   selectedHandle,
   selectedPoints,
@@ -202,6 +206,11 @@ export function createCommandRegistryController(editor, {
       disabled: () => noSelection() || (oneObject()?.tag === 'use' ? 'Detach this instance to an editable path first' : !visiblePaths() && 'Only visible paths can be split')},
     {id: 'cut-hole', name: 'Cut out as hole', group: 'Path', keywords: 'subtract difference punch', description: 'Cut the inner (or front) of two selected paths out of the other as a hole, keeping the other\'s paint',
       run: cutHole, disabled: () => (editor.state.selection.objects.length !== 2 || !visiblePaths()) && 'Select two visible paths, one inside or overlapping the other'},
+    // Booleans: the backmost selected path is the target and keeps its paint;
+    // the description names it and the cutters before anything changes.
+    ...Object.entries(BOOLEANS).map(([operation, {name, keywords}]) => ({
+      id: operation, name, group: 'Path', keywords,
+      get description() { return booleanDescription(operation); }, run: () => runBoolean(operation), disabled: booleanRefusal})),
     {id: 'convert-to-path', name: 'Convert to path', group: 'Path', keywords: 'rectangle rect circle ellipse line basic shape editable nodes points',
       description: 'Turn the selected rectangles, circles, ellipses and lines into paths with points to edit, keeping their look',
       run: () => action('convert_to_path', {}, 'Converting to paths…'), disabled: convertRefusal},

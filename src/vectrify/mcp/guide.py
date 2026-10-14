@@ -138,7 +138,9 @@ for `coords="local"`.
   `arrange(ids, to="front")` (restack) or `arrange(ids, parent, index)`
   (move into a group), `group(ids)` (create), `group(ids, action="dissolve")`
   (keep the groups' children), `split_parts`, `cut_hole` (two
-  paths: the inner one cuts the outer), `convert(ids, to)` (`line`: fill to
+  paths: the inner one cuts the outer), `boolean(ids, operation)` (union,
+  subtract, intersect or exclude; the backmost path is the target and keeps
+  its paint, the ones in front are consumed), `convert(ids, to)` (`line`: fill to
   centre line, `fill`: stroke to fill, `path`: an instance or shared
   geometry into an editable path of its own), `delete(ids)`, `knife`.
 - `join` is the editor's Join: `join(points=[a, b])` joins two points;
