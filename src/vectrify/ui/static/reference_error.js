@@ -29,7 +29,7 @@ export function errorView(canvas, status, failed, render, published = () => {}) 
     replacement.getContext('2d').drawImage(pixels, 0, 0);
     replacement.hidden = false;
     canvas.replaceWith(replacement); canvas = replacement;
-    cached = {key: target.key}; status('ready');
+    cached = {key: target.key, pixels}; status('ready');
     published(pixels);
   }
 
@@ -58,10 +58,13 @@ export function errorView(canvas, status, failed, render, published = () => {}) 
       // Compare existing strings directly instead of serializing the entire
       // SVG and base64 reference into a new multi-megabyte string per edit.
       const key = reference ? {svg, bounds: bounds.join(), reference: reference.data_url ?? reference, box: reference.box?.join() || ''} : null;
-      if (sameKey(key, current)) return;
+      if (sameKey(key, current)) {
+        if (cached && sameKey(cached.key, key)) published(cached.pixels);
+        return;
+      }
       current = key; wanted = null;
       if (!key) { canvas.hidden = true; return; }
-      if (sameKey(cached?.key, key)) { canvas.hidden = false; status('ready'); return; }
+      if (sameKey(cached?.key, key)) { canvas.hidden = false; status('ready'); published(cached.pixels); return; }
       if (sameKey(completed?.key, key)) { paint(completed, completed.pixels); return; }
       // Keep the last complete comparison even if the next reference or
       // artboard has changed. Loading and failed refreshes never blank it.

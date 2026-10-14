@@ -9,6 +9,7 @@ export function createEditorState() {
       pan: {x: 0, y: 0},
       drag: null,
       reference: null,
+      referenceVersion: null,
       showClipping: false,
       clipConsumers: new Map(),
       geometries: new Map(),

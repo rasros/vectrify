@@ -148,3 +148,25 @@ context.setView('error'); context.reference = null; context.showReference(); con
 assert.equal($('drawing').style.opacity, '');
 assert.equal($('reference-toggle').hidden, true);
 assert.equal(updates.at(-1)[2], null);
+
+// A state update can precede the reference's separate payload. Do not compare
+// the new document against the old reference, and still allow leaving Error.
+context.reference = {name: 'ref', data_url: 'old-url', opacity: 0};
+context.state = {svg: '<svg/>', bounds, epoch: 'before', reference_revision: 1};
+context.referenceVersion = {epoch: 'before', reference_revision: 1};
+context.setView('error');
+const beforePayload = updates.length;
+context.state = {...context.state, epoch: 'after', reference_revision: 2};
+context.refreshErrorView();
+assert.equal(updates.length, beforePayload, 'wait for the reference belonging to the new state');
+context.setView('drawing');
+assert.equal(updates.at(-1)[2], null, 'leaving Error still hides the old frame');
+context.setView('error');
+const {createReferenceDataController} = await import('../../src/vectrify/ui/static/app_reference_data.js');
+const referenceData = createReferenceDataController(context, {
+  request: async () => ({epoch: 'after', reference_revision: 2, reference: {name: 'new', data_url: 'new-url', opacity: 0}}),
+  showReference: context.showReference,
+});
+await referenceData.loadReference();
+assert.deepEqual(context.referenceVersion, {epoch: 'after', reference_revision: 2});
+assert.equal(updates.at(-1)[2].data_url, 'new-url');

@@ -1,6 +1,7 @@
 <!doctype html><html><body><pre id="results">running</pre><canvas id="comparison" hidden></canvas><script type="module">
 import {createErrorRenderer} from '/src/vectrify/ui/static/reference_render.js';
 import {errorView} from '/src/vectrify/ui/static/reference_error.js';
+import {createReferenceController} from '/src/vectrify/ui/static/app_reference.js';
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 (async () => { try {
@@ -46,6 +47,29 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 0));
   assert(document.getElementById('comparison') === first && !first.hidden, 'failed refreshes keep the old frame');
   view.update('latest', bounds, black); next(pixels); await tick();
   assert(document.getElementById('comparison') !== first && shared === 2, 'only finished frames publish');
+  // Reused pixels need the current document version when shared with MCP.
+  const uploads = [];
+  const editor = {state: {svg: empty, bounds, epoch: 'drawing', revision: 0, reference_revision: 0}, reference: reference('white'), referenceVersion: {epoch: 'drawing', reference_revision: 0}, referenceView: 'error'};
+  const app = createReferenceController(editor, {
+    document,
+    $: id => id === 'reference-error' ? document.getElementById('comparison') : {},
+    request: async (path, data) => { assert(path === '/api/reference-error-cache', 'native rendering avoids the server rasterizer'); uploads.push(data); return {cached: true}; },
+    toast: message => { throw new Error(message); },
+    viewReport: () => ({region: bounds, pixels: [24, 24], zoom: 1, reference_view: 'error'}),
+  });
+  const uploaded = async count => {
+    const deadline = performance.now() + 3000;
+    while (uploads.length < count) {assert(performance.now() < deadline, 'browser pixels must be shared'); await tick();}
+  };
+  app.refreshErrorView(); await uploaded(1);
+  assert(uploads[0].revision === 0 && uploads[0].view.reference_view === 'error', 'sharing includes the displayed version and view');
+  editor.state.revision = 1; app.refreshErrorView(); await uploaded(2);
+  assert(uploads[1].revision === 1, 'identical reused pixels can be shared under a new revision');
+  editor.state.reference_revision = 1; app.refreshErrorView(); await tick();
+  assert(uploads.length === 2, 'do not attribute an old reference to a new version');
+  editor.referenceVersion.reference_revision = 1; app.refreshErrorView(); await uploaded(3);
+  assert(uploads[2].reference_revision === 1, 'share only after the reference payload has caught up');
+  app.refreshErrorView(); await tick(); assert(uploads.length === 3, 'selection-only refreshes do not re-encode pixels');
   document.getElementById('results').textContent = 'ok';
 } catch (error) { document.getElementById('results').textContent = error.stack; } })();
 </script></body></html>
