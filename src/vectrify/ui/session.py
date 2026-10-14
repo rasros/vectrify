@@ -150,6 +150,8 @@ ACTION_COMMANDS = {
     "cut_hole": Command("_command_cut_hole", "Cut out as hole", True),
     "paint": Command("_command_paint", "Change paint", True),
     "move": Command("_command_move", "Move selection", True),
+    "align": Command("_command_align", "Align objects", True),
+    "distribute": Command("_command_align", "Distribute objects", True),
     "resize": Command("_command_resize", "Resize", True),
     "group": Command("_command_group", "Group objects", True),
     "ungroup": Command("_command_ungroup", "Ungroup objects", True),
@@ -230,6 +232,24 @@ def drawing_paint(
         raise DocumentError("Stroke width must be positive")
     paint["stroke-width"] = length_text(width * scale)
     return paint
+
+
+def parent_offset(
+    ancestry: tuple[Element, ...], dx: float, dy: float
+) -> tuple[float, float]:
+    """A move by *dx*, *dy* in document coordinates, in the frame of the last
+    of *ancestry*'s parent: as far on the page inside transformed groups."""
+    a, b, c, d, _, _ = inverse_matrix(ancestry_matrix(ancestry[:-1]))
+    return round(a * dx + c * dy, 12) + 0.0, round(b * dx + d * dy, 12) + 0.0
+
+
+def translate(
+    tx: Transaction, ancestry: tuple[Element, ...], dx: float, dy: float
+) -> None:
+    """Move the last of *ancestry* by *dx*, *dy* in its parent's frame."""
+    previous = ancestry[-1].get("transform", "") or ""
+    transform = f"translate({dx} {dy}) {previous}".strip()
+    tx.set_attributes(ancestry[-1].id, {"transform": transform})
 
 
 def matrix_text(matrix: tuple[float, ...]) -> str:
@@ -1643,13 +1663,47 @@ class Session:
                     continue
                 if oid in offsets:
                     move_x, move_y = (number(v) for v in offsets[oid])
+                    translate(tx, ancestry, move_x, move_y)
                 else:
-                    a, b, c, d, _, _ = inverse_matrix(ancestry_matrix(ancestry[:-1]))
-                    move_x = round(a * dx + c * dy, 12) + 0.0
-                    move_y = round(b * dx + d * dy, 12) + 0.0
-                previous = document.element(oid).get("transform", "") or ""
-                transform = f"translate({move_x} {move_y}) {previous}".strip()
-                tx.set_attributes(oid, {"transform": transform})
+                    translate(tx, ancestry, *parent_offset(ancestry, dx, dy))
+
+    def _command_align(self, payload: dict) -> None:
+        """Move each object by its own offset as one edit.
+
+        *moves* maps selected ids to [dx, dy] in document coordinates: Align
+        and Distribute measure the objects in the window and send how far
+        each goes. Selected objects without a move, such as the key object,
+        stay where they are, locked or not.
+        """
+        selected = self._object_selection().object_ids
+        document = self.editor.snapshot.document
+        moves = payload.get("moves")
+        if not isinstance(moves, dict) or not moves:
+            raise DocumentError("Nothing to move: the objects are already in place")
+        with self._object_transaction(payload["command"]) as tx:
+            for oid, offset in moves.items():
+                if oid not in selected:
+                    raise DocumentError("Align and distribute move selected objects")
+                ancestry = document.ancestry(oid)
+                if any(a.id in selected for a in ancestry[:-1]):
+                    raise DocumentError(
+                        f"{oid} moves with its selected group, not on its own"
+                    )
+                locked = next(
+                    (
+                        e
+                        for e in (*ancestry, *Document(ancestry[-1]).elements())
+                        if EditKind.TRANSFORM in e.locks
+                    ),
+                    None,
+                )
+                if locked is not None:
+                    raise DocumentError(
+                        f"{locked.name or locked.id}: position is locked; "
+                        "unlock it to move"
+                    )
+                dx, dy = (number(v) for v in offset)
+                translate(tx, ancestry, *parent_offset(ancestry, dx, dy))
 
     def _command_resize(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

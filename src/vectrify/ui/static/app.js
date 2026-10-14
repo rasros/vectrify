@@ -36,6 +36,7 @@ import {createKeysController} from './app_keys.js';
 import {createTransformController} from './app_transform.js';
 import {createClippingController} from './app_clipping.js';
 import {createRegionController} from './app_region.js';
+import {createAlignController} from './app_align.js';
 
 // Compose controllers with explicit live state and named collaborators.
 export function createApplication({document = globalThis.document, window = globalThis.window, location = globalThis.location} = {}) {
@@ -110,6 +111,7 @@ export function createApplication({document = globalThis.document, window = glob
     renderCommands: (...args) => commandsController.renderCommands(...args),
     renderFillGradient: (...args) => gradientsController.renderFillGradient(...args),
     renderNodeInspector: (...args) => selectionController.renderNodeInspector(...args),
+    renderAlign: (...args) => alignController.renderAlign(...args),
     renderStrokeControls: (...args) => strokeController.renderStrokeControls(...args),
     renderTransform: (...args) => transformController.renderTransform(...args),
     scheduleStrip: (...args) => layoutController.scheduleStrip(...args),
@@ -143,6 +145,9 @@ export function createApplication({document = globalThis.document, window = glob
   const command_registryController = createCommandRegistryController(editor, {
     $,
     action: (...args) => actionsController.action(...args),
+    align: (...args) => alignController.align(...args),
+    alignDescription: (...args) => alignController.alignDescription(...args),
+    alignRefusal: (...args) => alignController.alignRefusal(...args),
     breakPoints: (...args) => commandsController.breakPoints(...args),
     closeAgentPopover: (...args) => agent_controlsController.closeAgentPopover(...args),
     contourAt: (...args) => geometryController.contourAt(...args),
@@ -150,6 +155,9 @@ export function createApplication({document = globalThis.document, window = glob
     cutHole: (...args) => commandsController.cutHole(...args),
     cycleReference: (...args) => referenceController.cycleReference(...args),
     deleteSelection: (...args) => commandsController.deleteSelection(...args),
+    distribute: (...args) => alignController.distribute(...args),
+    distributeDescription: (...args) => alignController.distributeDescription(...args),
+    distributeRefusal: (...args) => alignController.distributeRefusal(...args),
     document,
     download,
     enterObject: (...args) => canvasController.enterObject(...args),
@@ -358,6 +366,7 @@ export function createApplication({document = globalThis.document, window = glob
   const overlayController = createOverlayController(editor, {
     $,
     drawFlash: (...args) => agentsController.drawFlash(...args),
+    drawKeyObject: (...args) => alignController.drawKeyObject(...args),
     drawKnife: (...args) => toolsController.drawKnife(...args),
     drawOverlay: (...args) => framesController.drawOverlay(...args),
     drawPathDraft: (...args) => toolsController.drawPathDraft(...args),
@@ -561,6 +570,21 @@ export function createApplication({document = globalThis.document, window = glob
     xmlElement: (...args) => sessionController.xmlElement(...args),
   });
 
+  const alignController = createAlignController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    document,
+    drawOverlay: (...args) => framesController.drawOverlay(...args),
+    later: (...args) => transportController.later(...args),
+    level: (...args) => geometryController.level(...args),
+    object: (...args) => sessionController.object(...args),
+    objectBounds: (...args) => overlayController.objectBounds(...args),
+    renderCommands: (...args) => commandsController.renderCommands(...args),
+    toast: (...args) => transportController.toast(...args),
+    topSelection: (...args) => canvasController.topSelection(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
+  });
+
   const joinController = createJoinController(editor, {
     action: (...args) => actionsController.action(...args),
     fillPaths: (...args) => commandsController.fillPaths(...args),
@@ -691,6 +715,7 @@ export function createApplication({document = globalThis.document, window = glob
       canvas_eventsController.wire();
       clippingController.wire();
       regionController.wire();
+      alignController.wire();
       joinController.wire();
       referenceController.wire();
       reference_dataController.wire();
@@ -730,6 +755,7 @@ export function createApplication({document = globalThis.document, window = glob
     canvas_events: canvas_eventsController,
     clipping: clippingController,
     region: regionController,
+    align: alignController,
     join: joinController,
     reference: referenceController,
     reference_data: reference_dataController,

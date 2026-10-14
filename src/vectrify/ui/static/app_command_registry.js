@@ -2,11 +2,15 @@ import {splitKey} from './selection.js';
 import {breakable} from './lines.js';
 import {JOIN_REACH} from './app_config.js';
 import {SHAPES} from './clipping.js';
+import {ALIGNMENTS, distributeName} from './align.js';
 
 // Command_registry owns its controls; editor contains the live state shared with other controllers.
 export function createCommandRegistryController(editor, {
   $,
   action,
+  align,
+  alignDescription,
+  alignRefusal,
   breakPoints,
   closeAgentPopover,
   contourAt,
@@ -14,6 +18,9 @@ export function createCommandRegistryController(editor, {
   cutHole,
   cycleReference,
   deleteSelection,
+  distribute,
+  distributeDescription,
+  distributeRefusal,
   document = globalThis.document,
   download,
   enterObject,
@@ -140,6 +147,17 @@ export function createCommandRegistryController(editor, {
     {id: 'group', name: 'Group', group: 'Arrange', keys: 'Ctrl/⌘ G', keywords: 'group objects', description: 'Gather the selected objects into a new group', run: () => action('group'), disabled: noSelection},
     {id: 'ungroup', name: 'Ungroup', group: 'Arrange', keys: 'Ctrl/⌘ Shift G', description: 'Release the selected groups\' children, keeping their look', run: () => action('ungroup'),
       disabled: () => noSelection() || (!editor.state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
+    // Align lines the selection up to the reference chosen beside it: the
+    // selection frame, the artboard or the key object. Distribute spaces the
+    // objects between the outer two. Both move without resizing.
+    ...['left', 'top', 'centre', 'middle', 'right', 'bottom'].map(alignment => ({
+      id: `align-${alignment}`, name: ALIGNMENTS[alignment].name, group: 'Arrange',
+      keywords: `align line up ${ALIGNMENTS[alignment].edge} selection artboard key object reference`,
+      get description() { return alignDescription(alignment); }, run: () => align(alignment), disabled: () => alignRefusal(alignment)})),
+    ...[['x', 'gaps'], ['y', 'gaps'], ['x', 'centres'], ['y', 'centres']].map(([axis, spacing]) => ({
+      id: `distribute-${spacing}-${axis === 'x' ? 'horizontal' : 'vertical'}`, name: distributeName(axis, spacing), group: 'Arrange',
+      keywords: 'distribute space spacing even evenly equal gaps centres centers',
+      get description() { return distributeDescription(axis, spacing); }, run: () => distribute(axis, spacing), disabled: () => distributeRefusal(axis, spacing)})),
     // Path: operations on whole paths. Point operations are under Nodes.
     {id: 'merge-shapes', name: 'Merge shapes', label: () => joinOpensDialog() ? 'Merge shapes…' : 'Merge shapes', group: 'Path', keys: 'Ctrl/⌘ J',
       keywords: 'join union combine area outlines fills overlapping contours', description: 'Merge the selected paths by area into one shape, choosing its colours; a single filled path unions its overlapping contours',

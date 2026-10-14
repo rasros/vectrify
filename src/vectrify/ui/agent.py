@@ -162,6 +162,10 @@ LEFT_OUT = {
     "sends detach, which converts basic shapes and instances alike.",
     "add_shape": "The UI's Rectangle, Ellipse and Line tools; agents draw any "
     "outline, a basic one included, with add_path.",
+    "align": "The UI's Align, measured in the window; agents read each "
+    "object's bounds with describe and move it with transform(dx, dy).",
+    "distribute": "The UI's Distribute, measured in the window; agents read "
+    "each object's bounds with describe and move it with transform(dx, dy).",
     "to_front": "Internal: arrange(to='front') arrives as reorder and is "
     "renamed to this inside the session.",
     "to_back": "Internal: arrange(to='back') arrives as reorder and is "

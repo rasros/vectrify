@@ -1,6 +1,7 @@
 import {clippingFrames} from './clipping.js';
 import {FRAME_REACH, HANDLE_SPREAD} from './app_config.js';
 import {splitKey} from './selection.js';
+import {unionBox} from './align.js';
 
 // Overlay owns its controls; editor contains the live state shared with other controllers.
 export function createOverlayController(editor, {
@@ -8,6 +9,7 @@ export function createOverlayController(editor, {
   CSS = globalThis.CSS,
   DOMPoint = globalThis.DOMPoint,
   drawFlash,
+  drawKeyObject,
   drawKnife,
   drawOverlay,
   drawPathDraft,
@@ -125,6 +127,7 @@ export function createOverlayController(editor, {
     }
     drawClippingBoundaries();
     drawFrame();
+    drawKeyObject();
     drawPathDraft();
     drawShape();
     drawKnife();
@@ -181,29 +184,34 @@ export function createOverlayController(editor, {
     return ['select', 'move'].includes(editor.tool) ? selectionBounds() : null;
   }
 
+  // One object's geometric bounds in document coordinates: its own box (its
+  // outline, without stroke, markers or clipping) mapped through its
+  // transforms, or null when it has no size or is not drawn.
+  function objectBounds(id) {
+    const element = svgElement(id), matrix = element?.getBBox && localToOverlay(element);
+    if (!matrix) return null;
+    try {
+      const b = element.getBBox();
+      if (!b.width && !b.height) return null;
+      const xs = [], ys = [];
+      for (const [x, y] of [[b.x,b.y], [b.x+b.width,b.y], [b.x+b.width,b.y+b.height], [b.x,b.y+b.height]]) {
+        const p = new DOMPoint(x, y).matrixTransform(matrix); xs.push(p.x); ys.push(p.y);
+      }
+      return {left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys)};
+    } catch { return null; /* Unrendered objects have no bounds. */ }
+  }
+
   // The selection's geometric bounds in document coordinates, whatever the
-  // tool: each top selected object's own box (its outline, without stroke,
-  // markers or clipping) mapped through its transforms. The frame shows it,
-  // and the Transform fields edit it. Objects with no size add nothing;
-  // definitions and clipping boundaries have no bounds here.
+  // tool: the top selected objects' bounds joined. The frame shows it, the
+  // Transform fields edit it, and Align and Distribute measure by the same
+  // bounds. Objects with no size add nothing; definitions and clipping
+  // boundaries have no bounds here.
   function selectionBounds() {
     if (!editor.state?.selection.objects.length) return null;
     const ids = topSelection();
     if (ids.some(id => !object(id) || object(id).resource || ['defs', 'clipPath', 'svg'].includes(object(id).tag))) return null;
-    const xs = [], ys = [];
-    for (const id of ids) {
-      const element = svgElement(id), matrix = localToOverlay(element);
-      if (!element?.getBBox || !matrix) continue;
-      try {
-        const b = element.getBBox();
-        if (!b.width && !b.height) continue;
-        for (const [x, y] of [[b.x,b.y], [b.x+b.width,b.y], [b.x+b.width,b.y+b.height], [b.x,b.y+b.height]]) {
-          const p = new DOMPoint(x, y).matrixTransform(matrix); xs.push(p.x); ys.push(p.y);
-        }
-      } catch { /* Unrendered objects have no bounds. */ }
-    }
-    if (!xs.length) return null;
-    return {left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys)};
+    const boxes = ids.map(objectBounds).filter(Boolean);
+    return boxes.length ? unionBox(boxes) : null;
   }
 
   function drawFrame() {
@@ -248,6 +256,6 @@ export function createOverlayController(editor, {
     $('clipping-toggle').onclick = () => later(toggleClipping);
       return api;
   }
-  const api = {selectionContour, selectionTargets, clipSelection, drawOverlayContent, toggleClipping, drawClippingBoundaries, selectionFrame, selectionBounds, drawFrame, drawHandles, drawBox, wire};
+  const api = {selectionContour, selectionTargets, clipSelection, drawOverlayContent, toggleClipping, drawClippingBoundaries, selectionFrame, objectBounds, selectionBounds, drawFrame, drawHandles, drawBox, wire};
   return api;
 }

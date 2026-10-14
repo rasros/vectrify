@@ -15,6 +15,7 @@ export function createPaintController(editor, {
   renderCommands,
   renderFillGradient,
   renderNodeInspector,
+  renderAlign,
   renderStrokeControls,
   renderTransform,
   scheduleStrip,
@@ -244,6 +245,7 @@ export function createPaintController(editor, {
     renderFillGradient(item);
     renderStrokeControls();
     renderTransform();
+    renderAlign();
     const strokeWidth = paintValue('stroke-width', '1');
     $('stroke-width').value = strokeWidth ? parseFloat(strokeWidth) : '';
     const opacity = paintValue('opacity', '1'); $('opacity').value = opacity === '' ? '' : Math.round(Number(opacity) * 100);
