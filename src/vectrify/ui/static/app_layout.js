@@ -1,6 +1,7 @@
 import {overflowLayout} from './strip.js';
 import {scopeChain, selectionStatus} from './selection.js';
 import {shapeStatus} from './shapes.js';
+import {strokeStatus} from './pencil.js';
 
 // Layout owns its controls; editor contains the live state shared with other controllers.
 export function createLayoutController(editor, {
@@ -137,6 +138,7 @@ export function createLayoutController(editor, {
     if (editor.drag?.kind === 'resize' && editor.drag.result) $('selection-level').textContent = `Resize · ${frameSize(editor.drag.result.box)}`;
     else if (editor.drag?.kind === 'rotate' && editor.drag.moved && editor.drag.result) $('selection-level').textContent = rotationStatus(editor.drag.result);
     else if (editor.drag?.kind === 'shape' && editor.drag.moved && editor.drag.shape) $('selection-level').textContent = shapeStatus(editor.drag.shape);
+    else if (editor.drag?.kind === 'pencil' && editor.drag.moved && editor.drag.d) $('selection-level').textContent = strokeStatus(editor.drag.d);
     else if (editor.selectionBox) $('selection-level').textContent += ` · ${frameSize(editor.selectionBox)}`;
     // In Gradient, whose paint moving an end changes.
     else if (editor.tool === 'gradient') $('selection-level').textContent += ` · ${gradientStatus()}`;

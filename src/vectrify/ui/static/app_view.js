@@ -99,10 +99,10 @@ export function createViewController(editor, {
     });
     $('active-tool').dataset.tool = editor.tool;
     $('tool-strip').dataset.tool = editor.tool;
-    $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', eyedropper: 'I', knife: 'C', region: 'X', gradient: 'G', redraw: 'R', hand: 'Space'}[editor.tool];
+    $('tool-shortcut').textContent = {select: 'A', move: 'V', nodes: 'S', path: 'D', rect: 'M', ellipse: 'E', line: 'L', pencil: 'P', eyedropper: 'I', knife: 'C', region: 'X', gradient: 'G', redraw: 'R', hand: 'Space'}[editor.tool];
     $('tool-name').textContent = editor.tool === 'select' ? 'Select objects' : editor.tool === 'nodes' ? 'Edit points' : names[editor.tool];
     $('canvas-hint').textContent=hints[editor.tool];
-    stage.style.cursor = editor.tool === 'hand' ? 'grab' : ['path','knife','region','redraw','eyedropper',...SHAPE_TOOLS].includes(editor.tool) ? 'crosshair' : 'default';
+    stage.style.cursor = editor.tool === 'hand' ? 'grab' : ['path','pencil','knife','region','redraw','eyedropper',...SHAPE_TOOLS].includes(editor.tool) ? 'crosshair' : 'default';
     renderInspector();
     const nodes = [...new Set(switched.points.map(key => splitKey(key)[1]))];
     if (level() === 'points') {

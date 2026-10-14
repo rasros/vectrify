@@ -20,6 +20,7 @@ export function createOverlayController(editor, {
   drawEyedropper,
   drawRegion,
   drawRotation = () => {},
+  drawPencil,
   drawShape,
   drawSnap,
   drawing,
@@ -137,6 +138,7 @@ export function createOverlayController(editor, {
     drawGradient();
     drawPathDraft();
     drawShape();
+    drawPencil();
     drawKnife();
     drawRegion();
     drawEyedropper();

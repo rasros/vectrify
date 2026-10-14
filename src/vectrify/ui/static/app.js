@@ -28,6 +28,7 @@ import {createMarkersController} from './app_markers.js';
 import {createLayoutController} from './app_layout.js';
 import {createToolsController} from './app_tools.js';
 import {createShapesController} from './app_shapes.js';
+import {createPencilController} from './app_pencil.js';
 import {createCanvasController} from './app_canvas.js';
 import {createCanvasEventsController} from './app_canvas_events.js';
 import {createJoinController} from './app_join.js';
@@ -399,6 +400,7 @@ export function createApplication({document = globalThis.document, window = glob
     drawRotation: (...args) => rotatingController.drawRotation(...args),
     drawGradient: (...args) => gradientsController.drawHandles(...args),
     drawShape: (...args) => shapesController.drawShape(...args),
+    drawPencil: (...args) => pencilController.drawPencil(...args),
     drawSnap: (...args) => toolsController.drawSnap(...args),
     drawing,
     later: (...args) => transportController.later(...args),
@@ -491,6 +493,15 @@ export function createApplication({document = globalThis.document, window = glob
     toast: (...args) => transportController.toast(...args),
     xmlElement: (...args) => sessionController.xmlElement(...args),
   });
+  const pencilController = createPencilController(editor, {
+    $,
+    action: (...args) => actionsController.action(...args),
+    drawOverlay: (...args) => framesController.drawOverlay(...args),
+    drawingContainer: (...args) => shapesController.container(...args),
+    drawingPaint: (...args) => shapesController.paint(...args),
+    toast: (...args) => transportController.toast(...args),
+    xmlElement: (...args) => sessionController.xmlElement(...args),
+  });
   const canvas_eventsController = createCanvasEventsController(editor, {
     $,
     action: (...args) => actionsController.action(...args),
@@ -505,6 +516,7 @@ export function createApplication({document = globalThis.document, window = glob
     finishPointDrag: (...args) => canvasController.finishPointDrag(...args),
     finishGradient: (...args) => gradientsController.finishHandle(...args),
     finishShape: (...args) => shapesController.finish(...args),
+    finishPencil: (...args) => pencilController.finish(...args),
     fit: (...args) => viewController.fit(...args),
     gradientDrag: (...args) => gradientsController.handleDrag(...args),
     hitStack: (...args) => hitsController.hitStack(...args),
@@ -523,6 +535,7 @@ export function createApplication({document = globalThis.document, window = glob
     previewResize: (...args) => resizingController.previewResize(...args),
     previewRotate: (...args) => rotatingController.previewRotate(...args),
     previewShape: (...args) => shapesController.preview(...args),
+    previewPencil: (...args) => pencilController.preview(...args),
     redrawOutline: (...args) => toolsController.redrawOutline(...args),
     regionCorner: (...args) => regionController.corner(...args),
     regionRectangle: (...args) => regionController.rectangle(...args),
@@ -797,6 +810,7 @@ export function createApplication({document = globalThis.document, window = glob
       layoutController.wire();
       toolsController.wire();
       shapesController.wire();
+      pencilController.wire();
       canvasController.wire();
       canvas_eventsController.wire();
       clippingController.wire();
@@ -840,6 +854,7 @@ export function createApplication({document = globalThis.document, window = glob
     layout: layoutController,
     tools: toolsController,
     shapes: shapesController,
+    pencil: pencilController,
     canvas: canvasController,
     canvas_events: canvas_eventsController,
     clipping: clippingController,

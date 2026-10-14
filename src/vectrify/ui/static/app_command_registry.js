@@ -104,6 +104,7 @@ export function createCommandRegistryController(editor, {
     {id: 'tool-rect', name: 'Rectangle tool', group: 'Tools', keys: 'M', keywords: 'draw rectangle square rounded corners box shape', run: () => setTool('rect')},
     {id: 'tool-ellipse', name: 'Ellipse tool', group: 'Tools', keys: 'E', keywords: 'draw ellipse circle oval shape', run: () => setTool('ellipse')},
     {id: 'tool-line', name: 'Line tool', group: 'Tools', keys: 'L', keywords: 'draw straight line segment shape', run: () => setTool('line')},
+    {id: 'tool-pencil', name: 'Pencil tool', group: 'Tools', keys: 'P', keywords: 'freehand draw sketch brush stroke pen smooth curve path', run: () => setTool('pencil')},
     {id: 'tool-eyedropper', name: 'Eyedropper tool', group: 'Tools', keys: 'I', keywords: 'sample pick colour color picker dropper fill stroke reference', run: () => setTool('eyedropper')},
     {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'C', keywords: 'cut slice', run: () => setTool('knife')},
     {id: 'tool-region', name: 'Region tool', group: 'Tools', keys: 'X', keywords: 'extract delete erase area rectangle polygon lasso crop', run: () => setTool('region')},

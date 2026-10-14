@@ -16,6 +16,7 @@ export function createCanvasEventsController(editor, {
   finishPath,
   finishPointDrag,
   finishGradient,
+  finishPencil,
   finishShape,
   fit,
   gradientDrag,
@@ -33,6 +34,7 @@ export function createCanvasEventsController(editor, {
   previewGradient,
   previewResize,
   previewRotate,
+  previewPencil,
   previewShape,
   placePivot,
   redrawOutline,
@@ -70,6 +72,7 @@ export function createCanvasEventsController(editor, {
     },
     path: {draft: () => editor.pathDraft, setHover: value => { editor.pathHover = value; }, finish: finishPath},
     shapes: {preview: previewShape, finish: finishShape, cancel: cancelShape},
+    pencil: {preview: previewPencil, finish: finishPencil},
     selection: {
       pick: selectAtPoint, box: finishBox, renderDrawing,
       move: offsets => action('move', {dx: 0, dy: 0, offsets}, 'Moving selection…'),
