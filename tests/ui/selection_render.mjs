@@ -54,7 +54,7 @@ const context = Object.assign(createEditorState(), {
 context.state = undefined, context.savedVersion = null, context.objectsById = new Map(), context.dirty = false, context.scope = null;
    context.focusPoint = null, context.pointMemory = null, context.geometries = new Map();
    context.clickCycle = null, context.lastPick = null, context.pathHoles = new Map();
-   context.treeDrag = null, context.treeDragEnded = false, context.treeDropLine = {};
+   context.tree.drag = null, context.tree.dragEnded = false, context.treeDropLine = {};
    context.toolLevel = 'objects';
    context.level = () => context.toolLevel;
    context.object = id => context.objectsById.get(id);

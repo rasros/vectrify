@@ -1,4 +1,5 @@
 import {BOOLEANS, booleanDescription, booleanDone, booleanOperands, booleanRefusal} from './booleans.js';
+import {selectedObjects as selectedItems} from './util.js';
 
 // Booleans owns Union, Subtract, Intersect and Exclude; editor contains the
 // live state shared with other controllers. Before anything changes, each
@@ -17,8 +18,7 @@ export function createBooleansController(editor, {
   toast,
   xmlElement,
 } = {}) {
-  // The selected objects in stacking order, back to front.
-  const selectedObjects = () => editor.state.objects.filter(item => editor.state.selection.objects.includes(item.id));
+  const selectedObjects = () => selectedItems(editor.state);
 
   const refusal = () => noSelection() || booleanRefusal(selectedObjects(), item => filledPath(item.id));
 

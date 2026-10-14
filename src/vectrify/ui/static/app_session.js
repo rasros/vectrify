@@ -1,4 +1,5 @@
 import {NS} from './app_config.js';
+import {soleObject} from './util.js';
 
 // Session owns its controls; editor contains the live state shared with other controllers.
 export function createSessionController(editor, {
@@ -28,7 +29,7 @@ export function createSessionController(editor, {
 
   function object(id) { return objectsById.get(id); }
 
-  function oneObject() { return editor.state?.selection.objects.length === 1 ? object(editor.state.selection.objects[0]) : null; }
+  function oneObject() { return editor.state ? soleObject(editor.state.selection, object) : null; }
 
   function xmlElement(name, attrs = {}) {
     const element = document.createElementNS(NS, name);
@@ -66,8 +67,8 @@ export function createSessionController(editor, {
     $('redo').title = editor.state.redo.length ? `Redo: ${editor.state.redo[0]}` : 'Nothing to redo';
     if (replaced) {
       editor.activeHandle = null; editor.focusPoint = null; editor.pointMemory = null; editor.scope = null;
-      editor.collapsedGroups.clear();
-      for (const item of editor.state.objects) if (item.tag === 'defs') editor.collapsedGroups.add(item.id);
+      editor.tree.collapsed.clear();
+      for (const item of editor.state.objects) if (item.tag === 'defs') editor.tree.collapsed.add(item.id);
       editor.clipConsumers.clear(); fit();
     }
     if (changed) { editor.geometries = new Map(); editor.pathHoles.clear(); editor.clickCycle = null; editor.lastPick = null; }

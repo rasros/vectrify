@@ -1,6 +1,7 @@
 import {DOUBLE_CLICK, NUDGE_RUN, POINT_REACH} from './app_config.js';
 import {pickTarget, pointKey, splitKey} from './selection.js';
 import {hiddenRefusal} from './visibility.js';
+import {plural} from './util.js';
 
 // What Select all leaves out: definitions, gradients and clipping paths,
 // which are not drawn where they are.
@@ -245,7 +246,6 @@ export function createSelectionController(editor, {
     if (editor.state.epoch === epoch && editor.state.revision === revision) renderNodeInspector();
   }
 
-  const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
   async function fillPointHoles() {
     const holes = holeContours(selectedPoints()); if (!holes) return;
@@ -377,6 +377,6 @@ export function createSelectionController(editor, {
     $('node-pin').onchange=()=>runCommand('pin');
       return api;
   }
-  const api = {nearKey, nearestPoint, pointContours, selectObject, sameClickSpot, clickTargets, selectAtPoint, clickEmpty, pointPairs, focusedPoint, nodeHandles, handleCount, selectedHandle, straightenHandles, renderNodeInspector, holesKey, holeContours, loadNodeHoles, plural, fillPointHoles, pointHolesToShapes, movePointTo, selectAllTargets, selectAllRefusal, selectAll, nudge, nudgeBy, pointNudge, wire};
+  const api = {nearKey, nearestPoint, pointContours, selectObject, sameClickSpot, clickTargets, selectAtPoint, clickEmpty, pointPairs, focusedPoint, nodeHandles, handleCount, selectedHandle, straightenHandles, renderNodeInspector, holesKey, holeContours, loadNodeHoles, fillPointHoles, pointHolesToShapes, movePointTo, selectAllTargets, selectAllRefusal, selectAll, nudge, nudgeBy, pointNudge, wire};
   return api;
 }

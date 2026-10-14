@@ -3,6 +3,8 @@
 // browser; app_region.js draws the region and sends it. Corners are [x, y]
 // in the overlay's frame, which is the document's.
 
+import {plural} from './util.js';
+
 // A dragged rectangle's corners, clockwise from its top left.
 export function rectangleCorners(a, b) {
   const left = Math.min(a.x, b.x), right = Math.max(a.x, b.x), top = Math.min(a.y, b.y), bottom = Math.max(a.y, b.y);
@@ -21,8 +23,6 @@ export function polygonArea(corners) {
 export function closesPolygon(corners, p, reach) {
   return corners.length >= 3 && Math.hypot(p.x - corners[0][0], p.y - corners[0][1]) <= reach;
 }
-
-const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 // What each operation does to an object, by the preview's outcome for it.
 const DETAILS = {

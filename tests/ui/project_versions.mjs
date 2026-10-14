@@ -7,7 +7,7 @@ import {createReferenceDataController} from '../../src/vectrify/ui/static/app_re
 const controls = new Map(), requests = [], referenceImages = [];
 let reply;
 const context = createEditorState();
-context.session = 's'; context.flash.seen = 0;
+context.session = 's'; context.agent.flash.seen = 0;
 const $ = id => {if (!controls.has(id)) controls.set(id, {style:{}}); return controls.get(id);};
 context.request = async (path, body) => {requests.push({path, body}); return reply;};
 const referenceController = createReferenceDataController(context, {

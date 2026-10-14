@@ -1,4 +1,5 @@
 import {JOIN_REACH} from './app_config.js';
+import {plural} from './util.js';
 
 // Join owns its controls; editor contains the live state shared with other controllers.
 export function createJoinController(editor, {
@@ -7,7 +8,6 @@ export function createJoinController(editor, {
   joinCandidates,
   linePaths,
   openJoin,
-  plural,
   toast,
 } = {}) {
 

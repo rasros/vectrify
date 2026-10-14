@@ -1,4 +1,5 @@
 import {boundaryRefusal, defaultRoles, isClipped, removeClipRefusal, rolesRefusal, setClipRefusal, targetRefusal} from './clipping.js';
+import {plural, selectedObjects as selectedItems} from './util.js';
 
 // What each kind of boundary geometry does, shown under the choice.
 const GEOMETRY = {
@@ -19,13 +20,11 @@ export function createClippingController(editor, {
   noSelection,
   object,
   paintSwatch,
-  plural,
   toast,
 } = {}) {
   let context = null;
 
-  // The selected objects in stacking order, back to front.
-  const selectedObjects = () => editor.state.objects.filter(item => editor.state.selection.objects.includes(item.id));
+  const selectedObjects = () => selectedItems(editor.state);
 
   const selectionKey = () => JSON.stringify([editor.state.epoch, editor.state.revision, editor.state.selection.objects]);
 

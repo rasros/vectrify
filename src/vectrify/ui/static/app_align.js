@@ -32,13 +32,13 @@ export function createAlignController(editor, {
   // key, and the key is forgotten once it is no longer selected.
   function trackKey() {
     const selected = editor.state?.selection.objects.length ? topSelection() : [];
-    const seen = new Set(editor.alignSeen), added = selected.filter(id => !seen.has(id));
-    if (added.length === 1) editor.alignKey = added[0];
-    else if (!selected.includes(editor.alignKey)) editor.alignKey = null;
-    editor.alignSeen = selected;
+    const seen = new Set(editor.align.seen), added = selected.filter(id => !seen.has(id));
+    if (added.length === 1) editor.align.key = added[0];
+    else if (!selected.includes(editor.align.key)) editor.align.key = null;
+    editor.align.seen = selected;
   }
 
-  const keyObject = () => editor.state?.selection.objects.length && topSelection().includes(editor.alignKey) ? editor.alignKey : null;
+  const keyObject = () => editor.state?.selection.objects.length && topSelection().includes(editor.align.key) ? editor.align.key : null;
 
   // Each top selected object with its bounds, measured once per state.
   function measure() {
@@ -79,7 +79,7 @@ export function createAlignController(editor, {
 
   // The box the selection lines up to, or {refusal}.
   function target(items) {
-    const reference = editor.alignReference;
+    const reference = editor.align.reference;
     if (reference === 'artboard') {
       const [x, y, w, h] = editor.state.bounds;
       return {box: {left: x, top: y, right: x + w, bottom: y + h}};
@@ -113,7 +113,7 @@ export function createAlignController(editor, {
     const {items, refusal} = measure();
     if (refusal) return {refusal};
     if (items.length < 3) return {refusal: 'Select three or more objects to distribute'};
-    const key = editor.alignReference === 'key' && keyObject();
+    const key = editor.align.reference === 'key' && keyObject();
     if (key) {
       const order = distributeOrder(items, axis);
       if (![order[0].id, order.at(-1).id].includes(key)) return {refusal: `The key object, ${object(key).label}, lies between the others: Distribute keeps the outer two in place, so it would move`};
@@ -128,7 +128,7 @@ export function createAlignController(editor, {
   // The tooltip of an alignment, naming the current reference.
   function alignDescription(alignment) {
     const {edge} = ALIGNMENTS[alignment];
-    return `Line up the selected objects' ${edge} with ${REFERENCES[editor.alignReference]}'s, moving them without resizing`;
+    return `Line up the selected objects' ${edge} with ${REFERENCES[editor.align.reference]}'s, moving them without resizing`;
   }
 
   const distributeDescription = (axis, spacing) => `${distributeName(axis, spacing)}: move the objects between the outer two, which stay, to put ${SPACINGS[spacing].description}, without resizing`;
@@ -149,10 +149,10 @@ export function createAlignController(editor, {
   // The reference choice, and the key object's picker when it is chosen.
   function renderAlign() {
     trackKey();
-    $('align-reference').value = editor.alignReference;
+    $('align-reference').value = editor.align.reference;
     const picker = $('align-key'), key = keyObject();
-    $('align-key-field').hidden = editor.alignReference !== 'key';
-    if (editor.alignReference !== 'key') return;
+    $('align-key-field').hidden = editor.align.reference !== 'key';
+    if (editor.align.reference !== 'key') return;
     const options = topSelection().map(id => {
       const option = document.createElement('option');
       option.value = id; option.textContent = object(id)?.label || id;
@@ -167,7 +167,7 @@ export function createAlignController(editor, {
 
   // The key object's own frame, while it is the reference.
   function drawKeyObject() {
-    const key = editor.alignReference === 'key' && level() === 'objects' && topSelection().length > 1 && keyObject();
+    const key = editor.align.reference === 'key' && level() === 'objects' && topSelection().length > 1 && keyObject();
     const box = key && objectBounds(key);
     if (!box) return;
     editor.overlayFrame.content.append(xmlElement('rect', {x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top, class: 'key-object'}));
@@ -177,11 +177,11 @@ export function createAlignController(editor, {
 
   function wire() {
     $('align-reference').addEventListener('change', event => {
-      editor.alignReference = REFERENCE_NAMES[event.target.value] ? event.target.value : 'selection';
+      editor.align.reference = REFERENCE_NAMES[event.target.value] ? event.target.value : 'selection';
       if (editor.state) refresh();
     });
     $('align-key').addEventListener('change', event => {
-      editor.alignKey = event.target.value || null;
+      editor.align.key = event.target.value || null;
       if (editor.state) refresh();
     });
     return api;

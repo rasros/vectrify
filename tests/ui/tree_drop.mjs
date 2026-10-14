@@ -68,7 +68,7 @@ const context = Object.assign(createEditorState(), {
   treeDropAt: () => ({target: null, refusal: ''}), showTreeDrop() {},
 });
 
-context.treeDrag = {item: 'c', x: 150, y: 300, active: false};
+context.tree.drag = {item: 'c', x: 150, y: 300, active: false};
 const context_tree_drag = createTreeDragController(context, {
   $: (...args) => context.$(...args),
   action: (...args) => context.action(...args),

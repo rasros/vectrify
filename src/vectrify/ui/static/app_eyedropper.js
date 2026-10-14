@@ -1,5 +1,7 @@
 // The Eyedropper samples a disc this many screen pixels in radius, never
 // less than half a document unit as MCP's pick (the session's floor).
+import {plural} from './util.js';
+
 export const SAMPLE_PIXELS = 2;
 export const MIN_SAMPLE_RADIUS = 0.5;
 
@@ -20,7 +22,6 @@ export function createEyedropperController(editor, {
   action,
   drawOverlay,
   object,
-  plural,
   request,
   setDrawingColour,
   setTool,

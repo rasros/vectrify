@@ -22,8 +22,8 @@ export function createTreeController(editor, {
   let objectRows = new Map();
 
   function setGroupExpanded(id, expanded, disclosure = false) {
-    if (expanded) editor.collapsedGroups.delete(id);
-    else editor.collapsedGroups.add(id);
+    if (expanded) editor.tree.collapsed.delete(id);
+    else editor.tree.collapsed.add(id);
     renderObjects();
     const row = objectRows.get(id);
     (disclosure ? row?.querySelector('.tree-toggle') : row)?.focus();
@@ -59,7 +59,7 @@ export function createTreeController(editor, {
     let count = 0;
     for (const item of editor.state.objects) {
       // Objects arrive in tree order. Search temporarily opens matching branches.
-      if (!search && (editor.collapsedGroups.has(item.parent) || folded.has(item.parent))) {
+      if (!search && (editor.tree.collapsed.has(item.parent) || folded.has(item.parent))) {
         folded.add(item.id); continue;
       }
       if (!visible.has(item.id)) continue;
@@ -74,7 +74,7 @@ export function createTreeController(editor, {
       row.dataset.object = item.id; row.title = `${item.tag} · ${item.id}`;
       row.style.paddingLeft = `${9 + item.depth * 9}px`;
       const expandable = containers.has(item.id);
-      const expanded = !!search || !editor.collapsedGroups.has(item.id);
+      const expanded = !!search || !editor.tree.collapsed.has(item.id);
       const toggle = document.createElement(expandable ? 'button' : 'span');
       toggle.className = expandable ? 'tree-toggle' : 'tree-toggle-spacer';
       if (expandable) {
@@ -89,7 +89,7 @@ export function createTreeController(editor, {
         toggle.onkeydown = event => { if (event.key === ' ' || event.key === 'Enter') event.stopPropagation(); };
         toggle.onclick = event => {
           event.stopPropagation();
-          if (!editor.treeDragEnded) setGroupExpanded(item.id, !expanded, true);
+          if (!editor.tree.dragEnded) setGroupExpanded(item.id, !expanded, true);
         };
       } else toggle.setAttribute('aria-hidden', 'true');
       const swatch = document.createElement('span'); swatch.className = 'swatch';
@@ -112,7 +112,7 @@ export function createTreeController(editor, {
       if (item.inherited_hidden) row.title += item.hidden ? ' · hidden' : ' · hidden with its group';
       row.onclick = event => {
         const additive = event.shiftKey || event.ctrlKey || event.metaKey;
-        if (!editor.treeDragEnded) later(() => object(item.id) && selectObject(item.id, additive, true, true));
+        if (!editor.tree.dragEnded) later(() => object(item.id) && selectObject(item.id, additive, true, true));
       };
       row.ondblclick = () => {
         if (item.inherited_hidden) toast(hiddenRefusal([item.id], object, 'edit'), true);
@@ -136,10 +136,10 @@ export function createTreeController(editor, {
     // user left it instead of letting row replacement shift its viewport.
     list.scrollTop = scrollTop; list.scrollLeft = scrollLeft;
     // A drag held across an edit drops where the pointer is on the new rows.
-    if (editor.treeDrag?.active) {
-      editor.treeDrag.ids = new Set([...editor.treeDrag.ids].filter(id => object(id)));
-      editor.treeDrag.revision = `${editor.state.epoch}:${editor.state.revision}`;
-      if (editor.treeDrag.point) Object.assign(editor.treeDrag, treeDropAt(editor.treeDrag.point, editor.treeDrag.ids));
+    if (editor.tree.drag?.active) {
+      editor.tree.drag.ids = new Set([...editor.tree.drag.ids].filter(id => object(id)));
+      editor.tree.drag.revision = `${editor.state.epoch}:${editor.state.revision}`;
+      if (editor.tree.drag.point) Object.assign(editor.tree.drag, treeDropAt(editor.tree.drag.point, editor.tree.drag.ids));
       showTreeDrop();
     }
   }
@@ -163,7 +163,7 @@ export function createTreeController(editor, {
     eye.onkeydown = event => { if (event.key === ' ' || event.key === 'Enter') event.stopPropagation(); };
     eye.onclick = event => {
       event.stopPropagation();
-      if (editor.treeDragEnded) return;
+      if (editor.tree.dragEnded) return;
       if (control.refusal) { toast(control.refusal, true); return; }
       later(() => object(item.id) && action('visibility', {objects: [item.id], hidden: !control.hidden}, control.hidden ? 'Showing…' : 'Hiding…'));
     };
@@ -182,10 +182,10 @@ export function createTreeController(editor, {
   }
 
   function showTreeDrop() {
-    const {target, refusal} = editor.treeDrag;
+    const {target, refusal} = editor.tree.drag;
     for (const row of $('objects').querySelectorAll('.object-row')) {
       row.classList.toggle('drop-into', !refusal && !!target?.into && row.dataset.object === target.parent);
-      row.classList.toggle('dragged', editor.treeDrag.ids.has(row.dataset.object));
+      row.classList.toggle('dragged', editor.tree.drag.ids.has(row.dataset.object));
     }
     treeDropLine.hidden = !!refusal || !target?.line;
     $('objects').classList.toggle('drop-refused', !!refusal);
@@ -208,7 +208,7 @@ export function createTreeController(editor, {
   function revealObject(id) {
     let unfolded = false;
     for (let ancestor = object(object(id)?.parent); ancestor; ancestor = object(ancestor.parent)) {
-      if (editor.collapsedGroups.delete(ancestor.id)) unfolded = true;
+      if (editor.tree.collapsed.delete(ancestor.id)) unfolded = true;
     }
     if (unfolded) renderObjects();
     let row = $('objects').querySelector(`[data-object="${CSS.escape(id)}"]`);

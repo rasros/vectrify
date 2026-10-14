@@ -48,10 +48,10 @@ const context = ({
   level: () => 'points',
   joinCandidates: () => [{id: 'a'}, {id: 'b'}],
 });
-const registry = createCommandRegistryController(context, {
-  noPoints:context.noPoints, selectedPoints:context.selectedPoints, contourAt:context.contourAt,
-  noSelection:context.noSelection, level:context.level, joinCandidates:context.joinCandidates,
-});
+const registry = createCommandRegistryController(context, {app: {
+  commands: {noPoints: context.noPoints, noSelection: context.noSelection, joinCandidates: context.joinCandidates},
+  geometry: {selectedPoints: context.selectedPoints, contourAt: context.contourAt, level: context.level},
+}});
 const command = registry.commandById.get('split-edge');
 assert.ok(!command.disabled());
 selected = ['c'];
@@ -93,11 +93,14 @@ const joinContext = ({
 joinContext.zoom = 1;
 const joining = createJoinController(joinContext, {
   action:joinContext.action, fillPaths:joinContext.fillPaths, joinCandidates:joinContext.joinCandidates,
-  linePaths:joinContext.linePaths, openJoin:joinContext.openJoin, plural:() => '', toast() {},
+  linePaths:joinContext.linePaths, openJoin:joinContext.openJoin, toast() {},
 });
-const joinRegistry = createCommandRegistryController(joinContext, {
-  ...joinContext, joinEnds:joining.joinEnds, mergeShapes:joining.mergeShapes, joinOpensDialog:joining.joinOpensDialog,
-});
+const joinRegistry = createCommandRegistryController(joinContext, {app: {
+  actions: {action: joinContext.action}, join: joining, selection: {pointPairs: joinContext.pointPairs},
+  geometry: {selectedPoints: joinContext.selectedPoints, level: joinContext.level},
+  commands: {joinCandidates: joinContext.joinCandidates, fillPaths: joinContext.fillPaths, linePaths: joinContext.linePaths,
+    twoEnds: joinContext.twoEnds, noPoints: joinContext.noPoints},
+}});
 const merge = joinRegistry.commandById.get('merge-shapes');
 const lineEnds = joinRegistry.commandById.get('join-line-ends');
 const joinPoints = joinRegistry.commandById.get('join-points');

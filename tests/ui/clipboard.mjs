@@ -9,7 +9,7 @@ const saves = [];
 let listener;
 const context = Object.assign(createEditorState(), {
   document, window: {addEventListener: (_, fn) => { listener = fn; }},
-  pending: 0, input: {waiting: 0}, tool: 'select', treeDrag: null,
+  pending: 0, input: {waiting: 0}, tool: 'select',
   later: fn => queued.push(fn), runCommand: id => commands.push(id),
   files: {save: saveAs => saves.push(!!saveAs)},
 });
@@ -55,7 +55,7 @@ assert.equal(saves.length, 5, 'held Save must not open repeated dialogs');
 // backend for an empty set of history entries; the stack is read when the
 // queued key runs, so an edit that lands meanwhile can still be undone.
 const sent = [];
-const history = Object.assign(createEditorState(), {pending: 0, tool: 'select', treeDrag: null, state: {undo: [], redo: []}});
+const history = Object.assign(createEditorState(), {pending: 0, tool: 'select', state: {undo: [], redo: []}});
 const undoKeys = createKeysController(history, {document: {activeElement: {tagName: 'BODY'}, querySelector: () => null}, window: {addEventListener() {}}, later: fn => queued.push(fn), action: command => sent.push(command), input: {waiting: 0}}).keyDown;
 const undoKey = (extra = {}) => { const event = {key: 'z', code: 'KeyZ', ctrlKey: true, preventDefault() { this.prevented = true; }, ...extra}; undoKeys(event); return event; };
 queued.length = 0;

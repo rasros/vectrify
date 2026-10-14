@@ -84,7 +84,7 @@ export function createKeysController(editor, {
     const mod=event.ctrlKey||event.metaKey, key=event.key.toLowerCase();
     if(mod&&!event.altKey&&key==='s'&&!dialog){event.preventDefault();if(!event.repeat)files.save(event.shiftKey);return;}
     if(event.key==='F2'&&!typing&&!dialog&&oneObject()){event.preventDefault();later(()=>{if(oneObject())renameObject();});return;}
-    if(event.key==='Escape'&&editor.treeDrag){event.preventDefault();endTreeDrag(false);return;}
+    if(event.key==='Escape'&&editor.tree.drag){event.preventDefault();endTreeDrag(false);return;}
     if(mod&&!event.altKey&&key==='k'){event.preventDefault();if(!dialog)openPalette();return;}
     // Ctrl/⌘ Alt N: browsers keep Ctrl/⌘ N and Shift N for windows. The key's
     // code, as Option N types a character on a Mac; not in a field, where

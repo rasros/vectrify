@@ -1,5 +1,7 @@
 // Operation dialogs own their controls and job lifetimes. Editor data is read
 // through accessors when a dialog opens or a request runs.
+import {soleObject} from './util.js';
+
 const $ = id => document.getElementById(id);
 
 // A dialog around one operation job: start, poll, stop, preview, choose, apply.
@@ -264,10 +266,7 @@ export function operationDialogs({getState, getObject, waitForEdits,
     const change = before > 0 ? 100*(before-after)/before : 0;
     return change >= 0 ? `reduced ${change.toFixed(1)}%` : `increased ${(-change).toFixed(1)}%`;
   }
-  const oneObject = () => {
-    const ids = getState().selection.objects;
-    return ids.length === 1 ? getObject(ids[0]) : null;
-  };
+  const oneObject = () => soleObject(getState().selection, getObject);
   const selectionSummary = () => oneObject()?.label || `${getState().selection.objects.length} selected objects`;
   const coloursDialog = jobDialog('colours', {
     start: () => ({action:'improve', method:'colours', permissions:{paint:true},
