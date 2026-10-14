@@ -28,8 +28,9 @@ from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.band_fit import opaque_core
-from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, MAX_NODES, _check
+from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import BAND_NODES, RASTER_PIXELS
 from vectrify.refine.cel_plan.local import _native_raster
 from vectrify.refine.cel_plan.paint_continuation import _paint, _supported
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT
@@ -83,7 +84,7 @@ def construct(
     original = document.geometry_for(oid)
     style = path_style(document, document.element(oid))
     if (
-        np.prod(size) > MAX_NATIVE_PIXELS
+        np.prod(size) > RASTER_PIXELS
         or not _supported(document, oid)
         or not _frame(document, oid)
         or not _paint(document, style)
@@ -95,7 +96,7 @@ def construct(
             not s.closed
             for s in (*original.subpaths, *span.field.subpaths, *span.retained.subpaths)
         )
-        or sum(len(s.nodes) for s in span.field.subpaths) > MAX_NODES
+        or sum(len(s.nodes) for s in span.field.subpaths) > BAND_NODES
         or sum(len(s.nodes) for s in span.retained.subpaths) > MAX_COMPOUND_NODES
         or _commands(span.retained.subpaths[: len(original.subpaths)])
         != _commands(original.subpaths)
@@ -129,7 +130,7 @@ def construct(
             face.material in {oid, base_material}
             or not _material(document, oid, face.material)
             or any(not s.closed for s in face.field.subpaths)
-            or sum(len(s.nodes) for s in face.field.subpaths) > MAX_NODES
+            or sum(len(s.nodes) for s in face.field.subpaths) > BAND_NODES
             or pathops.op(curve_path(face.field), full, pathops.PathOp.DIFFERENCE).area
             or not (
                 _edges(transformed_geometry(face.field, frame))
@@ -150,7 +151,7 @@ def construct(
                 curve_path(face.field), curve_path(core), pathops.PathOp.INTERSECTION
             )
         )
-        if not shade.subpaths or sum(len(s.nodes) for s in shade.subpaths) > MAX_NODES:
+        if not shade.subpaths or sum(len(s.nodes) for s in shade.subpaths) > BAND_NODES:
             return None
         fields.append((face.material, shade))
     _check(work)

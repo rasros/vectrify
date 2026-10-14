@@ -50,6 +50,7 @@ from vectrify.refine.cel_plan.geometry import Boundaries, InkBoundaries, ink_lim
 from vectrify.refine.cel_plan.ink_models import models as ink_models
 from vectrify.refine.cel_plan.ink_models import owned_model
 from vectrify.refine.cel_plan.ink_replace import identified
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.material_groups import grouped, ink_paint_links
 from vectrify.refine.cel_plan.materials import MAX_REGIONS, moments
@@ -70,7 +71,6 @@ from vectrify.refine.cel_plan.surface_splits import (
 from vectrify.refine.colour_regions import colour
 from vectrify.refine.crossings import crossings
 
-MAX_PIXELS = 1536**2
 MAX_NATIVE_PIXELS = 4 * 1024**2
 MAX_PATHS = 4096
 MAX_INPUT_NODES = 16_384
@@ -1541,7 +1541,7 @@ class CoreCells:
             return
         graph, evidence = self.families.graph, self.families.evidence
         ink_plane_seen = set()
-        if graph.labels.size > MAX_PIXELS:
+        if graph.labels.size > RASTER_PIXELS:
             self.diagnostics["bounded"] += 1
             return
         bases = [

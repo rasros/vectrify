@@ -37,11 +37,11 @@ from vectrify.refine.cel_plan.ink_models import (
 )
 from vectrify.refine.cel_plan.ink_replace import (
     MAX_COMPONENT_NEIGHBORS,
-    MAX_NODES,
     InkReplacement,
     identified,
 )
 from vectrify.refine.cel_plan.layer_order import ordered_surfaces
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import opaque_fill
@@ -126,7 +126,7 @@ class SourceStrokes:
                 continue
             geometry = state.document.geometry_for(element.id)
             nodes += sum(len(s.nodes) for s in geometry.subpaths)
-            if nodes > MAX_NODES or len(bodies) >= MAX_CONTACT_PATHS:
+            if nodes > DOCUMENT_NODES or len(bodies) >= MAX_CONTACT_PATHS:
                 return None
             cap, join = style["stroke-linecap"], style["stroke-linejoin"]
             if cap not in {"round", "butt"} or join != "round":
@@ -156,7 +156,7 @@ class SourceStrokes:
             if not opaque_fill(document, style["fill"]) or style["stroke"] != "none":
                 continue
             geometry = document.geometry_for(base.id)
-            if sum(len(s.nodes) for s in geometry.subpaths) > MAX_NODES:
+            if sum(len(s.nodes) for s in geometry.subpaths) > DOCUMENT_NODES:
                 self.diagnostics["bounded"] += 1
                 continue
             yield (
@@ -197,7 +197,7 @@ class SourceStrokes:
                     for surface in surfaces
                     for sub in document.geometry_for(surface.id).subpaths
                 )
-                > MAX_NODES
+                > DOCUMENT_NODES
             ):
                 self.diagnostics["bounded"] += 1
                 continue

@@ -16,6 +16,7 @@ import numpy as np
 from scipy.ndimage import binary_erosion, find_objects, label
 
 from vectrify.refine.cel_plan.families import Families
+from vectrify.refine.cel_plan.limits import CHUNK_PIXELS
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import (
     Evidence,
@@ -31,7 +32,6 @@ from vectrify.refine.colour_regions import simplified_indices
 MAX_REGIONS = 16_384
 MAX_EDGES = 65_536
 MAX_MODELS = 32_768
-CHUNK_PIXELS = 65_536
 MAX_THIN_PAINT_PIXELS = 8192
 
 

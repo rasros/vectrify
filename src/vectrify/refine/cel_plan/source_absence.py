@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.score import render
 
-MAX_NATIVE_PIXELS = 1536**2
 MAX_PROFILE_SAMPLES = 4096
 MAX_POINTS = 4096
 MAX_TILES = 32
@@ -33,7 +33,7 @@ class SourceAbsence:
     def __init__(self, evidence, profiles, work, *, intervals=False, guard=None):
         _check(work)
         h, w = evidence.rgba.shape[:2]
-        if h * w > MAX_NATIVE_PIXELS or evidence.source_size != (w, h):
+        if h * w > RASTER_PIXELS or evidence.source_size != (w, h):
             raise ValueError("Source absence exceeds the native frame bound")
         if guard is not None and guard.shape != evidence.rgba.shape:
             raise ValueError("Source absence guard must match the native frame")

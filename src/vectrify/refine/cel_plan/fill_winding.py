@@ -9,7 +9,7 @@ from vectrify.document import Geometry, PathNode, Subpath
 from vectrify.document.hit_test import _filled
 from vectrify.document.join import curve_path, path_geometry, transformed_geometry
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.ink_replace import MAX_NODES
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.crossings import crossings
 
 TOLERANCE = 0.02
@@ -64,7 +64,10 @@ def resolved(geometry, matrix, rule, work):
     the paint frame. Filled winding is resolved again after subdivision. All
     resulting pixels, alpha and geometry still face the ordinary exact policy.
     """
-    if work.interrupted or sum(len(s.nodes) for s in geometry.subpaths) > MAX_NODES:
+    if (
+        work.interrupted
+        or sum(len(s.nodes) for s in geometry.subpaths) > DOCUMENT_NODES
+    ):
         return None
     native = transformed_geometry(geometry, matrix)
     path = curve_path(native, rule)
@@ -76,11 +79,11 @@ def resolved(geometry, matrix, rule, work):
         for subpath in native.subpaths:
             if work.interrupted:
                 return None
-            subpath = flatten(subpath, work, MAX_NODES - used)
+            subpath = flatten(subpath, work, DOCUMENT_NODES - used)
             if subpath is None:
                 return None
             used += len(subpath.nodes)
-            if used > MAX_NODES:
+            if used > DOCUMENT_NODES:
                 return None
             parts.append(subpath)
         # Float32 Boolean winding can reproduce a tiny crossing at a nearly
@@ -104,7 +107,7 @@ def resolved(geometry, matrix, rule, work):
             for ring in (polygon.exterior, *polygon.interiors):
                 coordinates = tuple(ring.coords)[:-1]
                 used += len(coordinates)
-                if used > MAX_NODES:
+                if used > DOCUMENT_NODES:
                     return None
                 parts.append(
                     Subpath(
@@ -121,7 +124,7 @@ def resolved(geometry, matrix, rule, work):
         native = Geometry("resolved", tuple(parts))
     if (
         work.interrupted
-        or sum(len(s.nodes) for s in native.subpaths) > MAX_NODES
+        or sum(len(s.nodes) for s in native.subpaths) > DOCUMENT_NODES
         or crossings(native)
     ):
         return None

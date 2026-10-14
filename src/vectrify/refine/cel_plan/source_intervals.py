@@ -12,13 +12,13 @@ import numpy as np
 
 from vectrify.document import Geometry
 from vectrify.refine.cel_plan.geometry import fitted
+from vectrify.refine.cel_plan.limits import SOURCE_NODES
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.crossings import crossings
 
 MAX_INTERVALS = 8
 MAX_FITS = 256
 MAX_RUNS = 128
-MAX_NODES = 16_384
 CAP_MARGINS = (1.0, 2.0, 3.0)
 MIN_SUPPORT = 0.45
 
@@ -138,7 +138,7 @@ class SourceIntervals:
                 nodes = len(part.nodes)
                 if (
                     self.diagnostics["recovered_runs"] >= MAX_RUNS
-                    or self.diagnostics["nodes"] + nodes > MAX_NODES
+                    or self.diagnostics["nodes"] + nodes > SOURCE_NODES
                 ):
                     raise ValueError("Source intervals exceed the output bound")
                 self.diagnostics["recovered_runs"] += 1

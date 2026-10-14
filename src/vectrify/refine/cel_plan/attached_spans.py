@@ -16,8 +16,9 @@ from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.refine.cel_plan.band_fit import MAX_MOVEMENT
-from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, MAX_WIDTH, _check
+from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.ink import Ink, measure
+from vectrify.refine.cel_plan.limits import BAND_WIDTH, RASTER_PIXELS
 from vectrify.refine.cel_plan.line_fidelity import (
     MAX_PROFILES,
     SourceLineGuard,
@@ -132,7 +133,7 @@ class AttachedSpans:
             raise ValueError(
                 "Attached discovery requires the original native source frame"
             )
-        if np.prod(size) > MAX_NATIVE_PIXELS or len(partition.surfaces) > MAX_SURFACES:
+        if np.prod(size) > RASTER_PIXELS or len(partition.surfaces) > MAX_SURFACES:
             self.diagnostics["bounded"] += 1
             return None
         partition.validate(document)
@@ -328,7 +329,7 @@ class AttachedSpans:
             length = float(np.linalg.norm(np.diff(guide, axis=0), axis=1).sum())
             if length <= 1e-12:
                 continue
-            hint = float(np.clip(abs(field_path.area) / length, 0.8, MAX_WIDTH))
+            hint = float(np.clip(abs(field_path.area) / length, 0.8, BAND_WIDTH))
             ink = measure(
                 guide,
                 raw[..., :3] * 255,
@@ -337,7 +338,7 @@ class AttachedSpans:
                 opacity=raw[..., 3],
             )
             _check(work)
-            if ink is None or ink.support < 0.9 or not 0.8 <= ink.width <= MAX_WIDTH:
+            if ink is None or ink.support < 0.9 or not 0.8 <= ink.width <= BAND_WIDTH:
                 continue
             profile = SourceProfile.from_ink(guide, ink, native_evidence)
             lines = SourceLineGuard(raw, (profile,), work=work)

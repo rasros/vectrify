@@ -14,6 +14,7 @@ from scipy.ndimage import binary_erosion, label
 
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.graph import build
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.materials import coherent_labels
 from vectrify.refine.cel_plan.model import (
     Evidence,
@@ -24,7 +25,6 @@ from vectrify.refine.cel_plan.model import (
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.policy import Policy
 
-MAX_PIXELS = 1536**2
 MAX_COMPONENTS = 8
 
 
@@ -40,7 +40,7 @@ def prepare(evidence: Evidence, graph: Graph, policy: Policy, work: Work):
     """Only near-uniform native materials; preserve unsupported opacity models."""
     if evidence.opacity is None or evidence.scale != (1, 1):
         return evidence, (), {"status": "unsupported-scale-or-alpha"}
-    if evidence.empty.size > MAX_PIXELS or evidence.filled_line_width > 0:
+    if evidence.empty.size > RASTER_PIXELS or evidence.filled_line_width > 0:
         return evidence, (), {"status": "bounded-or-explicit-width"}
     opacity = evidence.opacity.copy()
     empty = evidence.empty.copy()

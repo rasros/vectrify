@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.model import StageInterruptedError
 
-MAX_PIXELS = 1536**2
 MAX_POINTS = 4096
 MAX_LINES = 16
 SCALES = (0.7, 1.4, 2.8)
@@ -31,7 +31,7 @@ class FacetLines:
     def prepare(self, work):
         if self.points is not None:
             return
-        if self.visible.size > MAX_PIXELS:
+        if self.visible.size > RASTER_PIXELS:
             self.diagnostics["bounded"] += 1
             self.points = self.normals = np.empty((0, 2))
             return

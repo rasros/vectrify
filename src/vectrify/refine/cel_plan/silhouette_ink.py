@@ -21,7 +21,6 @@ from vectrify.refine.cel_plan.ink import measure_closed
 from vectrify.refine.cel_plan.ink_models import (
     MAX_MASK_BYTES,
     MAX_MODELS,
-    MAX_PIXELS,
     MAX_POINTS,
     MAX_SOURCE_COMPONENTS,
     MAX_WIDTH,
@@ -32,6 +31,7 @@ from vectrify.refine.cel_plan.ink_models import (
 from vectrify.refine.cel_plan.ink_models import (
     models as source_models,
 )
+from vectrify.refine.cel_plan.limits import RASTER_PIXELS
 from vectrify.refine.cel_plan.line_fidelity import SourceProfile
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS
 from vectrify.refine.cel_plan.model import StageInterruptedError
@@ -116,7 +116,7 @@ class SilhouetteInk:
         evidence, options = self.evidence, self.options
         if work.interrupted:
             return ()
-        if evidence.empty.size > MAX_PIXELS or evidence.filled_line_width:
+        if evidence.empty.size > RASTER_PIXELS or evidence.filled_line_width:
             self.diagnostics["bounds_exclusions"] += 1
             return ()
         visible = ~evidence.empty & evidence.foreground

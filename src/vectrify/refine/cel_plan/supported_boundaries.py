@@ -26,16 +26,18 @@ from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.bounds import conservative_bounds
+from vectrify.refine.cel_plan.limits import (
+    CHUNK_PIXELS,
+    DOCUMENT_NODES,
+    SURFACE_BOX_PIXELS,
+)
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.nested import in_core
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.shade_edges import predict
 from vectrify.refine.cel_plan.surface_models import prediction
 
-MAX_PIXELS = 262_144
-MAX_NODES = 6_000
 MAX_PROOFS = 128
-CHUNK_PIXELS = 65_536
 RESIDUAL = 48.0
 
 
@@ -72,7 +74,7 @@ def supported(
         return None
     if abs(extra.area) <= 1e-8:
         return reject("no-extension")
-    if sum(1 for _ in extra) > MAX_NODES:
+    if sum(1 for _ in extra) > DOCUMENT_NODES:
         return reject("geometry-limit")
     document = state.document
     matrix = root_matrix(document, survivor)
@@ -121,14 +123,14 @@ def supported(
         if max(a, p) >= min(c, r) or max(b, q) >= min(d, s):
             continue
         occluder_nodes += sum(len(s.nodes) for s in child_shape.subpaths)
-        if occluder_nodes > MAX_NODES or upper_proofs >= MAX_PROOFS:
+        if occluder_nodes > DOCUMENT_NODES or upper_proofs >= MAX_PROOFS:
             return reject("upper-order-limit")
         bare = pathops.op(bare, upper_path, pathops.PathOp.DIFFERENCE)
         upper_proofs += 1
         diagnostics["supported_boundary_upper_proofs"] = (
             diagnostics.get("supported_boundary_upper_proofs", 0) + 1
         )
-        if sum(1 for _ in bare) > MAX_NODES:
+        if sum(1 for _ in bare) > DOCUMENT_NODES:
             return reject("geometry-limit")
     sx, sy = evidence.scale
     ox, oy = evidence.offset
@@ -139,7 +141,7 @@ def supported(
     if left < 0 or top < 0 or right > width or bottom > height:
         return reject("source-frame")
     box = Box(math.floor(left), math.floor(top), math.ceil(right), math.ceil(bottom))
-    if not box.area or box.area > MAX_PIXELS:
+    if not box.area or box.area > SURFACE_BOX_PIXELS:
         return reject("pixel-limit")
     # The native renderer's byte coverage includes every visible changed pixel,
     # including subpixel extensions. No fit sample can hide an outlier here.
@@ -232,7 +234,7 @@ def supported(
         if style["stroke"] != "none" or child.get("clip-path", "none") != "none":
             return reject("unsupported-lower-paint")
         nodes += sum(len(s.nodes) for s in geometry.subpaths)
-        if nodes > MAX_NODES or proofs >= MAX_PROOFS:
+        if nodes > DOCUMENT_NODES or proofs >= MAX_PROOFS:
             return reject("order-limit")
         geometry = transformed_geometry(
             geometry, multiply(inverse, root_matrix(document, child.id))

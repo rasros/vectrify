@@ -10,14 +10,13 @@ import numpy as np
 from scipy.ndimage import find_objects
 
 from vectrify.refine.cel_plan.graph import build, shared
+from vectrify.refine.cel_plan.limits import CHUNK_PIXELS, RASTER_PIXELS
 from vectrify.refine.cel_plan.model import Evidence, Graph, StageInterruptedError, Work
 
-MAX_PIXELS = 1536**2
 MAX_CUTS = 64
 MAX_CHILDREN = 128
 MAX_PARTS = 64
 MAX_RUNS = 16_384
-CHUNK_PIXELS = 65_536
 
 
 class AtomLimitError(ValueError):
@@ -91,6 +90,30 @@ def _run_count(cuts):
     return sum(len(block) for cut in cuts for block in _blocks(cut))
 
 
+def _mask_runs(selected, box, run_count, work, message):
+    """Row-major (y, start, end) runs of a boxed mask within the MAX_RUNS budget."""
+    if not selected.any():
+        return ()
+    if work.interrupted:
+        raise StageInterruptedError(message)
+    padded = np.zeros((selected.shape[0], selected.shape[1] + 2), dtype=np.int8)
+    padded[:, 1:-1] = selected
+    changes = np.diff(padded, axis=1)
+    rows, starts = np.nonzero(changes == 1)
+    ends = np.nonzero(changes == -1)[1]
+    if run_count + len(starts) > MAX_RUNS:
+        raise AtomLimitError("runs", MAX_RUNS, max(run_count, MAX_RUNS) + 1)
+    top, left = box[0].start, box[1].start
+    return tuple(
+        zip(
+            (rows + top).tolist(),
+            (starts + left).tolist(),
+            (ends + left).tolist(),
+            strict=True,
+        )
+    )
+
+
 @dataclass(frozen=True)
 class Atoms:
     source: str
@@ -113,7 +136,7 @@ class Atoms:
         if (
             len(self.shape) != 2
             or min(self.shape) <= 0
-            or np.prod(self.shape) > MAX_PIXELS
+            or np.prod(self.shape) > RASTER_PIXELS
             or self.count < 1
             or len(self.cuts) > MAX_CUTS
         ):
@@ -313,30 +336,12 @@ class Atoms:
             if graph.regions[member].fixed or member in graph.hidden:
                 raise ValueError("Protected source atoms cannot be split")
             _capacity(len(cuts) + 1, next_child + 2 - self.count)
-            runs = []
-            for y in np.flatnonzero(selected.any(axis=1)):
-                if work.interrupted:
-                    raise StageInterruptedError("Source atom splitting interrupted")
-                changes = np.diff(np.r_[False, selected[y], False].astype(np.int8))
-                for start, end in zip(
-                    np.flatnonzero(changes == 1),
-                    np.flatnonzero(changes == -1),
-                    strict=True,
-                ):
-                    if run_count + len(runs) >= MAX_RUNS:
-                        raise AtomLimitError(
-                            "runs", MAX_RUNS, run_count + len(runs) + 1
-                        )
-                    runs.append(
-                        (
-                            int(y) + box[0].start,
-                            int(start) + box[1].start,
-                            int(end) + box[1].start,
-                        )
-                    )
+            runs = _mask_runs(
+                selected, box, run_count, work, "Source atom splitting interrupted"
+            )
             child = next_child
             next_child += 2
-            cuts.append(Cut(member, tuple(runs), (low_area, high_area)))
+            cuts.append(Cut(member, runs, (low_area, high_area)))
             run_count += len(runs)
             left_members.append(child)
             right_members.append(child + 1)
@@ -412,30 +417,12 @@ class Atoms:
                 selected = remaining & (values == cell)
                 low_area = int(selected.sum())
                 high_area = int(remaining.sum()) - low_area
-                runs = []
-                for y in np.flatnonzero(selected.any(axis=1)):
-                    if work.interrupted:
-                        raise StageInterruptedError("Source cell splitting interrupted")
-                    changes = np.diff(np.r_[False, selected[y], False].astype(np.int8))
-                    for start, end in zip(
-                        np.flatnonzero(changes == 1),
-                        np.flatnonzero(changes == -1),
-                        strict=True,
-                    ):
-                        if run_count + len(runs) >= MAX_RUNS:
-                            raise AtomLimitError(
-                                "runs", MAX_RUNS, run_count + len(runs) + 1
-                            )
-                        runs.append(
-                            (
-                                int(y) + box[0].start,
-                                int(start) + box[1].start,
-                                int(end) + box[1].start,
-                            )
-                        )
+                runs = _mask_runs(
+                    selected, box, run_count, work, "Source cell splitting interrupted"
+                )
                 child = next_child
                 next_child += 2
-                cuts.append(Cut(parent, tuple(runs), (low_area, high_area)))
+                cuts.append(Cut(parent, runs, (low_area, high_area)))
                 run_count += len(runs)
                 cells[int(cell)].append(child)
                 remaining &= ~selected
@@ -479,28 +466,9 @@ class Atoms:
             blocks = []
             for index in order[:-1]:
                 selected = own & (values == occupied[index])
-                runs = []
-                for y in np.flatnonzero(selected.any(axis=1)):
-                    if work.interrupted:
-                        raise StageInterruptedError("Source cell splitting interrupted")
-                    changes = np.diff(np.r_[False, selected[y], False].astype(np.int8))
-                    for start, end in zip(
-                        np.flatnonzero(changes == 1),
-                        np.flatnonzero(changes == -1),
-                        strict=True,
-                    ):
-                        if run_count + len(runs) >= MAX_RUNS:
-                            raise AtomLimitError(
-                                "runs", MAX_RUNS, run_count + len(runs) + 1
-                            )
-                        runs.append(
-                            (
-                                int(y) + box[0].start,
-                                int(start) + box[1].start,
-                                int(end) + box[1].start,
-                            )
-                        )
-                block = tuple(runs)
+                block = _mask_runs(
+                    selected, box, run_count, work, "Source cell splitting interrupted"
+                )
                 blocks.append(block)
                 run_count += len(block)
             actual_areas = tuple(int(areas[i]) for i in order)

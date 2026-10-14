@@ -23,9 +23,10 @@ from vectrify.document.join import (
 )
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.filled_bands import MAX_NODES, MAX_WIDTH, _check
+from vectrify.refine.cel_plan.filled_bands import _check
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink_models import footprint
+from vectrify.refine.cel_plan.limits import BAND_NODES, BAND_WIDTH
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT, MAX_POINTS
 
 MAX_COMPOUND_NODES = 1024
@@ -108,7 +109,7 @@ def source_slice(
         return None
     clip = curve_path(
         transformed_geometry(
-            footprint(shape, MAX_WIDTH, cap="butt"), inverse_matrix(frame)
+            footprint(shape, BAND_WIDTH, cap="butt"), inverse_matrix(frame)
         )
     )
     old = curve_path(geometry)
@@ -119,7 +120,7 @@ def source_slice(
             return None
         extended_clip = curve_path(
             transformed_geometry(
-                footprint(extended, MAX_WIDTH, cap="butt"), inverse_matrix(frame)
+                footprint(extended, BAND_WIDTH, cap="butt"), inverse_matrix(frame)
             )
         )
         extended_path = pathops.op(old, extended_clip, pathops.PathOp.INTERSECTION)
@@ -138,13 +139,13 @@ def source_slice(
     _check(work)
     if (
         not 0 < len(selected.subpaths) <= MAX_SELECTED_SUBPATHS
-        or sum(len(s.nodes) for s in selected.subpaths) > MAX_NODES
+        or sum(len(s.nodes) for s in selected.subpaths) > BAND_NODES
         or not remainder.area
     ):
         return None
     native = transformed_geometry(selected, frame)
     length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
-    if not length or abs(curve_path(native).area) / length > MAX_WIDTH / 2:
+    if not length or abs(curve_path(native).area) / length > BAND_WIDTH / 2:
         return None
     # Opposite winding removes this complete field without resolving or
     # reparameterizing every independent curve in the compound shadow.

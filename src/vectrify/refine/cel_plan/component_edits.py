@@ -14,12 +14,13 @@ from dataclasses import dataclass, replace
 
 from vectrify.document import Document, Geometry
 from vectrify.refine.cel_plan.bounds import conservative_bounds
+from vectrify.refine.cel_plan.limits import MAX_SEED_NODES, MAX_SEED_OBJECTS
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 
 # Reuse the established search seed footprint, without widening local edits.
-MAX_OBJECTS = 8_192
-MAX_NODES = 32_000
+MAX_OBJECTS = MAX_SEED_OBJECTS
+MAX_NODES = MAX_SEED_NODES
 MAX_ELEMENTS = MAX_OBJECTS + MAX_NODES
 MAX_SERIAL_BYTES = 16 * 1024 * 1024
 

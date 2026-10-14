@@ -26,16 +26,15 @@ from vectrify.refine import cel
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.contracts import Proposal
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES, RASTER_PIXELS
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.ownership import Surface
 from vectrify.refine.crossings import crossings
 
-MAX_PIXELS = 1536**2
 MAX_PATHS = 4096
 MAX_COMPONENTS = 4096
 MAX_FIELDS = 128
 MAX_PARENTS = 4
-MAX_NODES = 6000
 MAX_OPACITY = 0.05
 
 
@@ -70,7 +69,10 @@ class OpacityFields:
         ):
             raise ValueError("Opacity fields require the current source atom graph")
         check()
-        if graph.labels.size > MAX_PIXELS or len(state.partition.surfaces) > MAX_PATHS:
+        if (
+            graph.labels.size > RASTER_PIXELS
+            or len(state.partition.surfaces) > MAX_PATHS
+        ):
             self.diagnostics["bounded"] += 1
             return
         components, count = label(~evidence.empty)
@@ -183,7 +185,7 @@ class OpacityFields:
                 continue
             total_fields += 1
             total_nodes += sum(len(s.nodes) for s in geometry.subpaths)
-            if total_fields > MAX_FIELDS or total_nodes > MAX_NODES:
+            if total_fields > MAX_FIELDS or total_nodes > DOCUMENT_NODES:
                 self.diagnostics["bounded"] += 1
                 return
             sx, sy = evidence.scale

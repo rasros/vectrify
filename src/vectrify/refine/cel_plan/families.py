@@ -29,7 +29,7 @@ from vectrify.refine.cel_plan.constraints import discard, merged
 from vectrify.refine.cel_plan.contracts import Proposal, State
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.layer_order import ordered
-from vectrify.refine.cel_plan.limits import EXPANSIONS, MAX_EDIT_OBJECTS
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES, EXPANSIONS, MAX_EDIT_OBJECTS
 from vectrify.refine.cel_plan.local import (
     MAX_CROP_PIXELS,
     Box,
@@ -42,7 +42,6 @@ from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 
 MAX_PATHS = 128
-MAX_NODES = 6_000
 MAX_FAMILIES = 24
 MAX_GROUPS = 96
 MAX_BOUNDARY_PROOFS = 512
@@ -81,6 +80,32 @@ def _gradient(paint: Paint, evidence: Evidence, document, oid, opacity):
             for stop in paint.gradient.stops
         ),
     )
+
+
+def apply_paint(
+    transaction,
+    oid,
+    paint: Paint,
+    evidence: Evidence,
+    document,
+    opacity,
+    *,
+    clear_stroke=True,
+):
+    """Fill *oid* with *paint* under an inherited *opacity*, nonzero and unstroked."""
+    transaction.set_fill(
+        oid,
+        _gradient(paint, evidence, document, oid, opacity)
+        if paint.gradient
+        else paint.color,
+    )
+    attributes = {"fill-rule": "nonzero"}
+    if clear_stroke:
+        attributes["stroke"] = "none"
+    attributes["fill-opacity"] = (
+        "1" if paint.gradient else repr(min(1.0, paint.opacity / opacity))
+    )
+    transaction.set_attributes(oid, attributes)
 
 
 class Families:
@@ -301,7 +326,7 @@ class Families:
             count = sum(
                 len(sub.nodes) for sub in document.geometry_for(surface.id).subpaths
             )
-            if count > MAX_NODES:
+            if count > DOCUMENT_NODES:
                 continue
             weights = np.array([max(1, r.area) for r in regions])
             colors[surface.id] = np.average(
@@ -362,7 +387,7 @@ class Families:
                     if oid in queued:
                         continue
                     queued.add(oid)
-                    if total + nodes[oid] > MAX_NODES:
+                    if total + nodes[oid] > DOCUMENT_NODES:
                         continue
                     if float(np.linalg.norm(colors[oid] - colors[seed])) > threshold:
                         continue
@@ -555,7 +580,7 @@ class Families:
         continued = nesting.continued(geometry)
         if work.interrupted:
             return None
-        if sum(len(s.nodes) for s in continued.subpaths) > MAX_NODES:
+        if sum(len(s.nodes) for s in continued.subpaths) > DOCUMENT_NODES:
             self.diagnostics["nested_geometry_limits"] += 1
             return None
         if self.evidence.opacity is not None and not in_core(
@@ -690,20 +715,14 @@ class Families:
             with editor.transaction("Propose coherent planned surface") as transaction:
                 transaction.replace_geometry(survivor, geometry)
                 transaction.delete_objects(frozenset(set(ids) - {survivor}))
-                transaction.set_fill(
+                apply_paint(
+                    transaction,
                     survivor,
-                    _gradient(paint, self.evidence, document, survivor, parent_opacity)
-                    if paint.gradient
-                    else paint.color,
-                )
-                transaction.set_attributes(
-                    survivor,
-                    {
-                        "fill-rule": "nonzero",
-                        "fill-opacity": "1"
-                        if paint.gradient
-                        else repr(min(1.0, paint.opacity / parent_opacity)),
-                    },
+                    paint,
+                    self.evidence,
+                    document,
+                    parent_opacity,
+                    clear_stroke=False,
                 )
             proposed = editor.snapshot.document
             holds = set(state.details.get("geometry_constraints", ()))

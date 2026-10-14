@@ -21,7 +21,8 @@ from vectrify.document.holes import reversed_subpath
 from vectrify.document.join import curve_path, path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.filled_bands import MAX_NODES, _check
+from vectrify.refine.cel_plan.filled_bands import _check
+from vectrify.refine.cel_plan.limits import BAND_NODES
 from vectrify.refine.cel_plan.paint_continuation import _paint, _supported
 from vectrify.refine.cel_plan.source_bands import MAX_EXTENT
 from vectrify.refine.cel_plan.source_spans import discover as primitive_spans
@@ -88,7 +89,7 @@ def discover(document, oid, span, source_fields, material_ids, base_material, wo
         or document.ancestry(oid)[-2].id != document.ancestry(base_material)[-2].id
         or not span.field.subpaths
         or any(not sub.closed for sub in span.field.subpaths)
-        or sum(len(sub.nodes) for sub in span.field.subpaths) > MAX_NODES
+        or sum(len(sub.nodes) for sub in span.field.subpaths) > BAND_NODES
     ):
         return ()
     full = curve_path(span.field)
@@ -158,7 +159,7 @@ def discover(document, oid, span, source_fields, material_ids, base_material, wo
                     if (
                         remaining.area
                         and sum(len(sub.nodes) for sub in candidate.subpaths)
-                        <= 2 * MAX_NODES
+                        <= 2 * BAND_NODES
                         and not pathops.op(
                             remaining, selected, pathops.PathOp.INTERSECTION
                         ).area

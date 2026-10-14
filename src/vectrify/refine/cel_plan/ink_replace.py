@@ -37,6 +37,7 @@ from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.ink_contours import rim
 from vectrify.refine.cel_plan.ink_underpaint import compact as compact_underpaint
 from vectrify.refine.cel_plan.layer_order import ordered, ordered_surfaces
+from vectrify.refine.cel_plan.limits import DOCUMENT_NODES
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
 from vectrify.refine.cel_plan.nested import opaque_fill
@@ -47,7 +48,6 @@ from vectrify.refine.tracing import _loops
 
 MAX_GROUPS = 16
 MAX_PATHS = 128
-MAX_NODES = 6_000
 MAX_NEIGHBORS = 4
 MAX_CONTINUATION_NEIGHBORS = 64
 MAX_COMPONENT_NEIGHBORS = 256
@@ -139,7 +139,7 @@ class InkReplacement:
                 style["stroke"] != "none"
                 or float(style["opacity"]) != 1
                 or element.get("clip-path", "none") != "none"
-                or count > MAX_NODES
+                or count > DOCUMENT_NODES
             ):
                 continue
             eligible[surface.id] = surface
@@ -181,7 +181,7 @@ class InkReplacement:
                 if oid in seen:
                     continue
                 if (
-                    count + nodes[oid] > MAX_NODES
+                    count + nodes[oid] > DOCUMENT_NODES
                     or np.linalg.norm(colors[oid] - colors[seed]) > 32
                 ):
                     continue
@@ -307,7 +307,7 @@ class InkReplacement:
                 for oid in neighbors
                 for sub in document.geometry_for(oid).subpaths
             )
-            > MAX_NODES
+            > DOCUMENT_NODES
         ):
             return reject("neighbor-node-limit")
         primary = {s.id: s for s in partition.surfaces if s.role != "underlay"}
@@ -486,7 +486,7 @@ class InkReplacement:
                 )
             shape = identified(shape, oid)
             node_count += sum(len(s.nodes) for s in shape.subpaths)
-            if node_count > MAX_NODES:
+            if node_count > DOCUMENT_NODES:
                 return reject("continuation-node-limit")
             attrs = path_style(document, document.element(neighbors[index - 1]))
             attrs.update({"stroke": "none", "fill-rule": "nonzero"})

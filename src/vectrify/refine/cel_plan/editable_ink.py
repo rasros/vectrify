@@ -18,8 +18,13 @@ from vectrify.document.join import path_style
 from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
-from vectrify.refine.cel_plan.filled_bands import MAX_NATIVE_PIXELS, _check
-from vectrify.refine.cel_plan.limits import MAX_SEED_NODES, MAX_SEED_OBJECTS
+from vectrify.refine.cel_plan.filled_bands import _check
+from vectrify.refine.cel_plan.limits import (
+    CHUNK_PIXELS,
+    MAX_SEED_NODES,
+    MAX_SEED_OBJECTS,
+    RASTER_PIXELS,
+)
 from vectrify.refine.cel_plan.line_fidelity import MAX_PROFILES
 from vectrify.refine.cel_plan.local import _native_raster, _render_tree
 from vectrify.refine.cel_plan.model import Work
@@ -81,7 +86,7 @@ class EditableInk:
         work = work if work is not None else Work.start(float("inf"))
         _check(work)
         h, w = guard.shape[:2]
-        if h * w > MAX_NATIVE_PIXELS:
+        if h * w > RASTER_PIXELS:
             raise ValueError("Editable ink exceeds the native pixel bound")
         self.guard, self.before, self.partition = guard, before, partition
         self.size = (w, h)
@@ -178,7 +183,7 @@ class EditableInk:
         """
         svg = export_svg(document)
         visible = np.zeros(actual.shape[:2], dtype=np.float32)
-        rows = max(1, 65_536 // self.size[0])
+        rows = max(1, CHUNK_PIXELS // self.size[0])
         backdrop = ET.fromstring(svg)
         strokes = {e.get("id"): e for e in backdrop.iter() if e.get("id") in ids}
         paints = {oid: e.get("stroke") for oid, e in strokes.items()}

@@ -31,9 +31,15 @@ from vectrify.refine.cel_plan import shade_edges
 from vectrify.refine.cel_plan.atoms import MAX_CUTS, Atoms
 from vectrify.refine.cel_plan.constraints import discard, merged
 from vectrify.refine.cel_plan.contracts import Proposal
-from vectrify.refine.cel_plan.families import _gradient, _opacity
+from vectrify.refine.cel_plan.families import _opacity, apply_paint
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.layer_order import ordered_surfaces
+from vectrify.refine.cel_plan.limits import (
+    CHUNK_PIXELS,
+    DOCUMENT_NODES,
+    RASTER_PIXELS,
+    SURFACE_BOX_PIXELS,
+)
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.materials import MAX_REGIONS
 from vectrify.refine.cel_plan.model import Work
@@ -49,12 +55,8 @@ MAX_SEEDS = 8
 MAX_CONTACTS = 65_536
 MAX_PATHS = 128
 MAX_MEMBERS = MAX_REGIONS + 2 * MAX_CUTS
-MAX_NODES = 6000
-MAX_PIXELS = 262_144
-MAX_ANALYSIS = 1536**2
 MAX_POINTS = 16_384
 MAX_PROPOSALS = 16
-CHUNK_PIXELS = 65_536
 RESIDUAL = 48.0
 
 
@@ -170,7 +172,7 @@ class PiecewiseSurfaces:
             max(b[1].stop for b in boxes),
             max(b[0].stop for b in boxes),
         )
-        if box.area > MAX_PIXELS:
+        if box.area > SURFACE_BOX_PIXELS:
             self.diagnostics["group_limits"] += 1
             return None
         graph, evidence = self.families.graph, self.families.evidence
@@ -192,7 +194,7 @@ class PiecewiseSurfaces:
     def _screen(self, eligible, paints, normal, rho, work, *, coverage=False):
         """Whole-owner maximum residual; a distant atom or outlier cannot hide."""
         graph, evidence = self.families.graph, self.families.evidence
-        if graph.labels.size > MAX_ANALYSIS or len(graph.regions) > MAX_MEMBERS:
+        if graph.labels.size > RASTER_PIXELS or len(graph.regions) > MAX_MEMBERS:
             self.diagnostics["group_limits"] += 1
             return None
         ids = sorted(eligible)
@@ -350,7 +352,7 @@ class PiecewiseSurfaces:
                             continue
                         if (
                             len(ids) >= MAX_PATHS
-                            or node_count + eligible[oid][2] > MAX_NODES
+                            or node_count + eligible[oid][2] > DOCUMENT_NODES
                         ):
                             self.diagnostics["group_limits"] += 1
                             continue
@@ -654,7 +656,7 @@ class PiecewiseSurfaces:
                 return
             if (
                 crossings(shape)
-                or sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES
+                or sum(len(s.nodes) for s in shape.subpaths) > DOCUMENT_NODES
             ):
                 self.diagnostics["group_limits"] += 1
                 continue
@@ -691,7 +693,7 @@ class PiecewiseSurfaces:
                 continued_core = in_core(state, whole_members, survivor, whole, work)
                 if (
                     crossings(whole)
-                    or sum(len(s.nodes) for s in whole.subpaths) > MAX_NODES
+                    or sum(len(s.nodes) for s in whole.subpaths) > DOCUMENT_NODES
                     or not nesting.contains(whole, work)
                 ):
                     self.diagnostics["containment_exclusions"] += 1
@@ -777,7 +779,8 @@ class PiecewiseSurfaces:
                     return
                 if (
                     any(not s.subpaths or crossings(s) for s in shapes)
-                    or sum(len(p.nodes) for s in shapes for p in s.subpaths) > MAX_NODES
+                    or sum(len(p.nodes) for s in shapes for p in s.subpaths)
+                    > DOCUMENT_NODES
                 ):
                     self.diagnostics["group_limits"] += 1
                     continue
@@ -804,27 +807,13 @@ class PiecewiseSurfaces:
                     if opacity <= 0:
                         break
                     with editor.transaction("Fit coherent side paint") as tx:
-                        tx.set_fill(
+                        apply_paint(
+                            tx,
                             child,
-                            _gradient(
-                                paint,
-                                self.families.evidence,
-                                split_document,
-                                child,
-                                opacity,
-                            )
-                            if paint.gradient
-                            else paint.color,
-                        )
-                        tx.set_attributes(
-                            child,
-                            {
-                                "fill-rule": "nonzero",
-                                "stroke": "none",
-                                "fill-opacity": "1"
-                                if paint.gradient
-                                else repr(min(1.0, paint.opacity / opacity)),
-                            },
+                            paint,
+                            self.families.evidence,
+                            split_document,
+                            opacity,
                         )
                 else:
                     proposed = editor.snapshot.document
