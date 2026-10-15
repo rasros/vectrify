@@ -23,7 +23,11 @@ Point = tuple[float, float]
 
 START = "data-vectrify-taper-start"
 END = "data-vectrify-taper-end"
-TAPERS = frozenset({START, END})
+START_WIDTH = "data-vectrify-taper-start-width"
+END_WIDTH = "data-vectrify-taper-end-width"
+LENGTHS = frozenset({START, END})
+WIDTHS = frozenset({START_WIDTH, END_WIDTH})
+TAPERS = LENGTHS | WIDTHS
 OWNER = "data-vectrify-taper-owner"
 SOURCE_OPACITY = "data-vectrify-taper-source-opacity"
 
@@ -31,7 +35,10 @@ SOURCE_OPACITY = "data-vectrify-taper-source-opacity"
 def active(style: dict[str, str]) -> bool:
     # Import examines metadata before validating the complete document.
     try:
-        return any(float(style.get(key, "0")) > 0 for key in TAPERS)
+        return any(
+            float(style.get(length, "0")) > 0 and float(style.get(width, "0")) < 100
+            for length, width in ((START, START_WIDTH), (END, END_WIDTH))
+        )
     except ValueError:
         return False
 
@@ -51,6 +58,9 @@ def polygons(
         distances.append(distances[-1] + math.dist(a, b))
     length = distances[-1]
     start, end = (float(style.get(key, "0")) for key in (START, END))
+    start_width, end_width = (
+        float(style.get(key, "0")) / 100 for key in (START_WIDTH, END_WIDTH)
+    )
     # Dividing before adding avoids overflowing otherwise valid large lengths.
     scale = max(start, end, length)
     total = start / scale + end / scale
@@ -63,8 +73,8 @@ def polygons(
             / 2
             * min(
                 1.0,
-                distance / start if start else 1.0,
-                (length - distance) / end if end else 1.0,
+                start_width + (1 - start_width) * distance / start if start else 1.0,
+                end_width + (1 - end_width) * (length - distance) / end if end else 1.0,
             )
         )
 
@@ -144,8 +154,8 @@ def polygons(
         else:
             result.append([p, a, b])
     cap = style.get("stroke-linecap", "butt")
-    for i, u, tapered in ((0, directions[0], start), (-1, directions[-1], end)):
-        if tapered:
+    for i, u in ((0, directions[0]), (-1, directions[-1])):
+        if radii[i] == 0:
             continue
         p, r = points[i], radii[i]
         outward = (-u[0], -u[1]) if i == 0 else u

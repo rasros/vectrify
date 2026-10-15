@@ -37,7 +37,7 @@ export function createArrowsController(editor, {
     const tapered = companions.find(arrow => arrow.getAttribute('data-vectrify-taper-owner') === id);
     if (tapered) {
       const css = getComputedStyle(element);
-      tapered.setAttribute('d', taperPreview(geometry, width, {start: element.getAttribute('data-vectrify-taper-start'), end: element.getAttribute('data-vectrify-taper-end'), cap: css.strokeLinecap, join: css.strokeLinejoin, miter: css.strokeMiterlimit}) + ' ' + paths.join(' '));
+      tapered.setAttribute('d', taperPreview(geometry, width, {start: element.getAttribute('data-vectrify-taper-start'), end: element.getAttribute('data-vectrify-taper-end'), startWidth: element.getAttribute('data-vectrify-taper-start-width'), endWidth: element.getAttribute('data-vectrify-taper-end-width'), cap: css.strokeLinecap, join: css.strokeLinejoin, miter: css.strokeMiterlimit}) + ' ' + paths.join(' '));
     } else companions.forEach((arrow, i) => arrow.setAttribute('d', paths[i] || ''));
   }
 

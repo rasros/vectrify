@@ -12,7 +12,7 @@ from tests.ui.helpers import send
 from vectrify.document import DocumentError, HitIndex, import_svg
 from vectrify.document.project import load_project, save_project
 from vectrify.document.svg import export_svg
-from vectrify.document.taper import END, OWNER, START
+from vectrify.document.taper import END, END_WIDTH, OWNER, START, START_WIDTH
 from vectrify.ui.agent import Agent
 from vectrify.ui.session import Session
 
@@ -83,6 +83,107 @@ def test_hits_contours_and_raster_match_tapered_width():
     assert pixel(image, 12, 53)[3] == 0
     assert 120 <= pixel(image, 50, 50)[3] <= 130
     assert pixel(image, 88, 53)[3] == 0
+
+
+def test_tip_width_and_onset_are_independent_and_survive_roundtrips():
+    session = tapered(20, 30)
+    before = session.editor.snapshot.document
+    send(session, "paint", changes={START_WIDTH: "50", END_WIDTH: "20"})
+    document = session.editor.snapshot.document
+    area = HitIndex(document).area("p")
+    assert area is not None
+    assert area.area == pytest.approx(630)
+    assert area.covers(Point(10, 52.4))
+    assert not area.covers(Point(10, 52.6))
+    assert area.covers(Point(90, 50.9))
+    assert not area.covers(Point(90, 51.1))
+    assert area.covers(Point(30, 54.9))
+    assert area.covers(Point(60, 54.9))
+    svg = export_svg(document)
+    assert export_svg(import_svg(svg)) == svg
+    reopened, _ = load_project(save_project(document))
+    assert reopened == document
+    image = render(svg)
+    assert pixel(image, 11, 51)[3] > 0
+    assert pixel(image, 11, 54)[3] == 0
+    send(session, "undo")
+    assert session.editor.snapshot.document == before
+    send(session, "redo")
+    send(session, "paint", changes={END: "10"})
+    changed = HitIndex(session.editor.snapshot.document).area("p")
+    assert changed is not None
+    assert changed.area == pytest.approx(710)
+    assert changed.covers(Point(80, 54.9))
+    assert not area.covers(Point(80, 54.9))
+    send(session, "line_to_fill")
+    converted = session.editor.snapshot.document
+    outlined = HitIndex(converted).area("p")
+    assert outlined is not None
+    assert changed.symmetric_difference(outlined).area < 0.1
+    assert converted.element("p").get(START_WIDTH) is None
+    assert converted.element("p").get(END_WIDTH) is None
+
+
+@pytest.mark.parametrize("cap", ["butt", "round", "square"])
+def test_nonzero_tips_use_their_reduced_width_for_caps(cap):
+    session = tapered(20, 20)
+    send(
+        session,
+        "paint",
+        changes={START_WIDTH: "50", END_WIDTH: "20", "stroke-linecap": cap},
+    )
+    area = HitIndex(session.editor.snapshot.document).area("p")
+    assert area is not None
+    assert area.bounds == pytest.approx(
+        (10 if cap == "butt" else 7.5, 45, 90 if cap == "butt" else 91, 55),
+        abs=0.1,
+    )
+
+
+def test_full_width_and_disabled_tapers_leave_an_ordinary_stroke():
+    session = tapered(20, 20)
+    send(session, "paint", changes={START_WIDTH: "100", END_WIDTH: "100"})
+    document = session.editor.snapshot.document
+    assert HitIndex(document).painted_area("p") == pytest.approx(800)
+    assert OWNER not in export_svg(document)
+    send(session, "paint", changes={START: "0", END: "0", END_WIDTH: "25"})
+    document = session.editor.snapshot.document
+    assert HitIndex(document).painted_area("p") == pytest.approx(800)
+    assert OWNER not in export_svg(document)
+
+
+@pytest.mark.parametrize("key", [START_WIDTH, END_WIDTH])
+@pytest.mark.parametrize("value", ["-1", "101", "NaN", "inf", "bad", ""])
+def test_invalid_tip_width_is_atomic(key, value):
+    session = tapered()
+    before = session.editor.snapshot
+    with pytest.raises(DocumentError):
+        send(session, "paint", changes={START: "30", key: value})
+    assert session.editor.snapshot == before
+
+
+def test_tip_width_property_lock_refuses_changes():
+    session = tapered()
+    send(session, "locks", object="p", locks=[END_WIDTH])
+    before = session.editor.snapshot
+    with pytest.raises(DocumentError, match="locked"):
+        send(session, "paint", changes={END_WIDTH: "50"})
+    assert session.editor.snapshot == before
+
+
+def test_baking_transforms_scales_onset_but_preserves_tip_percentages():
+    from vectrify.document.join import bake_group_path
+
+    document = import_svg(
+        '<svg width="100" height="100"><g transform="scale(2)">'
+        '<path id="p" d="M10 20 L40 20" fill="none" stroke="red" '
+        'stroke-width="10" data-vectrify-taper-start="5" '
+        'data-vectrify-taper-start-width="75"/></g></svg>'
+    )
+    _, style, _ = bake_group_path(document, document.element("p"), document.root.id)
+    assert float(style[START]) == 10
+    assert float(style[START_WIDTH]) == 75
+    assert float(style["stroke-width"]) == 20
 
 
 @pytest.mark.parametrize("cap", ["butt", "round", "square"])
