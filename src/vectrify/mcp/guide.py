@@ -146,6 +146,11 @@ for `coords="local"`.
   its paint, the ones in front are consumed), `convert(ids, to)` (`line`: fill to
   centre line, `fill`: stroke to fill, `path`: an instance or shared
   geometry into an editable path of its own), `delete(ids)`, `knife`.
+- Tapers use `properties` too: `start_taper` / `end_taper` are nonnegative
+  distances from each end in local drawing units (0 disables that end);
+  `start_taper_width` / `end_taper_width` are tip widths as 0-100 percent
+  of stroke width (0 is a point, 100 is full width). Omitted values stay.
+  These affect open contours and keep their centerline editable.
 - `join` is the editor's Join: `join(points=[a, b])` joins two points;
   `join(ids)` joins stroked lines at their ends within `reach`, or merges
   filled paths into one outline (`color_source` picks the paint). With one

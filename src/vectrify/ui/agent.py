@@ -184,6 +184,10 @@ Box = tuple[float, float, float, float]
 # (which adds that ids and points are never empty). An edit's targets,
 # always given: no call acts on the current selection.
 Ids = list[str]
+# Taper controls use local drawing units and tip widths as percentages.
+# The MCP schema adds the same bounds as the UI; paint validates live calls.
+TaperLength = float
+TaperWidth = float
 # [object id, node id].
 Point = list[str]
 Points = list[Point]
@@ -1792,10 +1796,10 @@ class Agent:
         stroke_miterlimit: float | None = None,
         start_arrow: Literal["none", "arrow"] | None = None,
         end_arrow: Literal["none", "arrow"] | None = None,
-        start_taper: float | None = None,
-        end_taper: float | None = None,
-        start_taper_width: float | None = None,
-        end_taper_width: float | None = None,
+        start_taper: TaperLength | None = None,
+        end_taper: TaperLength | None = None,
+        start_taper_width: TaperWidth | None = None,
+        end_taper_width: TaperWidth | None = None,
         name: str | None = None,
         locks: list[str] | None = None,
         hidden: bool | None = None,
