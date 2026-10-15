@@ -20,7 +20,7 @@ from vectrify.document.model import (
     new_id,
 )
 from vectrify.document.taper import OWNER as TAPER_OWNER
-from vectrify.document.taper import SOURCE_OPACITY, TAPERS, active
+from vectrify.document.taper import SOURCE_OPACITY, TAPERS, WIDTHS, active
 
 SVG = "http://www.w3.org/2000/svg"
 XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -203,7 +203,9 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
             or not math.isfinite(float(value))
             or float(value) < 0
         ):
-            raise DocumentError("Taper length must be a finite nonnegative number")
+            raise DocumentError("Taper value must be a finite nonnegative number")
+        if name in WIDTHS and float(value) > 100:
+            raise DocumentError("Taper tip width must be between 0 and 100 percent")
         if name in NUMERIC:
             if not re.fullmatch(NUMBER, value) or not math.isfinite(float(value)):
                 raise DocumentError(f"{name} must be a finite number in document units")

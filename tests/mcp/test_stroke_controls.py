@@ -30,6 +30,8 @@ def test_mcp_stroke_styles_and_schema(tmp_path):
                 "end_arrow",
                 "start_taper",
                 "end_taper",
+                "start_taper_width",
+                "end_taper_width",
             }
             data(await client.call_tool("open", {"path": str(drawing)}))
             reply = data(
@@ -43,6 +45,8 @@ def test_mcp_stroke_styles_and_schema(tmp_path):
                         "end_arrow": "arrow",
                         "start_taper": 10,
                         "end_taper": 15,
+                        "start_taper_width": 50,
+                        "end_taper_width": 25,
                     },
                 )
             )
@@ -53,5 +57,7 @@ def test_mcp_stroke_styles_and_schema(tmp_path):
             svg = data(await client.call_tool("get_svg", {}))["svg"]
             assert 'data-vectrify-taper-owner="p"' in svg
             assert float(p["paint"]["data-vectrify-taper-start"]) == 10
+            assert float(p["paint"]["data-vectrify-taper-start-width"]) == 50
+            assert float(p["paint"]["data-vectrify-taper-end-width"]) == 25
 
     asyncio.run(run())

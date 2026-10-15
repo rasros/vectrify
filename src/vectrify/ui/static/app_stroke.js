@@ -17,7 +17,7 @@ export function createStrokeController(editor, {
     $('stroke-shape-controls').hidden = !shapes;
     const open = shapes && items.every(item => item.open_path);
     $('path-end-controls').hidden = !open;
-    const fields = [['stroke-linecap', 'stroke-linecap', 'butt'], ['stroke-linejoin', 'stroke-linejoin', 'miter'], ['stroke-miterlimit', 'stroke-miterlimit', '4'], ['start-taper', 'data-vectrify-taper-start', '0'], ['end-taper', 'data-vectrify-taper-end', '0'], ['start-arrow', 'data-vectrify-arrow-start', 'none'], ['end-arrow', 'data-vectrify-arrow-end', 'none']];
+    const fields = [['stroke-linecap', 'stroke-linecap', 'butt'], ['stroke-linejoin', 'stroke-linejoin', 'miter'], ['stroke-miterlimit', 'stroke-miterlimit', '4'], ['start-taper', 'data-vectrify-taper-start', '0'], ['end-taper', 'data-vectrify-taper-end', '0'], ['start-taper-width', 'data-vectrify-taper-start-width', '0'], ['end-taper-width', 'data-vectrify-taper-end-width', '0'], ['start-arrow', 'data-vectrify-arrow-start', 'none'], ['end-arrow', 'data-vectrify-arrow-end', 'none']];
     for (const [id, attr, fallback] of fields) {
       const values = items.map(item => attr.startsWith('data-') ? item?.attributes?.[attr] || fallback : resolvedPaint(item.id, attr, fallback));
       $(id).value = values.length && values.every(v => v === values[0]) ? values[0] : '';
@@ -33,11 +33,11 @@ export function createStrokeController(editor, {
     }
 
     for (const side of ['start', 'end']) {
-      $(`${side}-taper`).onchange = event => {
+      for (const suffix of ['', '-width']) $(`${side}-taper${suffix}`).onchange = event => {
         if (event.target.value.trim() === '') { renderStrokeControls(); return; }
         const value = Number(event.target.value);
-        if (!Number.isFinite(value) || value < 0) { toast('Taper length must be zero or greater', true); renderStrokeControls(); return; }
-        paint({['data-vectrify-taper-' + side]: String(value)});
+        if (!Number.isFinite(value) || value < 0 || (suffix && value > 100)) { toast(suffix ? 'Taper tip width must be between 0 and 100 percent' : 'Taper distance must be zero or greater', true); renderStrokeControls(); return; }
+        paint({['data-vectrify-taper-' + side + suffix]: String(value)});
       };
     }
 

@@ -35,7 +35,8 @@ export function taperPreview(geometry, width, style) {
     let start=sub.closed?0:Number(style.start||0),end=sub.closed?0:Number(style.end||0);
     const scale=Math.max(start,end,length),sum=start/scale+end/scale;
     if (sum>length/scale) {start=length*(start/scale)/sum;end=length*(end/scale)/sum;}
-    const radius=d=>width/2*Math.max(0,Math.min(1,start?d/start:1,end?(length-d)/end:1));
+    const startWidth=Number(style.startWidth||0)/100,endWidth=Number(style.endWidth||0)/100;
+    const radius=d=>width/2*Math.max(0,Math.min(1,start?startWidth+(1-startWidth)*d/start:1,end?endWidth+(1-endWidth)*(length-d)/end:1));
     const samples=[[points[0],0]];
     for(let i=0;i<points.length-1;i++) {
       const low=distances[i],high=distances[i+1],a=points[i],b=points[i+1];
@@ -59,8 +60,8 @@ export function taperPreview(geometry, width, style) {
     }
     for(let i=1;i<directions.length;i++) join(points[i],radii[i],directions[i-1],directions[i]);
     if(sub.closed) join(points[0],radii[0],directions.at(-1),directions[0]);
-    else for(const [i,u,tapered] of [[0,directions[0],start],[points.length-1,directions.at(-1),end]]) {
-      if(tapered) continue;
+    else for(const [i,u] of [[0,directions[0]],[points.length-1,directions.at(-1)]]) {
+      if(radii[i]===0) continue;
       const p=points[i],r=radii[i],outward=i?u:[-u[0],-u[1]],n=[-u[1],u[0]];
       if(style.cap==='round') arc(p,r,Math.atan2(outward[1],outward[0])-Math.PI/2,Math.PI);
       else if(style.cap==='square') {const q=offset(p,outward,r);add([offset(p,n,r),offset(q,n,r),offset(q,n,-r),offset(p,n,-r)]);}

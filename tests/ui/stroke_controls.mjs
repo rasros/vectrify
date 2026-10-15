@@ -52,12 +52,27 @@ const errorCount=errors.length;field('start-taper').onchange({target:{value:'-1'
 const editCount=edits.length;field('start-taper').onchange({target:{value:''}});assert.equal(edits.length,editCount);
 items.get('a').attributes['data-vectrify-taper-start']='10';state.selection.objects=['a','b'];render();assert.equal(field('start-taper').value,'');
 items.get('a').inherited_locks=['data-vectrify-taper-start'];render();assert.equal(field('start-taper').disabled,true);assert.equal(field('end-taper').disabled,false);
+field('start-taper-width').onchange({target:{value:'50'}});assert.equal(edits.at(-1)['data-vectrify-taper-start-width'],'50');
+field('end-taper-width').onchange({target:{value:'25'}});assert.equal(edits.at(-1)['data-vectrify-taper-end-width'],'25');
+for (const value of ['-1','101','Infinity','bad']) {
+  const count=edits.length;field('end-taper-width').onchange({target:{value}});assert.equal(edits.length,count);
+}
+state.selection.objects=['a'];items.get('a').attributes['data-vectrify-taper-end-width']='25';render();assert.equal(field('end-taper-width').value,'25');
+state.selection.objects=['a','b'];render();assert.equal(field('end-taper-width').value,'');
+items.get('a').inherited_locks=['data-vectrify-taper-end-width'];render();assert.equal(field('end-taper-width').disabled,true);assert.equal(field('start-taper-width').disabled,false);
+state.selection.objects=['a'];items.get('a').inherited_locks=['paint'];render();assert.equal(field('start-taper-width').disabled,true);
 const {taperPreview}=await import('../../src/vectrify/ui/static/taper.js');
 const straight={subpaths:[{closed:false,nodes:[{values:[10,50]},{values:[90,50]}]}]};
 const outline=taperPreview(straight,10,{start:20,end:20});
 assert.ok(outline.includes('10 50'));assert.ok(outline.includes('90 50'));assert.ok(outline.includes('30 55'));assert.ok(outline.includes('70 55'));
+const partial=taperPreview(straight,10,{start:20,end:30,startWidth:50,endWidth:20});
+assert.ok(partial.includes('10 52.5'));assert.ok(partial.includes('90 51'));assert.ok(partial.includes('30 55'));assert.ok(partial.includes('60 55'));
+const capped=taperPreview(straight,10,{start:20,end:20,startWidth:50,endWidth:20,cap:'square'});
+assert.ok(capped.includes('7.5 52.5'));assert.ok(capped.includes('91 51'));
 attrs['data-vectrify-taper-start']='20';
 const taperedCompanion={attrs:{},getAttribute:k=>k==='data-vectrify-taper-owner'?'a':null,setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];}};
 preview.drawing.querySelectorAll=()=>[taperedCompanion];
 preview.syncArrowPreview(element);assert.ok(taperedCompanion.attrs.d.includes('90 30'));
 attrs.transform='translate(5 6)';preview.syncArrowPreview(element);assert.equal(taperedCompanion.attrs.transform,'translate(5 6)');
+attrs['data-vectrify-taper-start-width']='50';preview.syncArrowPreview(element);
+assert.ok(taperedCompanion.attrs.d.startsWith(taperPreview(g,2,{start:'20',startWidth:'50'})+' '));

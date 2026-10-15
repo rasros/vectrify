@@ -411,8 +411,14 @@ and saved projects restore it.
   stroke colour and width, and remain part of its selection. Projects preserve
   the settings; SVG exports contain ordinary triangle paths with owner metadata
   so reopening restores editable endpoint decorations without duplicate objects.
-  **Start taper** and **End taper** narrow the corresponding end to a point over
-  the given length in local drawing units; **0** disables that taper. Each open
+  **Start taper** and **End taper** each have two controls. **Begins from start/end**
+  sets the distance from that endpoint, in local drawing units, where narrowing
+  begins; **0** disables that taper. **Shrink to %** sets the endpoint's width
+  relative to the stroke width: **0%** makes a point, **50%** leaves half the
+  width, and **100%** keeps full width. For example, an end taper beginning
+  **20** units from the end and shrinking to **25%** narrows over the last
+  20 units to a quarter of the stroke width. Existing tapers default to 0%.
+  Nonzero tips use the chosen line cap at their reduced width. Each open
   contour gets its own tapers; closed contours retain their ordinary stroke.
   If the lengths overlap, they shrink proportionally to fit the contour. The
   centerline remains editable, including its nodes, and tapers follow paint and

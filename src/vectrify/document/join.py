@@ -459,9 +459,9 @@ def bake_group_path(
         # when a non-uniform transform cannot be represented by that width.
         scale = math.sqrt(abs(a * d - b * c))
         style["stroke-width"] = str(float(style["stroke-width"]) * scale)
-        from vectrify.document.taper import TAPERS
+        from vectrify.document.taper import LENGTHS
 
-        for key in TAPERS & style.keys():
+        for key in LENGTHS & style.keys():
             style[key] = str(float(style[key]) * scale)
     geometry = transformed_geometry(document.geometry_for(element.id), matrix)
     if clips and style["fill"] != "none":

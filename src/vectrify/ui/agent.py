@@ -208,6 +208,8 @@ PAINT_KEYS = (
     "data-vectrify-arrow-end",
     "data-vectrify-taper-start",
     "data-vectrify-taper-end",
+    "data-vectrify-taper-start-width",
+    "data-vectrify-taper-end-width",
 )
 # What pick() looks through to the objects inside.
 CONTAINERS = frozenset({"svg", "g", "defs", "clipPath", "linearGradient", "stop"})
@@ -1792,6 +1794,8 @@ class Agent:
         end_arrow: Literal["none", "arrow"] | None = None,
         start_taper: float | None = None,
         end_taper: float | None = None,
+        start_taper_width: float | None = None,
+        end_taper_width: float | None = None,
         name: str | None = None,
         locks: list[str] | None = None,
         hidden: bool | None = None,
@@ -1801,7 +1805,10 @@ class Agent:
         round, square; joins: miter, round, bevel; miter limit >= 1; start/end
         arrows: none or arrow (on open contours, following the stroke colour
         and width). start_taper/end_taper are nonnegative lengths in local
-        drawing units; zero disables that taper. Locks: edit kinds (geometry, paint,
+        drawing units measured from that end; zero disables that taper.
+        start_taper_width/end_taper_width set the tip width as 0-100 percent of
+        stroke width (default 0, a point; 100 keeps full width).
+        Locks: edit kinds (geometry, paint,
         structure, transform) or properties (fill, stroke, d, ...); an empty
         list unlocks. hidden true hides objects as display="none", saved in
         the SVG: they and all a hidden group holds are not drawn, rendered or
@@ -1823,6 +1830,8 @@ class Agent:
                 ("data-vectrify-arrow-end", end_arrow),
                 ("data-vectrify-taper-start", start_taper),
                 ("data-vectrify-taper-end", end_taper),
+                ("data-vectrify-taper-start-width", start_taper_width),
+                ("data-vectrify-taper-end-width", end_taper_width),
             )
             if value is not None
         }
