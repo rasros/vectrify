@@ -348,7 +348,8 @@ older entry preserves unrelated later edits and refuses conflicts atomically.
 
 **Objects**: `properties(ids, fill?, stroke?, stroke_width?, opacity?,
 fill_opacity?, stroke_opacity?, stroke_linecap?, stroke_linejoin?,
-stroke_miterlimit?, start_arrow?, end_arrow?, name?, locks?, hidden?)` (paint; a name, with one id
+stroke_miterlimit?, start_arrow?, end_arrow?, start_taper?, end_taper?,
+start_taper_width?, end_taper_width?, name?, locks?, hidden?)` (paint; a name, with one id
 only; locks, an empty list unlocking; unlocking runs before the other
 changes and locking after them; `hidden` true hides the objects, false
 shows them, all one step). Hiding is document state, as in the editor's
@@ -698,3 +699,20 @@ follow every open contour's editable endpoints and inherit stroke colour and
 width. They are included in painted bounds and hit testing; closed contours
 have no arrowheads. All settings use the existing paint permissions, locks,
 undo, and staged-batch behavior.
+
+The same `properties` tool exposes all four UI taper controls:
+
+- `start_taper` / `end_taper`: finite, nonnegative distances from each end
+  in local drawing units where narrowing begins. Zero disables that end.
+- `start_taper_width` / `end_taper_width`: finite tip widths from 0 to 100
+  percent of stroke width. Zero (the default) gives a point; 100 keeps full
+  width. Setting a tip width alone does not enable a taper.
+
+For example, `properties(ids=["line"], start_taper=12.5, end_taper=20,
+start_taper_width=50, end_taper_width=0)` narrows the start to half width
+over 12.5 units and the end to a point over 20 units, in one undo step.
+Omitted settings keep their values. Tapers apply to open contours, preserve
+the editable centerline, and shrink proportionally when their distances
+overlap. They follow stroke colour, width, caps and joins and survive SVG
+and project saves. Use `properties(ids=["line"], start_taper=0, end_taper=0)`
+to disable both ends.

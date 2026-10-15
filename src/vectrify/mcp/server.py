@@ -43,12 +43,14 @@ from vectrify.ui.agent import CALLS, LOOKS
 Target = FileTarget | LiveTarget | WindowTarget
 
 # The agent's argument types as the schemas constrain them: an edit's
-# targets and points are never empty.
+# targets and points are never empty; taper controls match the UI's bounds.
 _Point = Annotated[list[str], Field(min_length=2, max_length=2)]
 CONSTRAINED: dict[str, Any] = {
     "Ids": Annotated[list[str], Field(min_length=1)],
     "Point": _Point,
     "Points": Annotated[list[_Point], Field(min_length=1)],
+    "TaperLength": Annotated[float, Field(ge=0, allow_inf_nan=False)],
+    "TaperWidth": Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)],
 }
 # Agent calls no tool offers: save, load_reference and attaching send them.
 UNOFFERED = frozenset({"hello", "export", "set_reference"})

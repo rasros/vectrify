@@ -1016,6 +1016,7 @@
     "start_taper": {
      "anyOf": [
       {
+       "minimum": 0,
        "type": "number"
       },
       {
@@ -1028,6 +1029,7 @@
     "end_taper": {
      "anyOf": [
       {
+       "minimum": 0,
        "type": "number"
       },
       {
@@ -1040,6 +1042,8 @@
     "start_taper_width": {
      "anyOf": [
       {
+       "maximum": 100,
+       "minimum": 0,
        "type": "number"
       },
       {
@@ -1052,6 +1056,8 @@
     "end_taper_width": {
      "anyOf": [
       {
+       "maximum": 100,
+       "minimum": 0,
        "type": "number"
       },
       {
