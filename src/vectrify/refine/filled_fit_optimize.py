@@ -177,11 +177,12 @@ class FilledFitOptimizer:
         import torch
 
         simple_groups = self.raster.initial_simple_groups
-        # Dense replay previously saved a full alpha, pre-layer canvas and
+        # Dense replay saves a full alpha, pre-layer canvas and
         # downstream-transparency map for every SVG path.  Painter-order
-        # compositing is local to a path's coverage tile, so retain only
-        # those slices while keeping the current canvas/transparency as
-        # full images. This is algebraically the same replay derivative.
+        # compositing is local to a path's coverage tile, so sparse replay
+        # retains only those slices while keeping the current
+        # canvas/transparency as full images. This is algebraically the same
+        # replay derivative.
         with torch.no_grad():
             coverages: list[tuple[Any, int, int] | None] = [None] * len(
                 self.scene.entries
@@ -289,7 +290,7 @@ class FilledFitOptimizer:
             tile_height,
         ), items in simple_groups.items():
             # Sparse replay keeps only a tile-local graph, so it can
-            # batch more equal-size paths than the legacy dense replay.
+            # batch more equal-size paths than dense replay.
             # This reduces native coverage launches without increasing the
             # full-canvas memory footprint.
             batch_size = self.raster.sparse_backward_batch_size(tile_width, tile_height)
