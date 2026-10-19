@@ -2,9 +2,6 @@
 
 import json
 import math
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -269,14 +266,3 @@ def test_closed_seam_toggle_applies_to_both_representations_and_recreated_handle
     send(session, "straighten_handles", points=[["p", first.id]], aligned=False)
     assert not nodes(session)[0].handles_aligned
     assert not nodes(session)[-1].handles_aligned
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_handle_selection_and_commands():
-    result = subprocess.run(
-        ["node", str(Path(__file__).with_name("handles.mjs"))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr

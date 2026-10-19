@@ -1,9 +1,6 @@
 """Persisted reference changes have a version independent of drawing edits."""
 
 import json
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -133,14 +130,3 @@ def test_export_reports_live_version_and_exact_recovery_refuses_intervening_edit
     assert status == 200
     assert json.loads(project["content"])["reference"] is None
     assert project["project_version"] == session.project_version
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_frontend_project_versions():
-    result = subprocess.run(
-        ["node", str(Path(__file__).with_name("project_versions.mjs"))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr

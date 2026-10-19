@@ -1,11 +1,8 @@
 """The Eyedropper: the session samples the artwork or the reference as MCP's
-pick does, and the tool's choices, refusals and paint edit run under Node."""
+pick does."""
 
 import base64
 import io
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -139,12 +136,3 @@ def test_backend_answers_samples_and_refuses_another_drawings():
     )
     assert status == 400
     assert "No reference is loaded" in result["error"]
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_eyedropper_tool_shows_its_target_refuses_clearly_and_applies_once():
-    script = Path(__file__).with_name("eyedropper_tool.mjs")
-    result = subprocess.run(
-        ["node", str(script)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr

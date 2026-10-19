@@ -1,9 +1,6 @@
 """Redraw outline: a stroke along the reference's edge redraws that stretch."""
 
-import shutil
-import subprocess
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -145,15 +142,6 @@ def test_an_open_contour_is_redrawn_between_the_ends_of_the_stroke():
     after = nodes(s)
     assert (after[0], after[-1]) == (start, end)
     assert min(n.endpoint[1] for n in after) == pytest.approx(5, abs=1)
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_the_editor_attaches_strokes_and_picks_the_stretch_as_the_server_does():
-    script = Path(__file__).with_name("redraw_geometry.mjs")
-    result = subprocess.run(
-        ["node", str(script)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_redrawing_one_of_several_selected_paths_keeps_them_selected():

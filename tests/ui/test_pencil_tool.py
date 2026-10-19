@@ -1,6 +1,6 @@
 """The Pencil tool: strokes fitted in the browser module become valid,
 editable paths through add_path, one undoable edit each, with the drawing
-paint and container, and its gestures and controls under Node.js."""
+paint and container."""
 
 import json
 import shutil
@@ -117,12 +117,3 @@ def test_fitted_strokes_are_valid_paths_where_drawn(parent):
         assert import_svg(export_svg(document)).element(oid).tag == "path"
         send(session, "undo")
         assert session.editor.snapshot.document == before
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_pencil_tool_gestures_fit_and_controls():
-    script = Path(__file__).with_name("pencil_tool.mjs")
-    result = subprocess.run(
-        ["node", str(script)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr

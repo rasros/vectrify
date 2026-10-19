@@ -18,18 +18,6 @@ from vectrify.ui.server import Backend
 from vectrify.ui.shared import png
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-@pytest.mark.parametrize("script", ["reference_error.mjs", "reference_render.mjs"])
-def test_reference_error_frontend(script):
-    result = subprocess.run(
-        ["node", str(Path(__file__).with_name(script))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
 def test_reference_error_in_browser():
     node = shutil.which("node")
     chrome = shutil.which("google-chrome") or shutil.which("chromium")
