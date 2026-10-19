@@ -240,13 +240,10 @@ selected piece beneath another. An accepted overlap is no longer an exact
 shared run and is not copied back in subsequent rounds. Inferred junction
 endpoints stay fixed while their handles may bend; region holds and junctions
 linked to unselected paths retain all their controls. No edge labels are
-required. Remaining fitting time may try a bounded bilateral family for a
-compatible open stroke, retained only when exact reference error improves.
-An additional joint proposal infers nearby fill cubics under later selected
+required. An additional joint proposal infers nearby fill cubics under later selected
 strokes in reference pixels (`refine.stroke_support`). De Casteljau weights
 make those fill segments follow the stroke's fitted subcurves and send their
-image gradients to its controls. A bilateral stroke family is applied before
-the fill copies are computed. A cubic crossing stroke knots keeps its point
+image gradients to its controls. A cubic crossing stroke knots keeps its point
 count and fits those samples with least-squares weights. Existing exact shared
 runs and held coordinates are excluded from inferred replacements. Topology, paint and movement limits
 remain unchanged; exact rendering compares this model with the ordinary fit.

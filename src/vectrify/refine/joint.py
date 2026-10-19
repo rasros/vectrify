@@ -143,7 +143,6 @@ class _Coordinates:
         held,
         device,
         endpoint_only=frozenset(),
-        bilateral=False,
         corners=frozenset(),
     ):
         import torch
@@ -191,15 +190,8 @@ class _Coordinates:
             stroke_only=self.stroke_only,
             corners=corners,
         )
-        self.bilateral = None
-        if bilateral and self.stroke_only:
-            from vectrify.refine.bilateral import Bilateral
-
-            self.bilateral = Bilateral.infer(self.geometry, held, options.displacement)
 
     def controls_from_local(self, local):
-        if self.bilateral is not None:
-            local = self.bilateral.controls(local)
         return self.mapping.controls_from_local(local)
 
     def geometry_at(self, local):
@@ -212,17 +204,12 @@ class _Coordinates:
                 float(v) for v in coordinates[index : index + length].reshape(-1)
             )
             index += length
-        geometry = replace(
+        return replace(
             self.geometry,
             subpaths=tuple(
                 replace(s, nodes=tuple(replace(n, values=rows[n.id]) for n in s.nodes))
                 for s in self.geometry.subpaths
             ),
-        )
-        return (
-            self.bilateral.geometry(geometry)
-            if self.bilateral is not None
-            else geometry
         )
 
     def local_at(self, geometry):
@@ -364,10 +351,6 @@ def polish(
     ``junctions`` identifies inferred holds whose endpoints must stay fixed
     but whose handles may move in that overlapping fit. Explicit region holds
     and junctions linked to unselected paths retain all their controls.
-
-    Remaining time can try a bounded bilateral family for compatible open
-    strokes. This is another exact-scored proposal; the unrestricted fit stays
-    when the reference does not support the simpler family.
     """
     if options.displacement == 0:
         return document
@@ -425,7 +408,6 @@ def polish(
                         groups.append(tuple(run))
                     run = []
         groups.append(group)
-    model_seeds = {}
     for index, group in enumerate(groups):
         if stop.is_set():
             break
@@ -434,7 +416,6 @@ def polish(
         within = _Within(now + (deadline - now) / (len(groups) - index), stop)
         try:
             initial = document
-            model_seeds[group] = {oid: initial.geometry_for(oid) for oid in group}
             document = _polish_group(
                 document,
                 group,
@@ -478,77 +459,6 @@ def polish(
         except DocumentError:
             # Unsupported contours leave the individually verified fit intact.
             continue
-    if models:
-        from vectrify.refine.bilateral import Bilateral
-
-        for group in groups:
-            if stop.is_set():
-                break
-            if group not in model_seeds:
-                continue
-            # Compare model families from the same selected geometry as the
-            # free fit. Its endpoint changes can otherwise destroy a useful
-            # correspondence before the simpler model is even considered.
-            # Keep refinements to other groups in the surrounding document.
-            initial = document
-            for geometry in model_seeds[group].values():
-                initial = initial.replace_geometry(geometry)
-            if not any(
-                path_style(initial, initial.element(oid))["fill"] == "none"
-                and Bilateral.infer(
-                    curved(initial.geometry_for(oid)), held, options.displacement
-                )
-                is not None
-                for oid in group
-            ):
-                continue
-            try:
-                candidate = _polish_group(
-                    initial,
-                    group,
-                    target,
-                    options,
-                    held,
-                    shared,
-                    score,
-                    stop,
-                    progress,
-                    junctions - frozen_points(initial, list(external)),
-                    bilateral=True,
-                )
-                context = (
-                    _context(initial, group, target, options) if score is None else None
-                )
-                if _exact_score(candidate, context, score) < _exact_score(
-                    document, context, score
-                ):
-                    document = candidate
-                if not stop.is_set():
-                    candidate = _polish_group(
-                        initial,
-                        group,
-                        target,
-                        options,
-                        held,
-                        shared,
-                        score,
-                        stop,
-                        progress,
-                        junctions - frozen_points(initial, list(external)),
-                        bilateral=True,
-                        supports=True,
-                    )
-                    context = (
-                        _context(initial, group, target, options)
-                        if score is None
-                        else None
-                    )
-                    if _exact_score(candidate, context, score) < _exact_score(
-                        document, context, score
-                    ):
-                        document = candidate
-            except DocumentError:
-                continue
     return document
 
 
@@ -581,7 +491,6 @@ def _polish_group(
     within,
     progress,
     endpoint_only,
-    bilateral=False,
     supports=False,
 ):
     import torch
@@ -614,7 +523,6 @@ def _polish_group(
             held,
             fit_device(),
             endpoint_only,
-            bilateral,
             corners=line_knots(before.geometry_for(oid)),
         )
         for oid in group
@@ -659,14 +567,6 @@ def _polish_group(
             p.mapping.local_from_controls(path)
             for p, path in zip(coordinates, paths, strict=True)
         ]
-        if stroke_supports is not None:
-            # Apply the stroke family before its subcurves reach the fills.
-            # Applying it only when building stroke coverage would leave the
-            # fill copies following an unrelated unrestricted curve.
-            local = [
-                p.bilateral.controls(values) if p.bilateral is not None else values
-                for p, values in zip(coordinates, local, strict=True)
-            ]
         local = shared_coordinates(local)
         if stroke_supports is not None:
             local = stroke_supports(local)

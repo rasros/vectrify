@@ -191,10 +191,9 @@ def test_an_exact_reference_rejects_the_coupled_proposal():
     assert result == document
 
 
-def test_coupled_bilateral_curve_improves_a_filled_shape_without_edge_labels():
+def test_stroke_supports_improve_a_filled_shape_without_edge_labels():
     pytest.importorskip("torch")
     from vectrify.refine import joint
-    from vectrify.refine.bilateral import Bilateral
 
     source = (
         '<svg width="64" height="64"><g>'
@@ -233,17 +232,11 @@ def test_coupled_bilateral_curve_improves_a_filled_shape_without_edge_labels():
         Event(),
         None,
         frozenset(),
-        bilateral=True,
         supports=True,
     )
     # Keep one real coupled fit. Model selection and comparison against the
     # same seed are exercised by the focused comparison test below.
     assert score(result) < score(document) * 0.6
-    model = Bilateral.infer(result.geometry_for("ink"), frozenset(), 4)
-    assert model is not None
-    np.testing.assert_allclose(
-        model.original, model.average(model.original), atol=1e-10
-    )
     for oid in ("fill", "ink"):
         assert result.element(oid) == document.element(oid)
         assert [n.id for s in result.geometry_for(oid).subpaths for n in s.nodes] == [
@@ -323,7 +316,7 @@ def test_model_comparison_keeps_other_groups_fits_and_uses_the_same_seed(monkeyp
     )
     calls = []
 
-    def propose(initial, group, *_args, bilateral=False, supports=False):
+    def propose(initial, group, *_args, supports=False):
         fill = group[0]
         first = initial.geometry_for(fill).subpaths[0].nodes[0]
         # Every proposal starts from the same group geometry. Fits to other
@@ -333,11 +326,11 @@ def test_model_comparison_keeps_other_groups_fits_and_uses_the_same_seed(monkeyp
         calls.append(
             (
                 fill,
-                bilateral,
+                supports,
                 initial.geometry_for(other).subpaths[0].nodes[0].endpoint[0],
             )
         )
-        x = 11 if supports else 10 if bilateral else 9
+        x = 10 if supports else 9
         geometry = initial.geometry_for(fill)
         sub = geometry.subpaths[0]
         return initial.replace_geometry(
@@ -366,5 +359,5 @@ def test_model_comparison_keeps_other_groups_fits_and_uses_the_same_seed(monkeyp
         score=score,
     )
     assert score(result) == 0
-    assert ("fill_a", True, 9) in calls
+    assert ("fill_a", True, 8) in calls
     assert ("fill_b", True, 10) in calls
