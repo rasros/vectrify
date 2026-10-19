@@ -35,7 +35,6 @@ class FilledFitOptions:
 
     xing_weight: float
     subpixels: int
-    curve_samples: int | None
     sparse_replay: bool
     max_point_displacement: float | None
 
@@ -193,7 +192,11 @@ def prepare_scene(
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    soft = device != "cuda" or not native_available()
+    # The native kernels take only these subpixel grids; any other layout
+    # renders through the portable polyline coverage instead.
+    soft = (
+        device != "cuda" or not native_available() or options.subpixels not in {1, 2, 4}
+    )
     width, height = target.size
     scale = (
         1.0

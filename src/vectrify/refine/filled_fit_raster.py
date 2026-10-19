@@ -18,8 +18,9 @@ MultiGroups = dict[tuple[str, int, int], list[tuple[int, int, int]]]
 class FilledFitRaster:
     """One scene's tile caches; native topology workspace survives Adam steps.
 
-    Keep kernel lookups on paths so callers can still patch its established
-    renderer helpers. Rebuild movement-sensitive caches at the original guards.
+    A scene renders through the native CUDA kernels, or through the portable
+    soft coverage when it is ``soft``. Rebuild movement-sensitive caches at the
+    original guards.
     """
 
     scene: FilledFitScene
@@ -48,7 +49,7 @@ class FilledFitRaster:
         # Simple paths use cropped tiles, so unlike the full-canvas compositor
         # their bounds are optimisation state.  A coordinate update can move
         # a boundary outside its initial two-pixel antialias fringe; continuing to
-        # rasterise the old crop silently clips that fill and creates the holes and
+        # rasterise a stale crop silently clips that fill and creates the holes and
         # spikes visible in long fits.  Keep one packed reference so the movement
         # check is a single device reduction; rebuild the inexpensive Python tile
         # grouping only after a meaningful move.
@@ -142,17 +143,6 @@ class FilledFitRaster:
         top = min(top, self.scene.work_height - tile_height)
         return left, top, tile_width, tile_height
 
-    def samples_for(self, tile_width: int, tile_height: int) -> int:
-        """Choose winding tessellation from the cubic's visible pixel extent."""
-        if self.options.curve_samples is not None:
-            return self.options.curve_samples
-        longest_side = max(tile_width, tile_height)
-        if longest_side <= 32:
-            return 8
-        if longest_side <= 64:
-            return 16
-        return 32
-
     def restore_tile(self, alpha: Any, left: int, top: int) -> Any:
         import torch
 
@@ -207,72 +197,41 @@ class FilledFitRaster:
                 )
                 for index, left, top in items
             ]
-        # A contour can be longer than the fixed-width coverage
-        # primitive.  Route those through the chunked native winding path;
-        # packing them into the old batched coverage call would force eager
-        # Torch broadcasting over every cubic and pixel.
-        if self.scene.controls[items[0][0]][0].shape[0] > paths.FUSED_CUBICS:
-            from vectrify.refine.cuda_renderer import multi_coverage
+        from vectrify.refine import cuda_renderer
 
-            chunked = [
-                paths.fused_chunks(
-                    self.scene.controls[index][0]
-                    - self.scene.controls[index][0].new_tensor((left, top))
-                )
-                for index, left, top in items
-            ]
+        box = (0, 0, tile_width, tile_height)
+        chunked = [
+            paths.fused_chunks(
+                self.scene.controls[index][0]
+                - self.scene.controls[index][0].new_tensor((left, top))
+            )
+            for index, left, top in items
+        ]
+        if self.scene.controls[items[0][0]][0].shape[0] > paths.FUSED_CUBICS:
+            # A contour longer than the fixed-width primitive is a path of
+            # 16-cubic chunks, whose windings add up before the fill rule.
             offsets = [0]
             for chunks in chunked:
                 offsets.append(offsets[-1] + len(chunks))
-            analytic = multi_coverage(
+            rasterised = cuda_renderer.multi_coverage(
                 torch.cat(chunked),
                 offsets,
-                (0, 0, tile_width, tile_height),
+                box,
                 subpixels=self.options.subpixels,
                 fill_rule=fill_rule,
             )
-            if analytic is not None:
-                return [
-                    (index, alpha, left, top)
-                    for (index, left, top), alpha in zip(items, analytic, strict=True)
-                ]
-            output = []
-            for index, left, top in items:
-                offset = self.scene.controls[index][0].new_tensor((left, top))
-                alpha = paths.fill_path_coverage(
-                    [self.scene.controls[index][0] - offset],
-                    (0, 0, tile_width, tile_height),
-                    fill_rule=fill_rule,
-                    samples=self.samples_for(tile_width, tile_height),
-                    subpixels=self.options.subpixels,
-                    fuse=False,
-                )
-                output.append((index, alpha, left, top))
-            return output
-        translated = torch.stack(
-            [
-                self.scene.controls[index][0]
-                - self.scene.controls[index][0].new_tensor((left, top))
-                for index, left, top in items
-            ]
-        )
-        rasterised = paths.fill_coverages(
-            translated,
-            (0, 0, tile_width, tile_height),
-            fill_rule=fill_rule,
-            samples=self.samples_for(tile_width, tile_height),
-            subpixels=self.options.subpixels,
-            fuse=False,
-            # Sparse replay keeps this graph alive through the layer's
-            # backward pass.  Torch's dynamic compiler can specialise one
-            # large tile batch into an unbounded graph here; eager chunking
-            # has the same coverage/gradient while retaining the documented
-            # tile-local memory bound.
-            dynamic_fuse=False,
-        )
+        else:
+            rasterised = cuda_renderer.coverage(
+                torch.cat(chunked),
+                box,
+                subpixels=self.options.subpixels,
+                fill_rule=fill_rule,
+            )
         return [
             (index, alpha, left, top)
-            for (index, left, top), alpha in zip(items, rasterised, strict=True)
+            for (index, left, top), alpha in zip(
+                items, _native(rasterised), strict=True
+            )
         ]
 
     def rasterise_simple(
@@ -318,8 +277,8 @@ class FilledFitRaster:
         if self.scene.soft:
             return self.soft_multi(index, path)
         # Large paths use fixed conservative candidate tiles.  Every tile
-        # sees all contours that can cross one of its horizontal rays, while
-        # avoiding the old all-contours-at-every-pixel winding fallback.
+        # sees all contours that can cross one of its horizontal rays, rather
+        # than every contour at every pixel.
         if len(path) >= 16:
             # The index has a two-pixel conservative guard band.  Rebuild it
             # after local optimisation consumes half that allowance, so a
@@ -378,15 +337,7 @@ class FilledFitRaster:
                 boundary_candidate_indices=self.large_multi_boundary_indices[index],
                 topology_workspaces=self.large_multi_topology_workspaces[index],
             )
-            if tiled_alpha is not None:
-                return tiled_alpha
-            return paths.fill_path_coverage(
-                path,
-                (0, 0, self.scene.work_width, self.scene.work_height),
-                fill_rule=self.scene.entries[index][3],
-                samples=self.samples_for(self.scene.work_width, self.scene.work_height),
-                subpixels=self.options.subpixels,
-            )
+            return _native(tiled_alpha)
         left, top, tile_width, tile_height = self.initial_multi_tiles[index]
         offset = path[0].new_tensor((left, top))
         from vectrify.refine.cuda_renderer import multi_coverage
@@ -399,17 +350,7 @@ class FilledFitRaster:
             subpixels=self.options.subpixels,
             fill_rule=self.scene.entries[index][3],
         )
-        if analytic is not None:
-            return self.restore_tile(analytic[0], left, top)
-        alpha = paths.fill_path_coverage(
-            [control - offset for control in path],
-            (0, 0, tile_width, tile_height),
-            fill_rule=self.scene.entries[index][3],
-            samples=self.samples_for(tile_width, tile_height),
-            subpixels=self.options.subpixels,
-            fuse=False,
-        )
-        return self.restore_tile(alpha, left, top)
+        return self.restore_tile(_native(analytic)[0], left, top)
 
     def rasterise_multi_group(
         self,
@@ -451,62 +392,9 @@ class FilledFitRaster:
             subpixels=self.options.subpixels,
             fill_rule=fill_rule,
         )
-        if analytic is not None:
-            return [
-                (index, self.restore_tile(alpha, left, top))
-                for (index, left, top), alpha in zip(items, analytic, strict=True)
-            ]
-        from vectrify.refine.cuda_renderer import windings as cuda_windings
-
-        native_winding = cuda_windings(
-            packed,
-            (0, 0, tile_width, tile_height),
-            samples=self.samples_for(tile_width, tile_height),
-            subpixels=self.options.subpixels,
-        )
-        if native_winding is not None:
-            path_winding = torch.stack(
-                [native_winding[start:end].sum(dim=0) for start, end in spans]
-            )
-            if fill_rule == "evenodd":
-                coverage = 0.5 * (1 - torch.cos(path_winding / 2))
-            else:
-                coverage = torch.sigmoid((path_winding.abs() - math.pi) / 0.25)
-            return [
-                (index, self.restore_tile(alpha, left, top))
-                for (index, left, top), alpha in zip(
-                    items, coverage.mean(dim=1), strict=True
-                )
-            ]
-        coverage_sum = None
-        for y in range(self.options.subpixels):
-            for x in range(self.options.subpixels):
-                winding = paths.fill_batched_windings(
-                    packed,
-                    (0, 0, tile_width, tile_height),
-                    samples=self.samples_for(tile_width, tile_height),
-                    x_offset=(x + 0.5) / self.options.subpixels,
-                    y_offset=(y + 0.5) / self.options.subpixels,
-                    batch_size=64,
-                )
-                path_winding = torch.stack(
-                    [winding[start:end].sum(dim=0) for start, end in spans]
-                )
-                if fill_rule == "evenodd":
-                    coverage = 0.5 * (1 - torch.cos(path_winding / 2))
-                else:
-                    coverage = torch.sigmoid((path_winding.abs() - math.pi) / 0.25)
-                coverage_sum = (
-                    coverage if coverage_sum is None else coverage_sum + coverage
-                )
-        assert coverage_sum is not None
         return [
             (index, self.restore_tile(alpha, left, top))
-            for (index, left, top), alpha in zip(
-                items,
-                coverage_sum / (self.options.subpixels * self.options.subpixels),
-                strict=True,
-            )
+            for (index, left, top), alpha in zip(items, _native(analytic), strict=True)
         ]
 
     def refresh_simple_tiles(self) -> None:
@@ -519,3 +407,10 @@ class FilledFitRaster:
             return
         self.initial_simple_groups = self.cropped_simple_groups()
         self.simple_tile_reference = self.scene.control_storage.detach().clone()
+
+
+def _native(coverage: Any) -> Any:
+    """A native kernel's coverage; the scene routes unsupported layouts to soft."""
+    if coverage is None:
+        raise RuntimeError("the native coverage kernel rejected a supported layout")
+    return coverage

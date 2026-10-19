@@ -1,4 +1,4 @@
-"""Optional CUDA winding operator for fixed-length closed cubic contours."""
+"""Optional CUDA coverage kernels for fixed-length closed cubic contours."""
 
 from __future__ import annotations
 
@@ -28,107 +28,6 @@ def available() -> bool:
     return _extension() is not None
 
 
-def winding(
-    controls: Any,
-    box: tuple[int, int, int, int],
-    *,
-    samples: int,
-    x_offset: float,
-    y_offset: float,
-) -> Any | None:
-    """Return a differentiable native winding field, otherwise ``None``."""
-    import torch
-
-    extension = _extension()
-    if (
-        extension is None
-        or not controls.is_cuda
-        or controls.dtype != torch.float32
-        or controls.ndim != 4
-        or controls.shape[1:] != (16, 4, 2)
-        or samples not in {8, 16, 32}
-    ):
-        return None
-    left, top, right, bottom = box
-    height, width = bottom - top, right - left
-
-    class Winding(torch.autograd.Function):
-        @staticmethod
-        def forward(ctx, value):
-            value = value.contiguous()
-            ctx.save_for_backward(value)
-            return extension.forward(
-                value, height, width, samples, left + x_offset, top + y_offset
-            )
-
-        @staticmethod
-        def backward(ctx: Any, *upstreams: Any) -> Any:
-            (value,) = ctx.saved_tensors
-            upstream = upstreams[0]
-            return extension.backward(
-                value,
-                upstream.contiguous(),
-                height,
-                width,
-                samples,
-                left + x_offset,
-                top + y_offset,
-            )
-
-    return Winding.apply(controls)
-
-
-def windings(
-    controls: Any,
-    box: tuple[int, int, int, int],
-    *,
-    samples: int,
-    subpixels: int,
-) -> Any | None:
-    """Return all subpixel winding fields with one native backward reduction."""
-    import torch
-
-    extension = _extension()
-    if (
-        extension is None
-        or not controls.is_cuda
-        or controls.dtype != torch.float32
-        or controls.ndim != 4
-        or controls.shape[1:] != (16, 4, 2)
-        or samples not in {8, 16, 32}
-        or subpixels not in {1, 2, 4}
-    ):
-        return None
-    left, top, right, bottom = box
-    height, width = bottom - top, right - left
-
-    class Windings(torch.autograd.Function):
-        @staticmethod
-        def forward(ctx, value):
-            value = value.contiguous()
-            ctx.save_for_backward(value)
-            return extension.forwards(
-                value, height, width, samples, subpixels, left, top
-            )
-
-        @staticmethod
-        def backward(ctx: Any, *upstreams: Any) -> Any:
-            (value,) = ctx.saved_tensors
-            upstream = upstreams[0]
-            return extension.backwards(
-                value,
-                upstream.contiguous(),
-                height,
-                width,
-                samples,
-                subpixels,
-                left,
-                top,
-            )
-
-    return Windings.apply(controls)
-
-
 def coverage(
     controls: Any,
     box: tuple[int, int, int, int],
@@ -138,9 +37,8 @@ def coverage(
 ) -> Any | None:
     """Analytic cubic coverage with a boundary-local differentiable pass.
 
-    This intentionally accepts one closed contour per batch item.  Callers
-    combine holes through the winding oracle until the native multi-contour
-    interface can preserve SVG fill-rule composition in one operation.
+    This accepts one closed contour per batch item. A path of several
+    contours, holes included, goes through :func:`multi_coverage`.
     """
     import torch
 
