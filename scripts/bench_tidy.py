@@ -57,10 +57,25 @@ def _render(document, white=False):
 
 def _only(document, oids):
     keep = {a.id for oid in oids for a in document.ancestry(oid)}
+    # Private gradients must stay with their owners, so drop the pruned ones'.
+    shown = keep | {
+        e.id
+        for e in document.elements()
+        if any(a.id in oids for a in document.ancestry(e.id))
+    }
 
     def prune(element):
-        if element.tag == "defs" or element.id in oids:
+        if element.id in oids:
             return element
+        if element.tag == "defs":
+            return replace(
+                element,
+                children=tuple(
+                    c
+                    for c in element.children
+                    if c.paint_owner is None or c.paint_owner in shown
+                ),
+            )
         return replace(
             element,
             children=tuple(
