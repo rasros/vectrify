@@ -1,7 +1,7 @@
 [project]
 name = "vectrify"
 dynamic = ["version"]
-description = "Vectorizes raster images (PNG/JPG) in a local SVG editor, with automated generate, improve and simplify operations. Outputs editable SVG."
+description = "A local SVG editor that turns raster images into editable vector art, with automated tracing and tidying against the reference and an MCP server through which AI agents edit the drawing."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -16,8 +16,10 @@ keywords = [
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Environment :: X11 Applications :: Qt",
     "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -61,6 +63,7 @@ dev = [
     "pytest-xdist",
     "ruff",
     "pyrefly",
+    "vulture",
     # CI installs dev, and the MCP server's tests need the SDK.
     "mcp>=2.2",
 ]
@@ -72,7 +75,6 @@ Issues = "https://github.com/rasros/vectrify/issues"
 
 [project.scripts]
 vectrify = "vectrify.ui.server:main"
-vectrify-ui = "vectrify.ui.server:main"
 vectrify-mcp = "vectrify.mcp.server:main"
 
 [build-system]
