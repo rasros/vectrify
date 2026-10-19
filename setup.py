@@ -1,8 +1,8 @@
-"""Build the optional CUDA renderer extension for release wheels.
+"""Build the optional CUDA renderer extension, only on request.
 
-Normal source installs intentionally remain pure Python.  Release builders
-set ``VECTRIFY_BUILD_CUDA_RENDERER=1`` after installing the matching CUDA Torch
-wheel; the resulting wheel bundles ``vectrify._cuda_renderer``.
+Installs and PyPI releases are pure Python and do not bundle it. Setting
+``VECTRIFY_BUILD_CUDA_RENDERER=1``, with a CUDA build of Torch installed,
+builds a local wheel that includes ``vectrify._cuda_renderer``.
 """
 
 from __future__ import annotations
