@@ -131,18 +131,6 @@ def to_path_d(segments, *, precision: int = 1) -> str:
 FUSED_CUBICS = 16
 
 
-def _bounds(segments_list, margin: float, size: int) -> tuple[int, int, int, int]:
-    xs = [p[0] for segs in segments_list for seg in segs for p in seg]
-    ys = [p[1] for segs in segments_list for seg in segs for p in seg]
-    left = max(0, int(min(xs) - margin))
-    top = max(0, int(min(ys) - margin))
-    right = min(size, int(max(xs) + margin) + 1)
-    bottom = min(size, int(max(ys) + margin) + 1)
-    if right - left < 2 or bottom - top < 2:
-        raise UnsupportedPathError("group occupies no area")
-    return left, top, right, bottom
-
-
 def _fill_winding(
     control: Any,
     box: tuple[int, int, int, int],

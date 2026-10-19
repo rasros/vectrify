@@ -104,7 +104,6 @@ def settings_schema(action: str, name: str) -> dict[str, Any]:
             "outline, line_width and strokes control line generation.",
             "regions=0 chooses a palette size automatically.",
         ],
-        "cel-planned": ["Experimental planner; quality controls runtime."],
     }
     return {
         "type": "object",

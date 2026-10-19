@@ -119,6 +119,9 @@ _.force_exit
 # Generated MCP tool functions are named for FastMCP.
 _.__qualname__
 
+# MCP tools registered by decorator and called by clients.
+_.load_reference
+
 # CleanupStats TypedDict fields, filled and read as dict keys.
 _.paths_before
 _.paths_after
