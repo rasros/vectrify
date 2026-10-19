@@ -2,7 +2,7 @@
 
 `vectrify.document` is the editor's document model. It is independent of
 Torch. Automated operations reach it through
-`vectrify.operations` (see `docs/operations.md`).
+`vectrify.operations` (see [operations.md](operations.md)).
 
 ## Editing state
 
@@ -290,7 +290,7 @@ Private paint ownership is retained by the SVG data attribute
 and `url(#id)` reference.
 Use `save_project(document, selection)` and `load_project(json_text)` for a
 versioned project snapshot retaining those identities, constraints, and current
-selection. Version 4 is written; versions 1, 2 and 3 still load. Version 2 also
-stored shared boundary links between edges, from when the editor linked
-paths; those are dropped on load, keeping the contours as they are.
+selection. Version 4 is written; versions 1, 2 and 3 load too. Shared boundary links
+between edges in version 2 files are dropped on load, keeping the contours as
+they are.
 Project loading validates references and the supported subset.
