@@ -82,10 +82,13 @@ $('nodes-simplify').checked = true;
 $('nodes-in-view').checked = true;
 assert.deepEqual((await request()).settings, {shape:true, detail:false, simplify:true, snap:true, region});
 toggle(true);
-assert.equal($('nodes-detail-gain').disabled, true);
+assert.equal($('nodes-steps').disabled, false);
+$('nodes-shape').checked = false;
+$('nodes-shape').handlers.change();
+assert.equal($('nodes-steps').disabled, true);
+$('nodes-shape').checked = true;
 $('nodes-detail').checked = true;
 $('nodes-shape').handlers.change();
-assert.equal($('nodes-detail-gain').disabled, false);
 
 // The no-reference simplification default is tighter than reference fitting.
 state.reference = false;

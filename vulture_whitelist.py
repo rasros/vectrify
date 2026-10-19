@@ -136,6 +136,7 @@ _.skipped_reason
 # pytest: collection hook and fixtures used via usefixtures/autouse.
 _.collect_ignore_glob
 _.snap_twists
+_.low_resolution
 _.fit_ready
 _.cpu_only
 

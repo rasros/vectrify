@@ -5,7 +5,7 @@ points and handles, keeping the better exact render. Add detail explicitly
 allows adding points. Strokes first seek the middle and width of their ink;
 round strokes also support gradient fitting on CPU and CUDA. Without PyTorch,
 edge-seeking remains available. Simplify removes unnecessary points within
-an error budget and a tolerance in reference pixels. The legacy snap-only
+the allowance and a tolerance in reference pixels. The legacy snap-only
 setting remains available to API callers.
 
 Every round tries each chosen step on the paths as they stand and keeps the
@@ -18,8 +18,7 @@ started) worse than a small allowance, so a Tidy never trades the match
 for fewer points beyond it; once nothing qualifies the run ends. A step
 that leaves an outline crossing itself more than before, a twist or a
 curve looped over itself, is never kept, however close it gets; concave
-outlines are fine. With several workers a round's steps run
-side by side, but only one path fit runs at a time.
+outlines are fine.
 
 Every run has a time limit. Each round checks it and gives the inexpensive
 steps a share of what is left. The fit reclaims the unused time, reserving a
@@ -32,12 +31,9 @@ Colour is left to Fit colours.
 
 from __future__ import annotations
 
-import multiprocessing as mp
-import os
 import threading
 import time
 from collections.abc import Mapping
-from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
@@ -74,6 +70,11 @@ BAND = 2
 # How far, in reference pixels, a fitted curve's handles may sit from its
 # line and still be drawn as the line.
 STRAIGHT = 0.25
+# The size, in pixels on the long side, a path fit works at.
+RESOLUTION = 384
+# A path fit stops once a check, every ten steps, improves its match by less
+# than this share: it has stalled.
+STALL = 0.001
 
 SETTINGS = {
     "shape": Setting(bool, True),
@@ -84,32 +85,21 @@ SETTINGS = {
     # How far past the selection, as a share of its size in percent, the
     # reference is read: how far a snapped or added point can reach.
     "margin": Setting(float, 10.0, minimum=0.0, maximum=200.0, label="margin"),
-    "detail_gain": Setting(
-        float, 12.0, minimum=1.0, maximum=500.0, label="detail gain"
-    ),
     "simplify": Setting(bool, True),
-    # How much Simplify may raise the difference where it acts, in percent:
-    # it removes points only while the match stays within this.
-    "budget": Setting(float, 1.0, minimum=0.0, maximum=100.0, label="error budget"),
     # The most Simplify may move an outline at any point, in the
-    # reference's pixels: a cap, as the error budget decides how far it goes;
+    # reference's pixels: a cap, as the allowance decides how far it goes;
     # without a reference it decides alone, and is NO_REFERENCE unless set.
     "tolerance": Setting(float, 3.0, minimum=0.0, maximum=20.0, label="tolerance"),
-    # Each path fit: gradient steps, how far a point may move in SVG units,
-    # and the size it works at.
+    # Each path fit: gradient steps and how far a point may move in SVG units.
     "steps": Setting(int, 60, minimum=1, maximum=1000, label="steps"),
     "movement": Setting(float, 2.0, minimum=0.0, maximum=100.0, label="movement"),
-    "resolution": Setting(int, 384, minimum=64, maximum=2048, label="resolution"),
-    # A path fit stops once a check, every ten steps, improves its match by
-    # less than this, in percent: it has stalled.
-    "stall": Setting(float, 0.1, minimum=0.0, maximum=50.0, label="stall"),
-    "workers": Setting(int, 1, minimum=1, maximum=max(1, os.cpu_count() or 1)),
     # How much of the difference where a step acted it has to fix to be
     # kept, in percent.
     "gain": Setting(float, 1.0, minimum=0.0, maximum=50.0, label="minimum improvement"),
-    # How much worse than at the start, in percent, the difference where the
-    # run has acted may get for a step to be kept: a step that saves points
-    # but costs more than this is not.
+    # How much worse, in percent, the difference where a step acted may get:
+    # Simplify removes points only while its result stays within this of the
+    # round's start, and no step is kept that leaves the match where the run
+    # has acted worse than this against the run's start.
     "allowance": Setting(float, 1.0, minimum=0.0, maximum=100.0, label="allowance"),
     # The most the whole run may take, in seconds.
     "seconds": Setting(float, 10.0, minimum=0.5, maximum=3600.0, label="time limit"),
@@ -301,7 +291,7 @@ def needed_permissions(settings) -> set[str]:
 
 @dataclass(frozen=True)
 class Task:
-    """What a step needs, sent to a worker whole."""
+    """What a step needs."""
 
     document: Document
     # The difference is measured against the region's image: the reference,
@@ -500,7 +490,6 @@ def run_step(step: str, task: Task, stop=None, progress=None):
                 region,
                 fixed,
                 detail=settings["detail"],
-                split_gain=settings["detail_gain"],
                 deadline=deadline,
             )
             candidate = _with(document, dict(paths.geometries))
@@ -578,18 +567,18 @@ def _fit_shared(task: Task, document: Document):
     )
 
 
-# How many tolerances, up to the set one, Simplify's error budget picks from.
+# How many tolerances, up to the set one, Simplify's allowance picks from.
 LADDER = 8
-# Simplify's tolerance without a reference, unless one is set: no budget
+# Simplify's tolerance without a reference, unless one is set: no allowance
 # judges it then.
 NO_REFERENCE = 1.0
 
 
 def simplified(task: Task, paths, fixed, deadline: float):
     """*paths* simplified within the tolerance and, with a reference, within
-    the error budget: at the largest of LADDER tolerances up to the set one
+    the allowance: at the largest of LADDER tolerances up to the set one
     whose result raises the difference where it acted by no more than the
-    budget, found by bisection. A larger tolerance removes more points."""
+    allowance, found by bisection. A larger tolerance removes more points."""
     from vectrify.refine.simplify import simplify
     from vectrify.refine.support import supported
 
@@ -611,7 +600,7 @@ def simplified(task: Task, paths, fixed, deadline: float):
     top = settings["tolerance"]
     if task.reference is None or top <= 0:
         return at(top)
-    budget = settings["budget"] / 100
+    allowance = settings["allowance"] / 100
     start = Scored.of(
         task.pixels if task.pixels is not None else region_pixels(document, region),
         region,
@@ -631,7 +620,7 @@ def simplified(task: Task, paths, fixed, deadline: float):
         )
         proposed = _pinned_handles(document, proposed)
         after = Scored.of(region_pixels(proposed, region), region)
-        allowed = after.fixed(start) >= -budget
+        allowed = after.fixed(start) >= -allowance
         judged.append((candidate, allowed))
         return allowed
 
@@ -682,8 +671,8 @@ def fit(task: Task, stop, progress) -> tuple[Document, dict[str, str]]:
     options = FitOptions(
         steps=settings["steps"],
         displacement=settings["movement"],
-        resolution=settings["resolution"],
-        stall=settings["stall"] / 100,
+        resolution=RESOLUTION,
+        stall=STALL,
         snap=settings["snap"],
         cleanup=True,
     )
@@ -1100,7 +1089,7 @@ class OptimizeNodes(SettingsMethod):
         )
         margin = settings["margin"] / 100
         if polygon is not None:
-            region = _area_region(request, polygon, margin, settings["resolution"])
+            region = _area_region(request, polygon, margin, RESOLUTION)
             appearances = [
                 e.id
                 for e in start.elements()
@@ -1126,13 +1115,13 @@ class OptimizeNodes(SettingsMethod):
                     request,
                     [(left, top), (right, top), (right, bottom), (left, bottom)],
                     0,
-                    settings["resolution"],
+                    RESOLUTION,
                 )
         else:
             region = (
                 target_region(score_request, margin)
                 if request.reference is not None
-                else drawing_region(score_request, settings["resolution"], margin)
+                else drawing_region(score_request, RESOLUTION, margin)
             )
             held = frozenset()
         shared = shared_edges(start, oids) if settings["shared"] else []
@@ -1169,94 +1158,81 @@ class OptimizeNodes(SettingsMethod):
         skipped: dict[str, str] = dict(locked)
         # How often each step's result crossed itself more and was not kept.
         folded: dict[str, int] = {}
-        workers = min(settings["workers"], len(steps))
-        pool = (
-            ProcessPoolExecutor(
-                max_workers=workers - 1 if "shape" in steps else workers,
-                mp_context=mp.get_context("spawn"),
+        for done in range(rounds):
+            if context.stop.is_set():
+                break
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            if shared:
+                from vectrify.refine.shared import frozen_points, intact
+
+                # Accepted overlaps are no longer exact shared runs.
+                shared = [link for link in shared if intact(document, link)]
+                held = region_held | frozen_points(document, shared)
+            heading = f"Round {done + 1}/{rounds} · {points} points"
+            context.progress(done, heading, total=rounds)
+
+            def report(_step, message, done=done, heading=heading):
+                context.progress(done, f"{heading} · {message}")
+
+            task = Task(
+                document,
+                region,
+                settings,
+                oids,
+                request.reference,
+                deadline,
+                # One share is kept back for rendering and judging them.
+                left / (len(steps) + 1),
+                held,
+                tuple(shared),
+                "paint" in request.permissions.allowed
+                and not any(
+                    {"paint", "stroke-width"} & a.locks
+                    for user in affected
+                    for a in start.ancestry(user)
+                ),
+                current.pixels,
+                held - region_held,
             )
-            if workers > 1
-            else None
-        )
-        try:
-            for done in range(rounds):
-                if context.stop.is_set():
-                    break
-                left = deadline - time.monotonic()
-                if left <= 0:
-                    break
-                if shared:
-                    from vectrify.refine.shared import frozen_points, intact
+            results = run_round(steps, task, context.stop, report)
+            for _doc, _pixels_after, why in results.values():
+                skipped.update(why)
+            for step in _folding(results, crossings(document, watched), watched):
+                del results[step]
+                folded[step] = folded.get(step, 0) + 1
+            scored = {
+                step: (after, Scored.of(pixels, region))
+                for step, (after, pixels, _why) in results.items()
+            }
+            from vectrify.document.features import violations
 
-                    # Accepted overlaps are no longer exact shared runs.
-                    shared = [link for link in shared if intact(document, link)]
-                    held = region_held | frozen_points(document, shared)
-                heading = f"Round {done + 1}/{rounds} · {points} points"
-                context.progress(done, heading, total=rounds)
-
-                def report(_step, message, done=done, heading=heading):
-                    context.progress(done, f"{heading} · {message}")
-
-                task = Task(
-                    document,
-                    region,
-                    settings,
-                    oids,
-                    request.reference,
-                    deadline,
-                    # One share is kept back for rendering and judging them.
-                    left / (len(steps) + 1),
-                    held,
-                    tuple(shared),
-                    "paint" in request.permissions.allowed
-                    and not any(
-                        {"paint", "stroke-width"} & a.locks
-                        for user in affected
-                        for a in start.ancestry(user)
-                    ),
-                    current.pixels,
-                    held - region_held,
-                )
-                results = run_round(steps, task, pool, context.stop, report)
-                for _doc, _pixels_after, why in results.values():
-                    skipped.update(why)
-                for step in _folding(results, crossings(document, watched), watched):
-                    del results[step]
-                    folded[step] = folded.get(step, 0) + 1
-                scored = {
-                    step: (after, Scored.of(pixels, region))
-                    for step, (after, pixels, _why) in results.items()
-                }
-                from vectrify.document.features import violations
-
-                for step, (candidate, _) in list(scored.items()):
-                    problems = violations(start, candidate)
-                    if problems:
-                        skipped[step] = (
-                            f"Protected feature {problems[0]['node']}: "
-                            f"{problems[0]['reason']}"
-                        )
-                        del scored[step]
-                chosen = _choose(
-                    scored,
-                    current,
-                    points,
-                    oids,
-                    settings["gain"] / 100,
-                    # Without a reference Simplify is judged against the
-                    # drawing itself, which any change makes worse.
-                    start_score if request.reference is not None else None,
-                    settings["allowance"] / 100,
-                    handles=_handles(document, oids),
-                )
-                if chosen is None:
-                    break
-                taken.append(chosen)
-                document, current = scored[chosen]
-                points = _count(document, oids)
-        finally:
-            if pool is not None:
-                pool.shutdown(wait=True, cancel_futures=True)
+            for step, (candidate, _) in list(scored.items()):
+                problems = violations(start, candidate)
+                if problems:
+                    skipped[step] = (
+                        f"Protected feature {problems[0]['node']}: "
+                        f"{problems[0]['reason']}"
+                    )
+                    del scored[step]
+            chosen = _choose(
+                scored,
+                current,
+                points,
+                oids,
+                settings["gain"] / 100,
+                # Without a reference Simplify is judged against the
+                # drawing itself, which any change makes worse.
+                start_score if request.reference is not None else None,
+                settings["allowance"] / 100,
+                handles=_handles(document, oids),
+            )
+            if chosen is None:
+                break
+            taken.append(chosen)
+            document, current = scored[chosen]
+            points = _count(document, oids)
 
         spent = time.monotonic() - began
         out_of_time = not context.stop.is_set() and time.monotonic() >= deadline
@@ -1398,17 +1374,11 @@ def _folding(results, before: dict[str, int], oids) -> list[str]:
     ]
 
 
-def run_round(steps, task: Task, pool, stop, report):
-    """Each step's outcome from the same start. The path fit runs here, the
-    others on the workers alongside it."""
-    pending: dict[str, Future] = {}
-    if pool is not None:
-        for step in steps:
-            if step != "shape":
-                pending[step] = pool.submit(run_step, step, task)
+def run_round(steps, task: Task, stop, report):
+    """Each step's outcome from the same start, the path fit last."""
     results = {}
     for step in steps:
-        if step != "shape" and step not in pending:
+        if step != "shape":
             results[step] = run_step(step, task, stop, report)
     if "shape" in steps:
         # Cheap steps often finish well before their share. Give the fit the
@@ -1418,8 +1388,6 @@ def run_round(steps, task: Task, pool, stop, report):
         remaining = max(0.0, task.deadline - time.monotonic() - 0.25)
         fitting = replace(task, share=remaining)
         results["shape"] = run_step("shape", fitting, stop, report)
-    for step, future in pending.items():
-        results[step] = future.result()
     return {step: results[step] for step in steps}
 
 

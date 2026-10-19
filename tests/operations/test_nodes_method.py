@@ -35,6 +35,12 @@ def editor(*ids):
     return Editor(import_svg(SVG), selection=Selection(object_ids=frozenset(ids)))
 
 
+@pytest.fixture
+def low_resolution(monkeypatch):
+    """Fit paths at a small size, quick enough for these drawings."""
+    monkeypatch.setattr(nodes_method, "RESOLUTION", 64)
+
+
 # The path fit on its own unless a test says otherwise, as the tests were
 # written against it.
 FIT = {"shape": True, "snap": False, "simplify": False}
@@ -47,7 +53,7 @@ def request(ed, *, steps=4, with_reference=True, **settings):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True, paint=True),
-        settings={"workers": 1, "resolution": 64, "steps": 30, **FIT, **settings},
+        settings={"steps": 30, **FIT, **settings},
         budget=Budget(steps=steps),
         reference=reference() if with_reference else None,
     )
@@ -85,6 +91,7 @@ def test_validation_names_what_is_missing():
         nodes.validate(narrow)
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_fitting_moves_only_the_selected_path_and_keeps_its_node_ids():
     ed = editor("p")
     original = ed.snapshot.document
@@ -105,6 +112,7 @@ def test_fitting_moves_only_the_selected_path_and_keeps_its_node_ids():
     assert document.element("bg") == original.element("bg")
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_fits_repeated_closing_knots_without_opening_spikes():
     # Like arena's path 425: several redundant knots after the explicit
     # closing curve. These are separate IDs, but all describe one corner.
@@ -142,6 +150,7 @@ def test_tidy_fits_repeated_closing_knots_without_opening_spikes():
     assert crossings(geometry) == 0
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_cleans_unsupported_dents_even_when_gradient_fitting_stalls(monkeypatch):
     pytest.importorskip("torch")
     source = (
@@ -172,6 +181,7 @@ def test_tidy_cleans_unsupported_dents_even_when_gradient_fitting_stalls(monkeyp
     assert new[5].endpoint == (32, 20)
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_smoothing_keeps_a_supported_unmarked_notch():
     pytest.importorskip("torch")
     source = (
@@ -199,6 +209,7 @@ def test_tidy_smoothing_keeps_a_supported_unmarked_notch():
     assert geometry.node(old[8].id).endpoint[1] < 16.5
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_simplify_without_a_reference_removes_points_and_keeps_the_look():
     ed = editor("p")
     job = Job(
@@ -216,6 +227,7 @@ def test_simplify_without_a_reference_removes_points_and_keeps_the_look():
     assert len(nodes_of(ed.snapshot.document)) == metrics["after"]["nodes"]
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_combined_tidy_reduces_error_without_adding_nodes():
     ed = editor("p")
     job = Job(
@@ -231,6 +243,7 @@ def test_combined_tidy_reduces_error_without_adding_nodes():
     assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_fitting_and_simplification_can_both_be_retained(monkeypatch):
     from vectrify.refine import selected
     from vectrify.refine.simplify import curved
@@ -270,21 +283,7 @@ def test_fitting_and_simplification_can_both_be_retained(monkeypatch):
     assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
 
 
-def test_workers_run_the_steps_side_by_side_to_the_same_result():
-    alone, together = (
-        Job(
-            method("improve", "nodes"),
-            request(editor("p"), steps=3, snap=True, simplify=True, workers=n),
-        )
-        for n in (1, 3)
-    )
-    alone.run()
-    together.run()
-    first, second = alone.state()["result"], together.state()["result"]
-    assert first["metrics"]["steps"] == second["metrics"]["steps"]
-    assert first["metrics"]["after"] == second["metrics"]["after"]
-
-
+@pytest.mark.usefixtures("low_resolution")
 def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
     ed = editor("p")
     disc = Image.new("RGB", (64, 64), "white")
@@ -296,8 +295,6 @@ def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
         editor=ed,
         permissions=Permissions(geometry=True, structure=True, paint=True),
         settings={
-            "workers": 1,
-            "resolution": 64,
             "steps": 40,
             "movement": 6.0,
             **FIT,
@@ -326,6 +323,7 @@ def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
         (False, False, True, False),
     ],
 )
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_does_not_add_handles_to_pinned_nodes(shape, snap, simplify, detail):
     ed = editor("p")
     pins = ed.snapshot.document.geometry_for("p").subpaths[0].nodes[:2]
@@ -382,6 +380,7 @@ def snap_twists(monkeypatch):
     monkeypatch.setattr(nodes_method, "run_step", twisting)
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_a_step_that_makes_a_path_cross_itself_is_not_kept(monkeypatch):
     from vectrify.refine import selected
 
@@ -422,6 +421,7 @@ def test_a_step_that_makes_a_path_cross_itself_is_not_kept(monkeypatch):
     assert metrics["after"]["difference"] == metrics["before"]["difference"]
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.usefixtures("snap_twists")
 def test_only_crossing_results_leave_the_paths_as_they_were():
     job = Job(method("improve", "nodes"), request(editor("p"), shape=False, snap=True))
@@ -441,14 +441,15 @@ def test_the_defaults_are_a_quick_tidy():
     )
     # The fit is cheap enough to be on: a reduced resolution, few steps, and
     # it stops once it stalls.
-    assert settings["resolution"] <= 384
+    assert nodes_method.RESOLUTION <= 384
     assert settings["steps"] <= 60
-    assert settings["stall"] > 0
+    assert nodes_method.STALL > 0
     assert not settings["detail"]
     assert settings["seconds"] == 10
     assert nodes_method.DEFAULT_ROUNDS <= 4
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_detail_fit_keeps_source_points_and_adds_local_curve_controls():
     pytest.importorskip("torch")
     svg = (
@@ -551,7 +552,7 @@ def test_a_small_local_fix_on_a_large_selection_is_kept(monkeypatch):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
-        settings={"workers": 1, "simplify": False, "shape": False},
+        settings={"simplify": False, "shape": False},
         budget=Budget(steps=1),
         reference=target,
     )
@@ -601,6 +602,7 @@ def test_white_paint_and_a_transparent_gap_have_different_tidy_scores():
     )
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.parametrize("amount", [-2, 2])
 @pytest.mark.parametrize("in_view", [False, True])
 def test_tidy_fits_white_shapes_using_reference_opacity(amount, in_view):
@@ -636,7 +638,6 @@ def test_tidy_fits_white_shapes_using_reference_opacity(amount, in_view):
         "shape": True,
         "snap": False,
         "simplify": False,
-        "resolution": 64,
         "steps": 30,
     }
     if in_view:
@@ -662,6 +663,7 @@ def test_tidy_fits_white_shapes_using_reference_opacity(amount, in_view):
     assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.7
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_the_time_limit_ends_the_run_and_keeps_the_best_so_far(monkeypatch):
     # Each snap takes a while and brings the square 1 px nearer: only the
     # time limit ends the run.
@@ -706,6 +708,7 @@ def cutting(_step, task, _stop=None, _progress=None):
     return document, nodes_method.region_pixels(document, task.region), {}
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_a_step_that_makes_the_match_worse_is_not_kept(monkeypatch):
     monkeypatch.setattr(nodes_method, "run_step", cutting)
     job = Job(
@@ -727,7 +730,7 @@ def test_a_step_that_makes_the_match_worse_is_not_kept(monkeypatch):
     assert metrics["after"]["nodes"] == 9
 
 
-def test_simplify_removes_points_only_within_the_error_budget():
+def test_simplify_removes_points_only_within_the_allowance():
     # A disc drawn with 48 points, matching the reference's disc: removing
     # points within 3 px takes most of them but bends the outline.
     angles = np.linspace(0, 2 * np.pi, 48, endpoint=False)
@@ -752,11 +755,9 @@ def test_simplify_removes_points_only_within_the_error_budget():
             editor=ed,
             permissions=Permissions(geometry=True, structure=True),
             settings={
-                "workers": 1,
                 "snap": False,
                 "shape": False,
                 "tolerance": 3.0,
-                "allowance": 100.0,
                 **settings,
             },
             budget=Budget(steps=1),
@@ -766,12 +767,13 @@ def test_simplify_removes_points_only_within_the_error_budget():
         job.run()
         return job.state()["result"]["metrics"]
 
-    loose, tight = tidied(budget=100.0), tidied(budget=0.5)
+    loose, tight = tidied(allowance=100.0), tidied(allowance=0.5)
     assert loose["after"]["nodes"] < tight["after"]["nodes"]
     assert tight["after"]["difference"] <= tight["before"]["difference"] * 1.01
     assert loose["after"]["difference"] > tight["after"]["difference"]
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_a_region_tidies_only_the_points_inside_it():
     # Nothing selected: the region picks the path painting inside it, and
     # only its points left of x = 30 may move.
@@ -807,6 +809,7 @@ def test_a_region_tidies_only_the_points_inside_it():
     assert all(original[i][-2] < 30 for i in moved)
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_a_region_with_nothing_to_tidy_says_so():
     with pytest.raises(DocumentError, match="inside the region"):
         method("improve", "nodes").validate(
@@ -862,7 +865,7 @@ def test_tidy_keeps_straighten_handles_enabled_on_shared_points(selected):
             ed.snapshot,
             ed,
             Permissions(geometry=True, structure=True),
-            settings={"shape": False, "simplify": False, "workers": 1},
+            settings={"shape": False, "simplify": False},
             budget=Budget(steps=2),
             reference=neighbours_reference(),
         ),
@@ -919,6 +922,7 @@ def test_shared_edges_follow_when_both_paths_are_selected():
     assert result["metrics"]["followed"] == 0
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.parametrize("midpoint", [False, True])
 def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers(midpoint):
     pytest.importorskip("torch")
@@ -952,10 +956,8 @@ def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers(midp
             settings={
                 "snap": False,
                 "simplify": False,
-                "resolution": 64,
                 "steps": 30,
                 "seconds": 20,
-                "workers": 1,
             },
             budget=Budget(steps=2),
             reference=target,
@@ -985,6 +987,7 @@ def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers(midp
     )
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_region_holds_shared_junction_handles_as_well_as_endpoints():
     pytest.importorskip("torch")
     svg = (
@@ -1014,6 +1017,7 @@ def test_region_holds_shared_junction_handles_as_well_as_endpoints():
     assert ed.snapshot.document == original
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_individual_and_group_selection_use_the_same_drawing_order():
     # IDs deliberately sort in the opposite order to the drawing.
     document = import_svg(
@@ -1179,7 +1183,6 @@ def test_a_neighbour_s_shared_edge_moves_with_the_path(
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
         settings={
-            "workers": 1,
             "simplify": False,
             "shared": shared,
             "shape": shape,
@@ -1240,7 +1243,7 @@ def test_fit_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True, paint=paint),
-        settings={"workers": 1, "simplify": False},
+        settings={"simplify": False},
         budget=Budget(steps=2),
         reference=ink,
     )
@@ -1257,6 +1260,7 @@ def test_fit_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
     assert abs(width - 4) < 0.6 if paint else width == 2
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_a_path_the_fit_cannot_take_is_skipped_not_fatal(monkeypatch):
     from vectrify.refine import selected
     from vectrify.refine.paths import UnsupportedPathError
@@ -1283,7 +1287,7 @@ def test_without_pytorch_the_default_tidy_runs_without_the_fit(monkeypatch):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
-        settings={"workers": 1},
+        settings={},
         budget=Budget(steps=2),
         reference=reference(),
     )
@@ -1315,7 +1319,7 @@ def test_fitting_reclaims_time_unused_by_simplify(monkeypatch):
         return document, np.asarray(region.image), {}
 
     monkeypatch.setattr(nodes_method, "run_step", step)
-    result = nodes_method.run_round(["shape", "simplify"], task, None, None, None)
+    result = nodes_method.run_round(["shape", "simplify"], task, None, None)
     assert calls == [("simplify", 3), ("shape", 9.55)]
     # Candidate priority stays identical to the parallel execution order.
     assert list(result) == ["shape", "simplify"]
@@ -1354,6 +1358,7 @@ def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
     assert after.geometry_for("p") != original
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_fits_adjacent_fills_jointly_when_individual_fits_cannot_improve(
     monkeypatch,
 ):
@@ -1384,8 +1389,6 @@ def test_tidy_fits_adjacent_fills_jointly_when_individual_fits_cannot_improve(
         Permissions(geometry=True, structure=True, paint=True),
         settings={
             **FIT,
-            "workers": 1,
-            "resolution": 64,
             "steps": 20,
             "movement": 2,
             "seconds": 10,
@@ -1404,6 +1407,7 @@ def test_tidy_fits_adjacent_fills_jointly_when_individual_fits_cannot_improve(
     assert ed.snapshot.document.root == document.root
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.parametrize("with_reference", [False, True])
 def test_simplify_retains_removing_handles_without_removing_nodes(with_reference):
     document = import_svg(
@@ -1434,6 +1438,7 @@ def test_simplify_retains_removing_handles_without_removing_nodes(with_reference
     )
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_saving_handles_still_cannot_exceed_simplifys_reference_budget():
     document = import_svg(
         '<svg width="64" height="64"><path id="p" fill="black" '
@@ -1466,6 +1471,7 @@ def test_saving_handles_still_cannot_exceed_simplifys_reference_budget():
     )
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.parametrize("stroke_width", [0.2, 4])
 def test_stroke_supported_simplification_checks_the_actual_reference(
     stroke_width, monkeypatch
@@ -1559,6 +1565,7 @@ def shared_clip_editor(*ids):
     return ed
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.parametrize("region", [None, [0, 0, 64, 64]])
 def test_tidy_simplifies_shared_clipping_and_outline_without_detaching(region):
     ed = shared_clip_editor("p")
@@ -1594,6 +1601,7 @@ def test_tidy_simplifies_shared_clipping_and_outline_without_detaching(region):
     assert ed.snapshot.document == original
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_fits_a_shared_body_and_its_changing_clips_in_context():
     ed = shared_clip_editor("p")
     original = ed.snapshot.document
@@ -1650,6 +1658,7 @@ def test_tidy_fits_a_shared_body_and_its_changing_clips_in_context():
     )
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_respects_locks_on_a_shared_clipping_consumer():
     ed = shared_clip_editor("p", "shade")
     ed.set_locks("shade", frozenset({"geometry"}))
@@ -1672,6 +1681,7 @@ def test_tidy_respects_locks_on_a_shared_clipping_consumer():
     assert ed.snapshot.document == original
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_deduplicates_selected_shared_assets():
     ed = shared_clip_editor("p", "outline")
     job = Job(
@@ -1692,6 +1702,7 @@ def test_tidy_deduplicates_selected_shared_assets():
     job.apply()
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_simplifies_an_instance_without_detaching():
     ed = Editor(
         import_svg(
@@ -1726,6 +1737,7 @@ def test_tidy_simplifies_an_instance_without_detaching():
     )
 
 
+@pytest.mark.usefixtures("low_resolution")
 @pytest.mark.parametrize("region", [None, [0, 0, 28, 28]])
 def test_tidy_scores_linked_artwork_outside_the_selection(monkeypatch, region):
     source = (
@@ -1747,7 +1759,7 @@ def test_tidy_scores_linked_artwork_outside_the_selection(monkeypatch, region):
     ed.select(Selection(object_ids=frozenset({"p"})))
     original = ed.snapshot.document
 
-    def propose(_steps, task, _pool, _stop, _report):
+    def propose(_steps, task, _stop, _report):
         geometry = task.document.geometry_for("p")
         moved = replace(
             geometry,
@@ -1788,6 +1800,7 @@ def test_tidy_scores_linked_artwork_outside_the_selection(monkeypatch, region):
     assert ed.snapshot.document == original
 
 
+@pytest.mark.usefixtures("low_resolution")
 def test_tidy_region_holds_shared_nodes_visible_outside_the_region():
     ed = Editor(
         import_svg(

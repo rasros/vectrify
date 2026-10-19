@@ -979,7 +979,7 @@ expand **Advanced settings** for the tolerances, fitting controls and run
 limits. The action buttons stay
 visible while the settings or preview scroll.
 The dialog runs one round by default, with up to 20 internal steps per
-path fit and 1 worker. Each round tries the enabled steps and keeps the best
+path fit. Each round tries the enabled steps and keeps the best
 result; extra rounds repeat from that result. Enable
 **Override automatic run limits** to edit these; maximum fitting steps is
 available only with **Fit path** enabled. The **Time limit** remains editable.
@@ -999,12 +999,11 @@ removes the points they do not need; to reshape a path, use Redraw outline
   when available, otherwise CPU; round strokes work on either, while miter
   outlines require CUDA. Without PyTorch it uses edge-seeking alone.
   **Add detail** is off by default. When enabled, it adds points where a piece
-  of the shape is missing or covers too much. **Pixels per added point** sets
-  the improvement needed for each new point, and **Search beyond the path**
+  of the shape is missing or covers too much. **Search beyond the path**
   controls how far past the selection the reference is read.
 - **Simplify** (on by default) removes the points the outline does not need
   while the match to the reference where it acts gets no worse than the
-  **Error budget** (1% by default), moving the outline no more than the
+  **Allowed worsening** (1% by default), moving the outline no more than the
   **Tolerance** in reference pixels anywhere (3 by default), and turns curves
   whose handles lie on their line within that into straight segments.
   Without a reference the tolerance alone decides, 1 by default.
@@ -1046,9 +1045,7 @@ run that runs out of time keeps the best result so far, as Stop does, and says
 so. No step may leave an outline folded over itself: a result where a path
 crosses itself more than it did, a twist or a curve looped round, is not kept,
 and the shape fit pulls such folds back as it goes. Concave outlines are fine,
-and a path that already crossed itself may keep those crossings. With several
-parallel workers a round's steps run side by side, with one shape fit at a
-time. Without a reference only Simplify runs, keeping the paths' look. Pinned
+and a path that already crossed itself may keep those crossings. Without a reference only Simplify runs, keeping the paths' look. Pinned
 endpoints stay fixed, and surviving points keep their identity. Colour is left
 to Fit colours. The job runs in the background with progress, Stop & keep
 best, and reference/before/after previews; the result lists the steps it

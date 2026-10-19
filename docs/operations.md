@@ -127,15 +127,13 @@ unless `contours=True` (used by cleanup) turns it into
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
 no other object shares. Its settings are the steps to use (`snap`,
 `simplify` and `shape`, on by default for API callers, and `detail` to allow
-adding points), Simplify's error
-`budget` in percent (1 by default) and its `tolerance`, the most it may move
+adding points), Simplify's `tolerance`, the most it may move
 an outline, in reference pixels (3 by default; without a reference, where
-no budget judges it, 1 unless set), each path fit's `steps` (60), `movement`
-(SVG units), `resolution` (384) and `stall` (0.1: the share in percent of
-its match a check, every tenth step, has to improve by for the fit to go
-on), `workers` (1 by default), the `gain` in percent of the local
+no allowance judges it, 1 unless set), each path fit's `steps` (60) and
+`movement` (SVG units; a fit works at `RESOLUTION`, 384 pixels, and stops once
+a check, every tenth step, improves its match by less than `STALL`, 0.1%), the `gain` in percent of the local
 difference a step must fix (1 by default), the `allowance` in percent by
-which the match where the run acted may be worse than at its start (1 by
+which the match where a step or the run acted may get worse (1 by
 default), `seconds`, the run's time limit
 (10 by default), and the `margin` in percent of the selection's size that the
 reference region extends past it; the budget's `steps` is the most rounds (4
@@ -163,7 +161,7 @@ with a ceiling of 512 (larger inputs are never truncated). Held and pinned
 spans stay untouched. New points are kept only with an improving fit, and
 their curves are retained rather than independently straightened. Snap-only
 and the fallback without PyTorch still propose missing features; each added
-feature point must fix `detail_gain` reference pixels.
+feature point must fix `refine.snap.SPLIT_GAIN` (12) reference pixels.
 
 With `shared` (on by default) a selected path's edges that another path draws
 too move together (`refine.shared`): a cel trace draws the edge between two
@@ -266,7 +264,7 @@ region's mean squared difference (`generate.error`) most is kept; if none
 does, Simplify is kept when it removed points or unnecessary handles, and
 otherwise the run ends. The `before` and `after` metrics report both `nodes`
 and `handles`; a straightened curve can simplify a path without removing a
-node. Handle removal obeys the same reference error budget as point removal.
+node. Handle removal obeys the same allowance as point removal.
 With a reference, no step is eligible whose result, against the region's
 render at the start, is worse over the pixels changed since then (widened by
 `BAND`) by more than `allowance` of the squared difference there: a run never
@@ -278,25 +276,23 @@ the step (`refine.crossings.crossings`: each contour drawn as a polyline,
 cubics sampled to bound chord approximation error rather than at a fixed
 eight points, every pair of non-neighbouring lines that properly cross
 counting once, so a bow-tie counts 1, a looped cubic 1 and a concave outline
-0); such steps are counted under `folded` in the metrics. With more than one
-worker, Snap and Simplify run in spawned processes while the path fit runs in
-the job's thread, so only one fit runs at a time.
+0); such steps are counted under `folded` in the metrics. The steps run one
+after another in the job's thread, the path fit last.
 
 Scoring reads Cairo's pixels directly, including opacity for transparent
 references so white paint and transparency are distinct. Average RGB error
 and opacity error have equal weight. The CPU fill renderer integrates 4 × 4
 subpixels so thin regions are not artificially widened. It reuses compiled
 unchanged paths within the operation. Paint servers, clips and markers retain
-CairoSVG's ordinary handling. Simplify reuses the original join costs across its budget
+CairoSVG's ordinary handling. Simplify reuses the original join costs across its allowance
 search and judges identical candidates once. These shortcuts keep the same
 pixel error and outline tolerance checks. The native CUDA fill renderer
 partitions larger crops across GPU blocks while retaining analytic cubic
 coverage; parallel gradient sums can differ slightly in float32 rounding.
 
 The time limit is checked before each round. Non-gradient steps receive a
-share of the remaining time. With one worker they run before fitting, which
-then reclaims unused time and shares it among the remaining paths. With
-multiple workers they run alongside fitting. Every candidate starts from
+share of the remaining time. They run before fitting, which then reclaims
+unused time and shares it among the remaining paths. Every candidate starts from
 the same drawing, with the same priority when judged. The fit leaves a short
 interval for final scoring. When the time is up the run keeps its best result,
 as on Stop, and reports `out_of_time` and `seconds`.
@@ -341,17 +337,18 @@ pinned ones.
 - Simplify is `refine.simplify.simplify`: the point whose removal moves the
   outline least goes first, the joined cubic keeping the tangents either side
   with least-squares handle lengths, until any removal would move it more than
-  the tolerance. With a reference the tolerance is a cap and the error budget
+  the tolerance. With a reference the tolerance is a cap and the allowance
   the knob: of `LADDER` (8) tolerances up to the set one, bisection finds the
   largest whose result leaves the squared difference over the pixels it
-  changed (widened by `BAND`) at most `budget` worse than before; if none
-  does, only the points whose removal moves nothing go. The budget includes
+  changed (widened by `BAND`) at most `allowance` worse than at the round's
+  start; if none does, only the points whose removal moves nothing go. The
+  check includes
   shared neighbours after they have followed the candidate.
   With a reference, `refine.support.supported` also proposes replacing a
   nearby filled boundary run with fewer exact pieces of a selected stroke
   drawn above it. This needs no shared-edge labels or closed outline. Runs
   are recognized in reference pixels, with bounded monotone correspondence;
-  each is scored separately under the same budget. Pins, region holds,
+  each is scored separately under the same allowance. Pins, region holds,
   clipping, translucent paint and incompatible group contexts are protected
   or excluded. The stroke itself stays unchanged.
 
