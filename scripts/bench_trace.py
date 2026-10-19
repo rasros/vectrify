@@ -58,7 +58,7 @@ unless `--paths` says otherwise, or every path with `--tidy-all`. Each
 `--tidy-steps` (a comma list of snap, simplify, detail and shape; detail is
 Snap adding points, so it needs snap) tidies the same trace once more, a row
 each marked `tidy_steps`, so configurations compare on one trace; without
-it Tidy runs its own defaults, snap, simplify and shape. `--nodes` sets its other
+it Tidy runs its own defaults, snap, detail and shape. `--nodes` sets its other
 settings. The row's `optimize` field then also holds, before and after Tidy:
 
 - whole: the whole image's error, both drawings rendered the same way;
@@ -648,7 +648,7 @@ def optimize(
 
 # Tidy's steps and which are on by default, as operations/methods/nodes.py
 # has them; detail is Snap adding points.
-TIDY_DEFAULTS = {"snap": True, "simplify": True, "detail": False, "shape": True}
+TIDY_DEFAULTS = {"snap": True, "simplify": False, "detail": True, "shape": True}
 
 
 def _steps(item: str) -> dict:

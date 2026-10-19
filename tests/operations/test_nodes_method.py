@@ -43,7 +43,7 @@ def low_resolution(monkeypatch):
 
 # The path fit on its own unless a test says otherwise, as the tests were
 # written against it.
-FIT = {"shape": True, "snap": False, "simplify": False}
+FIT = {"shape": True, "snap": False, "detail": False, "simplify": False}
 
 
 def request(ed, *, steps=4, with_reference=True, **settings):
@@ -434,19 +434,41 @@ def test_only_crossing_results_leave_the_paths_as_they_were():
 
 def test_the_defaults_are_a_quick_tidy():
     settings = read_settings({}, nodes_method.SETTINGS, nodes_method.LABEL)
-    assert (settings["snap"], settings["simplify"], settings["shape"]) == (
-        True,
-        True,
-        True,
-    )
+    # As the Tidy dialog has them: fit with detail, keeping every point.
+    steps = ("shape", "snap", "detail", "simplify")
+    assert tuple(settings[s] for s in steps) == (True, True, True, False)
     # The fit is cheap enough to be on: a reduced resolution, few steps, and
     # it stops once it stalls.
     assert nodes_method.RESOLUTION <= 384
     assert settings["steps"] <= 60
     assert nodes_method.STALL > 0
-    assert not settings["detail"]
     assert settings["seconds"] == 10
     assert nodes_method.DEFAULT_ROUNDS <= 4
+
+
+@pytest.mark.parametrize(
+    ("given", "with_reference", "expected"),
+    [
+        ({}, True, (True, True, True, False)),
+        # Without a reference Simplify alone, as the dialog does.
+        ({}, False, (False, False, False, True)),
+        # Simplify alone needs no detail=False.
+        (
+            {"shape": False, "snap": False, "simplify": True},
+            True,
+            (False,) * 3 + (True,),
+        ),
+        ({"detail": False, "simplify": True}, True, (True, True, False, True)),
+    ],
+)
+def test_default_steps_follow_the_request(given, with_reference, expected):
+    nodes = method("improve", "nodes")
+    prepared = nodes.prepare(
+        replace(request(editor("p"), with_reference=with_reference), settings=given)
+    )
+    steps = ("shape", "snap", "detail", "simplify")
+    assert tuple(prepared.settings[s] for s in steps) == expected
+    nodes.validate(prepared)
 
 
 @pytest.mark.usefixtures("low_resolution")
@@ -757,6 +779,7 @@ def test_simplify_removes_points_only_within_the_allowance():
             settings={
                 "snap": False,
                 "shape": False,
+                "simplify": True,
                 "tolerance": 3.0,
                 **settings,
             },
@@ -1150,7 +1173,7 @@ def test_a_bad_later_fit_does_not_discard_an_earlier_improvement(monkeypatch):
     task = nodes_method.Task(
         document,
         replace(region, image=target),
-        read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        read_settings({"detail": False}, nodes_method.SETTINGS, "Tidy"),
         ("first", "last"),
         target,
     )
@@ -1276,7 +1299,7 @@ def test_a_path_the_fit_cannot_take_is_skipped_not_fatal(monkeypatch):
     assert "opaque" in state["result"]["metrics"]["skipped"]["p"]
 
 
-def test_without_pytorch_the_default_tidy_runs_without_the_fit(monkeypatch):
+def test_without_pytorch_tidy_runs_without_the_fit(monkeypatch):
     from vectrify.refine import selected
 
     monkeypatch.setattr(selected, "fit_problem", lambda: "Path fitting needs PyTorch")
@@ -1287,7 +1310,7 @@ def test_without_pytorch_the_default_tidy_runs_without_the_fit(monkeypatch):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
-        settings={},
+        settings={"simplify": True},
         budget=Budget(steps=2),
         reference=reference(),
     )

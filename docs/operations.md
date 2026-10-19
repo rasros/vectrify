@@ -125,9 +125,8 @@ unless `contours=True` (used by cleanup) turns it into
 ## Tidy (improve/nodes)
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
-no other object shares. Its settings are the steps to use (`snap`,
-`simplify` and `shape`, on by default for API callers, and `detail` to allow
-adding points), Simplify's `tolerance`, the most it may move
+no other object shares. Its settings are the steps to use (`shape`, `snap`,
+`detail` to allow adding points, and `simplify`), Simplify's `tolerance`, the most it may move
 an outline, in reference pixels (3 by default; without a reference, where
 no allowance judges it, 1 unless set), each path fit's `steps` (60) and
 `movement` (SVG units; a fit works at `RESOLUTION`, 384 pixels, and stops once
@@ -144,10 +143,11 @@ When `shape` and `snap` are both enabled, edge-seeking is part of the shape
 step rather than a competing round result. The dialog exposes this as
 **Fit path**. API callers can still request `shape=False, snap=True` for
 edge-seeking alone. Without PyTorch `shape` is left out and `snap` remains,
-refused only when shape is the sole step chosen. In the dialog, Add detail is
-on and Simplify is off when a reference is present; API callers retain the
-earlier defaults unless they explicitly set `detail=True, simplify=False`.
-Without a reference the dialog enables Simplify alone.
+refused only when shape is the sole step chosen. The steps default to the
+Tidy dialog's (`nodes.defaults`): with a reference `shape`, `snap` and
+`detail` and not `simplify`; without one `simplify` alone. `detail` defaults
+off when `snap` is off, so a caller choosing Simplify alone need not turn it
+off too.
 The dialog uses backend defaults for all advanced values unless **Override
 advanced defaults** is on. Switching it off restores the displayed values and
 omits custom movement, tolerances, acceptance thresholds, time limits and
