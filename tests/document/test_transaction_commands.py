@@ -1,9 +1,17 @@
 """A public command owns its validation, nested edits and failure state."""
 
+import math
+
 import pytest
 
 from tests.document.helpers import select
-from vectrify.document import DocumentError, Editor, EditRejectedError, import_svg
+from vectrify.document import (
+    DocumentError,
+    Editor,
+    EditRejectedError,
+    Selection,
+    import_svg,
+)
 
 
 @pytest.mark.parametrize(
@@ -156,3 +164,77 @@ def test_snap_preflight_refusal_keeps_prior_edits_and_transaction_usable(refusal
     assert after.element("q").get("fill") == "blue"
     assert after.geometries == before.document.geometries
     assert editor.undo().document == before.document
+
+
+def test_closing_a_handle_requires_structure_authorization():
+    document = import_svg('<svg><path id="p" d="M0 0 L20 0 L20 20 Z"/></svg>')
+    editor = Editor(document, selection=select("p"))
+    node = document.geometry_for("p").subpaths[0].nodes[0]
+    tx = editor.transaction("Handles", allowed=frozenset({"geometry"}))
+    with pytest.raises(EditRejectedError, match="Changing structure is not permitted"):
+        tx.set_node_handles("p", node.id, 2)
+    assert tx.preview == document
+    with pytest.raises(EditRejectedError, match="failed edit"):
+        tx.commit()
+    assert editor.snapshot.document is document
+
+
+@pytest.mark.parametrize("constraint", ["lock", "node selection", "shared consumer"])
+def test_handle_commands_respect_transaction_constraints(constraint):
+    document = import_svg(
+        '<svg><path id="p" d="M0 0 L10 0 L20 10"/><use id="q" href="#p"/></svg>'
+    )
+    target = document.geometry_for("p").subpaths[0].nodes[1]
+    selection = select("p", "q")
+    if constraint == "node selection":
+        selection = Selection(
+            object_ids=selection.object_ids, node_ids=frozenset({target.id})
+        )
+    elif constraint == "shared consumer":
+        selection = select("p")
+    editor = Editor(document, selection=selection)
+    if constraint == "lock":
+        editor.set_locks("p", frozenset({"geometry"}))
+    before = editor.snapshot
+    message = {
+        "lock": "geometry is locked",
+        "node selection": "This command requires a whole object selection",
+        "shared consumer": "Edit affects unselected objects",
+    }[constraint]
+    tx = editor.transaction("Handles")
+    with pytest.raises(EditRejectedError, match=message):
+        tx.set_node_handles("p", target.id, 2)
+    assert tx.preview == before.document
+    with pytest.raises(EditRejectedError, match="failed edit"):
+        tx.commit()
+    assert editor.snapshot == before
+
+
+def test_invalid_handle_coordinates_poison_a_transaction_with_prior_edits():
+    editor = Editor(
+        import_svg('<svg><path id="p" d="M0 0 C3 1 8 4 10 0"/></svg>'),
+        selection=select("p"),
+    )
+    before = editor.snapshot
+    node = before.document.geometry_for("p").subpaths[0].nodes[1]
+    tx = editor.transaction("Paint then invalid handle")
+    tx.set_attributes("p", {"fill": "red"})
+    with pytest.raises(DocumentError, match="Path coordinates must be finite"):
+        tx.move_handle("p", node.id, 0, (math.inf, 2.0))
+    with pytest.raises(EditRejectedError, match="failed edit"):
+        tx.commit()
+    assert editor.snapshot == before
+
+
+def test_straightening_a_retracted_handle_needs_no_authorization():
+    editor = Editor(
+        import_svg(
+            '<svg><path id="p" d="M0 0 C3 1 10 0 10 0 C14 2 17 9 20 10"/></svg>'
+        ),
+        selection=select("p"),
+    )
+    before = editor.snapshot
+    node = before.document.geometry_for("p").subpaths[0].nodes[1]
+    with editor.transaction("No movement", allowed=frozenset()) as tx:
+        tx.straighten_node_handles("p", node.id)
+    assert editor.snapshot == before
