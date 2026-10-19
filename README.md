@@ -155,20 +155,6 @@ installs it with the `desktop` and `mcp` extras.
   `--port 0` for any free one (the address is printed). The MCP server moves
   to the next free port by itself, and `--mcp-port` chooses one.
 
-## Development
-
-```bash
-uv sync --extra dev --extra vision
-uv run pytest -n 2
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run pyrefly check
-uvx vulture
-```
-
-The UI tests run the editor's scripts with Node.js (and some with
-Chrome/Chromium); they are skipped when those are not installed.
-
 ## CUDA extension
 
 The native CUDA extension for the filled-path fit is built only on request.
@@ -179,5 +165,3 @@ install a local wheel with it:
 VECTRIFY_BUILD_CUDA_RENDERER=1 uv build --wheel --no-build-isolation
 uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
 ```
-
-`uv run pytest tests/refine/test_filled_paths.py` exercises it.
