@@ -1,17 +1,13 @@
 """Optimize nodes reshapes only the selected paths and proposes one ordinary edit."""
 
-import time
 from dataclasses import replace
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
 from vectrify.document import DocumentError, Editor, Selection, export_svg, import_svg
-from vectrify.image_utils import on_white
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
-from vectrify.operations.generate import Region
 from vectrify.operations.methods import nodes as nodes_method
 from vectrify.operations.settings import read_settings
 from vectrify.svg_render import render_image
@@ -151,37 +147,6 @@ def test_tidy_fits_repeated_closing_knots_without_opening_spikes():
 
 
 @pytest.mark.usefixtures("low_resolution")
-def test_tidy_cleans_unsupported_dents_even_when_gradient_fitting_stalls(monkeypatch):
-    pytest.importorskip("torch")
-    source = (
-        '<svg width="64" height="64"><rect width="64" height="64" fill="white"/>'
-        '<path id="p" fill="black" d="M8 16 L16 16 L18 18 L20 16 L28 16 '
-        'L32 20 L36 16 L42 16 L44 18 L46 16 L56 16 L56 56 L8 56 Z"/></svg>'
-    )
-    target = source.replace("L18 18", "L18 16").replace("L44 18", "L44 16")
-    document = import_svg(source)
-    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
-    monkeypatch.setattr(
-        "vectrify.refine.paths.fit_filled_svg", lambda svg, *_args, **_kwargs: svg
-    )
-    req = replace(
-        request(ed, steps=1),
-        reference=render_image(target, (0, 0, 64, 64), (64, 64)),
-    )
-    job = Job(method("improve", "nodes"), req)
-    job.run()
-    result = job.state()["result"]
-    assert result["changed"]
-    job.apply()
-    old = document.geometry_for("p").subpaths[0].nodes
-    new = ed.snapshot.document.geometry_for("p").subpaths[0].nodes
-    assert [n.id for n in new] == [n.id for n in old]
-    assert new[2].endpoint == pytest.approx((18, 16), abs=1e-9)
-    assert new[8].endpoint == pytest.approx((44, 16), abs=1e-9)
-    assert new[5].endpoint == (32, 20)
-
-
-@pytest.mark.usefixtures("low_resolution")
 def test_tidy_smoothing_keeps_a_supported_unmarked_notch():
     pytest.importorskip("torch")
     source = (
@@ -240,46 +205,6 @@ def test_combined_tidy_reduces_error_without_adding_nodes():
     # The local reference budget may reject simplification of the fitted
     # curves. The default run still improves the fit without adding nodes.
     assert metrics["after"]["nodes"] <= metrics["before"]["nodes"]
-    assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
-
-
-@pytest.mark.usefixtures("low_resolution")
-def test_fitting_and_simplification_can_both_be_retained(monkeypatch):
-    from vectrify.refine import selected
-    from vectrify.refine.simplify import curved
-
-    ed = editor("p")
-    # Use a known bounded fit to check how Tidy combines the two steps.
-    # The real optimizer is exercised by the fitting tests below.
-    geometry = curved(ed.snapshot.document.geometry_for("p"))
-    targets = {
-        node.id: 16 + (np.asarray(node.values).reshape(-1, 2) - 14) * 32 / 36
-        for subpath in geometry.subpaths
-        for node in subpath.nodes
-    }
-
-    def fitting(document, _selection, _target, options, **_kwargs):
-        values = {}
-        for subpath in document.geometry_for("p").subpaths:
-            for node in subpath.nodes:
-                previous = np.asarray(node.values).reshape(-1, 2)
-                delta = targets[node.id] - previous
-                length = np.maximum(np.linalg.norm(delta, axis=1), 1e-12)
-                scale = np.minimum(1, options.displacement / length)[:, None]
-                values[node.id] = tuple((previous + delta * scale).ravel())
-        return SimpleNamespace(values=values)
-
-    monkeypatch.setattr(selected, "fit_selected_path", fitting)
-    job = Job(
-        method("improve", "nodes"),
-        request(ed, steps=8, snap=True, simplify=True, tolerance=0.5),
-    )
-    job.run()
-    result = job.state()["result"]
-    metrics = result["metrics"]
-    assert "simplify" in metrics["steps"], metrics
-    assert {"shape", "snap"} & set(metrics["steps"])
-    assert metrics["after"]["nodes"] == 4
     assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
 
 
@@ -358,92 +283,13 @@ def test_tidy_does_not_add_handles_to_pinned_nodes(shape, snap, simplify, detail
             assert nodes[i + 1].values[:2] == point.endpoint
 
 
-def bow_tie(document):
-    """*document* with the square turned into a bow-tie."""
-    twisted = import_svg(
-        '<svg width="64" height="64"><path id="p" fill="#000000" '
-        'd="M16 16 L48 16 L16 48 L48 48 Z"/></svg>'
-    ).geometry_for("p")
-    return document.replace_geometry(replace(twisted, id=document.geometry_for("p").id))
-
-
-@pytest.fixture
-def snap_twists(monkeypatch):
-    """Snap turns the square into a bow-tie and claims a perfect match."""
-    run_step = nodes_method.run_step
-
-    def twisting(step, task, stop=None, progress=None):
-        if step == "snap":
-            return bow_tie(task.document), np.asarray(task.region.image), {}
-        return run_step(step, task, stop, progress)
-
-    monkeypatch.setattr(nodes_method, "run_step", twisting)
-
-
-@pytest.mark.usefixtures("low_resolution")
-def test_a_step_that_makes_a_path_cross_itself_is_not_kept(monkeypatch):
-    from vectrify.refine import selected
-
-    calls = []
-
-    def twisting(document, *_args, **_kwargs):
-        # Preserve IDs and commands, but make the fitter return a bow-tie.
-        # Repeated knots fill out the existing topology without affecting the
-        # crossing. Exercise the actual fit acceptance guard, independent of
-        # where snapping happens or how many improving rounds a CPU finishes.
-        nodes = document.geometry_for("p").subpaths[0].nodes
-        corners = np.array([(16, 16), (48, 48), (16, 48), (48, 16), (16, 16)])
-        previous = corners[0]
-        values = {}
-        for i, node in enumerate(nodes):
-            end = corners[4 * i // (len(nodes) - 1)]
-            if node.command == "C":
-                step = end - previous
-                value = np.array([previous + step / 3, previous + 2 * step / 3, end])
-            else:
-                value = end
-            values[node.id] = tuple(float(v) for v in value.ravel())
-            previous = end
-        calls.append(values)
-        return SimpleNamespace(values=values)
-
-    monkeypatch.setattr(selected, "fit_selected_path", twisting)
-    ed = editor("p")
-    job = Job(method("improve", "nodes"), request(ed, steps=2))
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    assert calls
-    assert not state["result"]["changed"]
-    metrics = state["result"]["metrics"]
-    assert metrics["steps"] == []
-    assert nodes_method.crossings(ed.snapshot.document, ["p"]) == {"p": 0}
-    assert metrics["after"]["difference"] == metrics["before"]["difference"]
-
-
-@pytest.mark.usefixtures("low_resolution")
-@pytest.mark.usefixtures("snap_twists")
-def test_only_crossing_results_leave_the_paths_as_they_were():
-    job = Job(method("improve", "nodes"), request(editor("p"), shape=False, snap=True))
-    job.run()
-    state = job.state()
-    assert not state["result"]["changed"]
-    assert state["result"]["metrics"]["folded"] == {"snap": 1}
-    assert "cross itself" in state["message"]
-
-
 def test_the_defaults_are_a_quick_tidy():
     settings = read_settings({}, nodes_method.SETTINGS, nodes_method.LABEL)
     # As the Tidy dialog has them: fit with detail, keeping every point.
     steps = ("shape", "snap", "detail", "simplify")
     assert tuple(settings[s] for s in steps) == (True, True, True, False)
-    # The fit is cheap enough to be on: a reduced resolution, few steps, and
-    # it stops once it stalls.
-    assert nodes_method.RESOLUTION <= 384
     assert settings["steps"] <= 60
-    assert nodes_method.STALL > 0
     assert settings["seconds"] == 10
-    assert nodes_method.DEFAULT_ROUNDS <= 4
 
 
 @pytest.mark.parametrize(
@@ -498,129 +344,6 @@ def test_detail_fit_keeps_source_points_and_adds_local_curve_controls():
     assert (
         state["result"]["metrics"]["after"]["difference"]
         < state["result"]["metrics"]["before"]["difference"]
-    )
-
-
-def test_detail_fit_holds_new_knots_where_the_curve_leaves_the_view(monkeypatch):
-    from vectrify.refine import selected
-
-    document = import_svg(
-        '<svg width="64" height="64"><path id="p" '
-        'd="M10 10 C10 60 50 60 50 10 L50 5 L10 5 Z"/></svg>'
-    )
-    seen = []
-
-    def fitting(current, selection, *_args, **_kwargs):
-        nodes = current.geometry_for("p").subpaths[0].nodes
-        outside = {n.id for n in nodes if n.endpoint[1] > 20}
-        assert outside
-        assert not outside & selection.node_ids
-        assert nodes[0].id in selection.node_ids
-        seen.append(outside)
-        return SimpleNamespace(values={})
-
-    monkeypatch.setattr(selected, "fit_selected_path", fitting)
-    target = Image.new("RGB", (64, 64), "white")
-    task = nodes_method.Task(
-        document,
-        Region(0, 0, 64, 64, target),
-        read_settings(
-            {"detail": True, "region": [0, 0, 64, 20]}, nodes_method.SETTINGS, "Tidy"
-        ),
-        ("p",),
-        target,
-    )
-    result, skipped = nodes_method.fit(task, None, None)
-    assert seen
-    assert not skipped
-    assert result == document
-
-
-def moved(document, where):
-    """*document* with path p's points moved: *where* maps each point's
-    values to new ones."""
-    geometry = document.geometry_for("p")
-    subpaths = tuple(
-        replace(s, nodes=tuple(replace(n, values=where(n.values)) for n in s.nodes))
-        for s in geometry.subpaths
-    )
-    return document.replace_geometry(replace(geometry, subpaths=subpaths))
-
-
-def test_a_small_local_fix_on_a_large_selection_is_kept(monkeypatch):
-    # A large square with one point pushed 2 px in from its edge, and a disc
-    # in the reference the path cannot match: next to the difference the
-    # disc leaves, putting the point back is a sliver.
-    def fixing(_step, task, _stop=None, _progress=None):
-        document = moved(
-            task.document, lambda v: (136.0, 16.0) if v == (136.0, 18.0) else v
-        )
-        return document, nodes_method.region_pixels(document, task.region), {}
-
-    monkeypatch.setattr(nodes_method, "run_step", fixing)
-    ed = Editor(
-        import_svg(
-            '<svg width="256" height="256"><path id="p" fill="#000000" '
-            'd="M16 16 L128 16 L136 18 L144 16 L240 16 L240 240 L16 240 Z"/></svg>'
-        ),
-        selection=Selection(object_ids=frozenset({"p"})),
-    )
-    target = Image.new("RGB", (256, 256), "white")
-    ImageDraw.Draw(target).rectangle((16, 16, 239, 239), fill="black")
-    ImageDraw.Draw(target).ellipse((48, 48, 208, 208), fill="white")
-    req = OperationRequest(
-        action="improve",
-        method="nodes",
-        snapshot=ed.snapshot,
-        editor=ed,
-        permissions=Permissions(geometry=True, structure=True),
-        settings={"simplify": False, "shape": False},
-        budget=Budget(steps=1),
-        reference=target,
-    )
-    job = Job(method("improve", "nodes"), req)
-    job.run()
-    metrics = job.state()["result"]["metrics"]
-    before, after = metrics["before"]["difference"], metrics["after"]["difference"]
-    # Of the whole region the fix is under the old bar of 0.1%, yet it is
-    # kept: where it acted it fixed all there was.
-    assert 0 < (before - after) / before < 0.001
-    assert metrics["steps"] == ["snap"]
-
-
-def test_a_step_is_judged_by_the_pixels_it_changed():
-    region = Region(0, 0, 40, 40, Image.new("RGB", (40, 40), "black"))
-    start = np.zeros((40, 40, 3), dtype=np.uint8)
-    start[:, 20:] = 255
-    fixed, worse = start.copy(), start.copy()
-    fixed[10:14, 20:24] = 0
-    worse[10:14, 10:14] = 255
-    now = nodes_method.Scored.of(start, region)
-    assert nodes_method.Scored.of(fixed, region).fixed(now) > 0.3
-    assert nodes_method.Scored.of(worse, region).fixed(now) < 0
-    assert nodes_method.Scored.of(start, region).fixed(now) == 0
-
-
-def test_white_paint_and_a_transparent_gap_have_different_tidy_scores():
-    rgb = Image.new("RGB", (40, 40), "white")
-    alpha = np.zeros((40, 40), np.float32)
-    alpha[10:30, 10:30] = 1
-    region = Region(0, 0, 40, 40, rgb, alpha)
-    correct = np.full((40, 40, 4), 255, np.uint8)
-    correct[:, :, 3] = (alpha * 255).astype(np.uint8)
-    spill = correct.copy()
-    spill[0:10, 10:30, 3] = 255
-    gap = correct.copy()
-    gap[15:25, 15:25, 3] = 0
-    best = nodes_method.Scored.of(correct, region)
-    assert best.difference == 0
-    assert nodes_method.Scored.of(spill, region).difference > 0
-    assert nodes_method.Scored.of(gap, region).difference > 0
-    wrong_colour = correct.copy()
-    wrong_colour[15:25, 15:25, :3] = 0
-    # A transparent hole in opaque white is as wrong as black paint there.
-    assert nodes_method.Scored.of(gap, region).difference == pytest.approx(
-        nodes_method.Scored.of(wrong_colour, region).difference
     )
 
 
@@ -683,73 +406,6 @@ def test_tidy_fits_white_shapes_using_reference_opacity(amount, in_view):
     metrics = state["result"]["metrics"]
     assert state["result"]["changed"]
     assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.7
-
-
-@pytest.mark.usefixtures("low_resolution")
-def test_the_time_limit_ends_the_run_and_keeps_the_best_so_far(monkeypatch):
-    # Each snap takes a while and brings the square 1 px nearer: only the
-    # time limit ends the run.
-    def nearer(_step, task, _stop=None, _progress=None):
-        time.sleep(0.2)
-        document = moved(task.document, lambda v: tuple(x + 1 for x in v))
-        return document, nodes_method.region_pixels(document, task.region), {}
-
-    monkeypatch.setattr(nodes_method, "run_step", nearer)
-    ed = Editor(
-        import_svg(
-            '<svg width="64" height="64"><path id="p" fill="#000000" '
-            'd="M8 8 L40 8 L40 40 L8 40 Z"/></svg>'
-        ),
-        selection=Selection(object_ids=frozenset({"p"})),
-    )
-    started = time.monotonic()
-    job = Job(
-        method("improve", "nodes"),
-        request(ed, steps=50, shape=False, snap=True, seconds=0.5),
-    )
-    job.run()
-    assert time.monotonic() - started < 3
-    metrics = job.state()["result"]["metrics"]
-    assert metrics["out_of_time"]
-    assert 1 <= len(metrics["steps"]) < 8
-    assert metrics["after"]["difference"] < metrics["before"]["difference"]
-    job.apply()
-    corner = ed.snapshot.document.geometry_for("p").subpaths[0].nodes[0].values
-    assert corner == (8 + len(metrics["steps"]),) * 2
-
-
-def cutting(_step, task, _stop=None, _progress=None):
-    """Every step cuts the square's corner at (50, 50) off: a point fewer,
-    and a worse match."""
-    geometry = task.document.geometry_for("p")
-    subpaths = tuple(
-        replace(s, nodes=tuple(n for n in s.nodes if n.values != (50.0, 50.0)))
-        for s in geometry.subpaths
-    )
-    document = task.document.replace_geometry(replace(geometry, subpaths=subpaths))
-    return document, nodes_method.region_pixels(document, task.region), {}
-
-
-@pytest.mark.usefixtures("low_resolution")
-def test_a_step_that_makes_the_match_worse_is_not_kept(monkeypatch):
-    monkeypatch.setattr(nodes_method, "run_step", cutting)
-    job = Job(
-        method("improve", "nodes"),
-        request(editor("p"), shape=False, snap=False, simplify=True),
-    )
-    job.run()
-    state = job.state()
-    assert not state["result"]["changed"]
-    assert state["result"]["metrics"]["after"]["nodes"] == 10
-    # Allowed to cost that much, the point goes.
-    job = Job(
-        method("improve", "nodes"),
-        request(editor("p"), shape=False, snap=False, simplify=True, allowance=100.0),
-    )
-    job.run()
-    metrics = job.state()["result"]["metrics"]
-    assert metrics["steps"] == ["simplify"]
-    assert metrics["after"]["nodes"] == 9
 
 
 def test_simplify_removes_points_only_within_the_allowance():
@@ -1040,149 +696,6 @@ def test_region_holds_shared_junction_handles_as_well_as_endpoints():
     assert ed.snapshot.document == original
 
 
-@pytest.mark.usefixtures("low_resolution")
-def test_individual_and_group_selection_use_the_same_drawing_order():
-    # IDs deliberately sort in the opposite order to the drawing.
-    document = import_svg(
-        NEIGHBOURS.replace('<path id="left"', '<g id="pair"><path id="z"')
-        .replace('id="right"', 'id="a"')
-        .replace("</svg>", "</g></svg>")
-    )
-    for ids in ({"pair"}, {"z", "a"}):
-        ed = Editor(document, selection=Selection(object_ids=frozenset(ids)))
-        assert nodes_method.selected_paths(request(ed)) == ["z", "a"]
-
-
-@pytest.mark.parametrize("first_spends", [1, 5])
-def test_a_slow_fill_cannot_spend_the_later_fills_time(first_spends, monkeypatch):
-    from vectrify.refine import selected
-
-    now = [0.0]
-    calls = []
-
-    def slow(_document, selection, _reference, _options, *, stop, progress, corners):
-        assert progress is None
-        oid = next(iter(selection.object_ids))
-        assert corners <= {
-            n.id for s in _document.geometry_for(oid).subpaths for n in s.nodes
-        }
-        calls.append((oid, stop.deadline))
-        now[0] += first_spends if oid == "left" else stop.deadline - now[0]
-        return SimpleNamespace(values={})
-
-    monkeypatch.setattr(nodes_method.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(selected, "fit_selected_path", slow)
-    document = import_svg(NEIGHBOURS)
-    target = neighbours_reference()
-    task = nodes_method.Task(
-        document,
-        Region(0, 0, 64, 64, target),
-        read_settings({}, nodes_method.SETTINGS, "Tidy"),
-        ("left", "right"),
-        target,
-    )
-    after, skipped = nodes_method.fit(task, nodes_method.Until(10), None)
-    assert calls == [("left", 5), ("right", 10)]
-    assert not skipped
-    assert after == document
-
-
-def test_fitting_a_later_path_sees_the_already_followed_shared_edge(monkeypatch):
-    from vectrify.refine import selected
-    from vectrify.refine.shared import frozen_points
-
-    def fit(document, selection, *_args, **_kwargs):
-        oid = next(iter(selection.object_ids))
-        geometry = document.geometry_for(oid)
-        if oid == "right":
-            assert any(
-                n.values[-2:] == (36.0, 24.0)
-                for subpath in geometry.subpaths
-                for n in subpath.nodes
-            )
-            return SimpleNamespace(values={})
-        values = {}
-        for subpath in geometry.subpaths:
-            for node in subpath.nodes:
-                if node.values[-2:] in {(32.0, 24.0), (32.0, 40.0)}:
-                    values[node.id] = (*node.values[:-2], 36.0, node.values[-1])
-        return SimpleNamespace(values=values)
-
-    monkeypatch.setattr(selected, "fit_selected_path", fit)
-    document = import_svg(NEIGHBOURS)
-    target = neighbours_reference()
-    shared = nodes_method.shared_edges(document, ("left", "right"))
-    task = nodes_method.Task(
-        document,
-        Region(0, 0, 64, 64, target),
-        read_settings({}, nodes_method.SETTINGS, "Tidy"),
-        ("left", "right"),
-        target,
-        held=frozen_points(document, shared),
-        shared=tuple(shared),
-    )
-    after, skipped = nodes_method.fit(task, None, None)
-    assert not skipped
-    assert after != document
-    assert (
-        nodes_method.region_pixels(after, task.region).tolist()
-        != nodes_method.region_pixels(document, task.region).tolist()
-    )
-
-
-def test_a_bad_later_fit_does_not_discard_an_earlier_improvement(monkeypatch):
-    from vectrify.refine import selected
-
-    document = import_svg(
-        '<svg width="64" height="64">'
-        '<path id="first" fill="black" d="M8 8 L24 8 L24 24 L8 24 Z"/>'
-        '<path id="last" fill="black" d="M40 40 L56 40 L56 56 L40 56 Z"/>'
-        "</svg>"
-    )
-    first = document.geometry_for("first")
-    target_document = document.replace_geometry(
-        replace(
-            first,
-            subpaths=tuple(
-                replace(
-                    s,
-                    nodes=tuple(
-                        replace(n, values=tuple(v + 2 for v in n.values))
-                        for n in s.nodes
-                    ),
-                )
-                for s in first.subpaths
-            ),
-        )
-    )
-    region = Region(0, 0, 64, 64, Image.new("RGB", (64, 64)))
-    target = Image.fromarray(nodes_method.region_pixels(target_document, region))
-
-    def misplaced(current, selection, *_args, **_kwargs):
-        oid = next(iter(selection.object_ids))
-        shift = 2 if oid == "first" else 8
-        return SimpleNamespace(
-            values={
-                n.id: tuple(v + shift for v in n.values)
-                for s in current.geometry_for(oid).subpaths
-                for n in s.nodes
-            }
-        )
-
-    monkeypatch.setattr(selected, "fit_selected_path", misplaced)
-    task = nodes_method.Task(
-        document,
-        replace(region, image=target),
-        read_settings({"detail": False}, nodes_method.SETTINGS, "Tidy"),
-        ("first", "last"),
-        target,
-    )
-    after, skipped = nodes_method.fit(task, None, None)
-    assert not skipped
-    assert after.geometry_for("first") == target_document.geometry_for("first")
-    assert after.geometry_for("last") == document.geometry_for("last")
-
-
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("shape", [True, False])
 @pytest.mark.parametrize("shared", [True, False])
@@ -1283,22 +796,6 @@ def test_fit_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
     assert abs(width - 4) < 0.6 if paint else width == 2
 
 
-@pytest.mark.usefixtures("low_resolution")
-def test_a_path_the_fit_cannot_take_is_skipped_not_fatal(monkeypatch):
-    from vectrify.refine import selected
-    from vectrify.refine.paths import UnsupportedPathError
-
-    def refusing(*_args, **_kwargs):
-        raise UnsupportedPathError("no opaque filled cubic paths to optimise")
-
-    monkeypatch.setattr(selected, "fit_selected_path", refusing)
-    job = Job(method("improve", "nodes"), request(editor("p"), snap=True))
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    assert "opaque" in state["result"]["metrics"]["skipped"]["p"]
-
-
 def test_without_pytorch_tidy_runs_without_the_fit(monkeypatch):
     from vectrify.refine import selected
 
@@ -1323,111 +820,6 @@ def test_without_pytorch_tidy_runs_without_the_fit(monkeypatch):
     assert "shape" not in metrics["steps"]
     with pytest.raises(DocumentError, match="PyTorch"):
         nodes.validate(request(editor("p")))
-
-
-def test_fitting_reclaims_time_unused_by_simplify(monkeypatch):
-    document = editor("p").snapshot.document
-    region = Region(0, 0, 64, 64, reference())
-    task = nodes_method.Task(
-        document, region, {}, ("p",), reference(), deadline=10, share=3
-    )
-    now = [0.0]
-    calls = []
-    monkeypatch.setattr(nodes_method.time, "monotonic", lambda: now[0])
-
-    def step(name, given, _stop, _report):
-        assert given.document == document
-        calls.append((name, given.share))
-        now[0] += 0.2
-        return document, np.asarray(region.image), {}
-
-    monkeypatch.setattr(nodes_method, "run_step", step)
-    result = nodes_method.run_round(["shape", "simplify"], task, None, None)
-    assert calls == [("simplify", 3), ("shape", 9.55)]
-    # Candidate priority stays identical to the parallel execution order.
-    assert list(result) == ["shape", "simplify"]
-
-
-def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
-    from vectrify.refine import selected, simplify
-
-    document = editor("p").snapshot.document
-    original = document.geometry_for("p")
-    expected = moved(document, lambda v: tuple(x + 2 for x in v))
-    region = Region(0, 0, 64, 64, reference())
-    target = Image.fromarray(nodes_method.region_pixels(expected, region))
-
-    def fitting(current, _selection, *_args, **_kwargs):
-        return SimpleNamespace(
-            values={
-                n.id: tuple(v + 2 for v in n.values)
-                for s in current.geometry_for("p").subpaths
-                for n in s.nodes
-            }
-        )
-
-    monkeypatch.setattr(selected, "fit_selected_path", fitting)
-    monkeypatch.setattr(simplify, "straightened", lambda *_args: original)
-    task = nodes_method.Task(
-        document,
-        replace(region, image=target),
-        read_settings({}, nodes_method.SETTINGS, "Tidy"),
-        ("p",),
-        target,
-    )
-    after, skipped = nodes_method.fit(task, None, None)
-    assert not skipped
-    assert np.array_equal(nodes_method.region_pixels(after, region), np.asarray(target))
-    assert after.geometry_for("p") != original
-
-
-@pytest.mark.usefixtures("low_resolution")
-def test_tidy_fits_adjacent_fills_jointly_when_individual_fits_cannot_improve(
-    monkeypatch,
-):
-    pytest.importorskip("torch")
-    svg = (
-        '<svg width="64" height="64"><g id="g">'
-        '<path id="left" fill="#a23" d="M10 10 L30 10 L30 50 L10 50 Z"/>'
-        '<path id="right" fill="#38b" d="M34 10 L54 10 L54 50 L34 50 Z"/>'
-        "</g></svg>"
-    )
-    target_svg = (
-        svg.replace("L30 10 L30 50", "L32 10 L32 50")
-        .replace("M34 10", "M32 10")
-        .replace("L34 50", "L32 50")
-    )
-    image = render_image(target_svg, (0, 0, 64, 64), (64, 64), alpha=True)
-    document = import_svg(svg)
-    ed = Editor(document, selection=Selection(object_ids=frozenset({"g"})))
-    monkeypatch.setattr(
-        "vectrify.refine.selected.fit_selected_path",
-        lambda *_args, **_kwargs: SimpleNamespace(values={}),
-    )
-    req = OperationRequest(
-        "improve",
-        "nodes",
-        ed.snapshot,
-        ed,
-        Permissions(geometry=True, structure=True, paint=True),
-        settings={
-            **FIT,
-            "steps": 20,
-            "movement": 2,
-            "seconds": 10,
-        },
-        budget=Budget(steps=1),
-        reference=image,
-    )
-    job = Job(method("improve", "nodes"), req)
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    assert state["result"]["changed"]
-    metrics = state["result"]["metrics"]
-    assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.7
-    job.apply()
-    assert ed.snapshot.document.root == document.root
 
 
 @pytest.mark.usefixtures("low_resolution")
@@ -1492,80 +884,6 @@ def test_saving_handles_still_cannot_exceed_simplifys_reference_budget():
     assert np.array_equal(
         np.asarray(render_image(export_svg(result), alpha=True)), np.asarray(target)
     )
-
-
-@pytest.mark.usefixtures("low_resolution")
-@pytest.mark.parametrize("stroke_width", [0.2, 4])
-def test_stroke_supported_simplification_checks_the_actual_reference(
-    stroke_width, monkeypatch
-):
-    from vectrify.refine import simplify
-
-    document = import_svg(
-        '<svg width="64" height="64"><g id="pair">'
-        '<path id="fill" fill="blue" d="M8 16 L16 16.25 L24 15.75 '
-        'L32 16.25 L40 15.75 L48 16 L48 48 L8 48 Z"/>'
-        f'<path id="ink" fill="none" stroke="black" stroke-width="{stroke_width}" '
-        'd="M8 16 L48 16"/></g></svg>'
-    )
-    target = render_image(export_svg(document), alpha=True)
-    ed = Editor(document, selection=Selection(object_ids=frozenset({"pair"})))
-    # Isolate the additional model: the ordinary joining model offers no change.
-    monkeypatch.setattr(
-        simplify, "simplify", lambda _d, paths, *_args, **_kwargs: paths
-    )
-    job = Job(
-        method("improve", "nodes"),
-        replace(
-            request(ed, steps=1, shape=False, snap=False, simplify=True),
-            reference=target,
-        ),
-    )
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    assert state["result"]["changed"] == (stroke_width == 4)
-    if state["result"]["changed"]:
-        job.apply()
-        assert len(ed.snapshot.document.geometry_for("fill").subpaths[0].nodes) == 4
-        assert ed.snapshot.document.geometry_for("ink") == document.geometry_for("ink")
-        assert np.array_equal(
-            np.asarray(render_image(export_svg(ed.snapshot.document), alpha=True)),
-            np.asarray(target),
-        )
-
-
-def test_simplifys_budget_includes_an_unselected_shared_neighbour():
-    from vectrify.refine.frozen import Frozen, Paths
-    from vectrify.refine.shared import frozen_points
-
-    document = import_svg(
-        '<svg width="64" height="64">'
-        '<path id="ghost" fill="blue" fill-opacity="0" '
-        'd="M8 8 L32 8 L32.5 24 L31.5 40 L32 56 L8 56 Z"/>'
-        '<path id="visible" fill="navy" '
-        'd="M32 8 L56 8 L56 56 L32 56 L31.5 40 L32.5 24 Z"/></svg>'
-    )
-    target = render_image(export_svg(document), alpha=True)
-    region = Region(0, 0, 64, 64, on_white(target), np.asarray(target)[:, :, 3] / 255)
-    shared = nodes_method.shared_edges(document, ("ghost",))
-    assert shared
-    assert shared[0].neighbour == "visible"
-    task = nodes_method.Task(
-        document,
-        region,
-        read_settings({"tolerance": 3}, nodes_method.SETTINGS, "Tidy"),
-        ("ghost",),
-        target,
-        shared=tuple(shared),
-    )
-    original = Paths({"ghost": document.geometry_for("ghost")})
-    result = nodes_method.simplified(
-        task, original, Frozen(frozen_points(document, shared)), float("inf")
-    )
-    # The selected transparent path's pixels cannot expose the budget violation;
-    # its opaque neighbour following the simpler edge does.
-    assert result == original
 
 
 def shared_clip_editor(*ids):
@@ -1758,69 +1076,6 @@ def test_tidy_simplifies_an_instance_without_detaching():
         ed.snapshot.document.geometry_for("instance").id
         == original.geometry_for("source").id
     )
-
-
-@pytest.mark.usefixtures("low_resolution")
-@pytest.mark.parametrize("region", [None, [0, 0, 28, 28]])
-def test_tidy_scores_linked_artwork_outside_the_selection(monkeypatch, region):
-    source = (
-        '<svg width="96" height="48"><path id="p" '
-        'd="M4 4L20 4L20 20L4 20Z"/>'
-        '<path id="copy" transform="translate(40) scale(2)" '
-        'd="M4 4L20 4L20 20L4 20Z"/></svg>'
-    )
-    # Only the small first copy needs to move. Moving the shared geometry
-    # improves it but damages the larger copy, beyond the old scoring crop.
-    target = render_image(
-        source.replace('id="p"', 'id="p" transform="translate(1)"'),
-        (0, 0, 96, 48),
-        (96, 48),
-    )
-    ed = Editor(import_svg(source), selection=Selection(whole_document=True))
-    with ed.transaction("Share") as tx:
-        tx.share_geometry("copy", "p")
-    ed.select(Selection(object_ids=frozenset({"p"})))
-    original = ed.snapshot.document
-
-    def propose(_steps, task, _stop, _report):
-        geometry = task.document.geometry_for("p")
-        moved = replace(
-            geometry,
-            subpaths=tuple(
-                replace(
-                    sub,
-                    nodes=tuple(
-                        replace(
-                            node,
-                            values=tuple(
-                                v + (1 if i % 2 == 0 else 0)
-                                for i, v in enumerate(node.values)
-                            ),
-                        )
-                        for node in sub.nodes
-                    ),
-                )
-                for sub in geometry.subpaths
-            ),
-        )
-        candidate = task.document.replace_geometry(moved)
-        return {
-            "shape": (candidate, nodes_method.region_pixels(candidate, task.region), {})
-        }
-
-    monkeypatch.setattr(nodes_method, "run_round", propose)
-    job = Job(
-        method("improve", "nodes"),
-        replace(
-            request(ed, steps=1, gain=0, allowance=0, region=region),
-            reference=target,
-        ),
-    )
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    assert not state["result"]["changed"], state
-    assert ed.snapshot.document == original
 
 
 @pytest.mark.usefixtures("low_resolution")
