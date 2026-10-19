@@ -2231,7 +2231,7 @@
  },
  {
   "name": "tidy",
-  "description": "Tidy paths as a job: snap to the reference, simplify, fit (steps\nshape, snap, detail, simplify; budget: % simplify may worsen the\nmatch, tolerance: px cap; allowance: % any step may; seconds, ...).\nWith region ([x, y, w, h] or a polygon) only the points inside it\nmove, of the paths ids or every unlocked one painting there.",
+  "description": "Tidy paths as a job: snap to the reference, simplify, fit (steps\nshape, snap, detail, simplify; allowance: % any step, simplify\nincluded, may worsen the match; tolerance: px cap; seconds, ...).\nWith region ([x, y, w, h] or a polygon) only the points inside it\nmove, of the paths ids or every unlocked one painting there.",
   "inputSchema": {
    "type": "object",
    "properties": {

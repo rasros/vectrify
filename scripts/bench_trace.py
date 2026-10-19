@@ -131,9 +131,6 @@ FEATURES: dict[str, tuple[tuple[str, int, int, int, int], ...]] = {
         ("girl mouth", 896, 507, 37, 33),
     ),
 }
-# Optimize nodes runs with its own defaults, a quick tidy, on one worker;
-# `--nodes` overrides them.
-OPTIMIZE = {"workers": 1}
 CACHE = Path.home() / ".cache" / "vectrify-bench"
 GENERATED_DIR = CACHE / "generated"
 GENERATED_DATA = Path(__file__).resolve().parent / "bench_data" / "generated.json"
@@ -289,7 +286,9 @@ def main() -> None:
             f"choose from {', '.join(sorted(presets))}"
         )
     overrides = dict(setting(item) for item in args.set)
-    nodes = OPTIMIZE | dict(setting(item) for item in args.nodes)
+    # Optimize nodes runs with its own defaults, a quick tidy; `--nodes`
+    # overrides them.
+    nodes = dict(setting(item) for item in args.nodes)
     rows = []
     for path in args.references or references(args.heldout, args.photos):
         image = load(path)
@@ -361,9 +360,7 @@ def trace(
     *render*, the traced drawing is saved there."""
     row, editor = generate(image, name, settings, features=features, render=render)
     if paths and editor is not None:
-        row["optimize"] = optimize(
-            editor, image, paths, nodes or OPTIMIZE, features=features
-        )
+        row["optimize"] = optimize(editor, image, paths, nodes or {}, features=features)
     return row
 
 

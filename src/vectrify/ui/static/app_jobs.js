@@ -121,7 +121,7 @@ export function operationDialogs({getState, getObject, waitForEdits,
   // Tidy combines edge-seeking and gradient fitting in Fit path, alongside
   // Simplify (the operation's method is still called nodes).
   const NODE_STEPS = ['shape', 'detail', 'simplify'];
-  const NODE_OVERRIDES = ['tolerance', 'movement', 'detail-gain', 'margin', 'budget', 'rounds', 'workers', 'steps', 'gain', 'seconds', 'allowance'];
+  const NODE_OVERRIDES = ['tolerance', 'movement', 'margin', 'rounds', 'steps', 'gain', 'seconds', 'allowance'];
   const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
   const nodeSteps = () => {
     const steps = Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
@@ -139,7 +139,6 @@ export function operationDialogs({getState, getObject, waitForEdits,
       card.classList.toggle('off', !on);
       for (const input of card.querySelectorAll('.two-fields input')) if (input.id !== 'nodes-detail') input.disabled = !customRun || !on;
     }
-    $('nodes-detail-gain').disabled = !customRun || !steps.shape || !steps.detail;
     $('nodes-steps').disabled = !customRun || !steps.shape;
     $('nodes-apply').hidden = true; $('nodes-previews').hidden = true;
   }
@@ -152,9 +151,9 @@ export function operationDialogs({getState, getObject, waitForEdits,
         permissions:{geometry:true, structure:(steps.shape && steps.detail) || steps.simplify, paint:true},
         settings:{...steps, ...(customRun ? {tolerance:Number($('nodes-tolerance').value),
           movement:Number($('nodes-movement').value),
-          steps:Number($('nodes-steps').value), workers:Number($('nodes-workers').value),
-          detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
-          allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
+          steps:Number($('nodes-steps').value),
+          gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
+          allowance:Number($('nodes-allowance').value),
           shared:$('nodes-shared').checked,
           seconds:Number($('nodes-seconds').value)} : {}), ...(region ? {region} : {})},
         budget:customRun ? {steps:Number($('nodes-rounds').value)} : {}};
@@ -184,7 +183,7 @@ export function operationDialogs({getState, getObject, waitForEdits,
     }
     syncNodeSteps();
   });
-  for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+  for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-steps', 'nodes-movement', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
   // Whether paths, or groups that may hold them, are selected for Tidy.
   const tidyTargets = () => getState().selection.objects.some(id => ['path', 'use', 'g'].includes(getObject(id)?.tag));
   async function openTidy() {
@@ -203,7 +202,7 @@ export function operationDialogs({getState, getObject, waitForEdits,
     $('nodes-shape').disabled = !reference;
     if (!reference) $('nodes-shape').checked = false;
     if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }
-    // With a reference the error budget decides and the tolerance is a cap;
+    // With a reference the allowance decides and the tolerance is a cap;
     // without one the tolerance decides alone, so its default is tighter.
     const tolerance = $('nodes-tolerance');
     if (tolerance.value === (reference ? '1' : '3')) tolerance.value = reference ? '3' : '1';

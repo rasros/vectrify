@@ -13,7 +13,7 @@ def test_discovery_and_early_invalid_settings():
         "settings_schema", {"action": "improve", "method": "nodes"}
     ).data["schema"]
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["resolution"]["minimum"] == 64
+    assert schema["properties"]["margin"]["maximum"] == 200
     for settings in (
         {"unknown": True},
         {"tolerance": False},

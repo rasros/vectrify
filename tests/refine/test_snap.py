@@ -82,7 +82,7 @@ def request(ed, ref, **settings):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
-        settings={"workers": 1, **settings},
+        settings=settings,
         budget=Budget(steps=50),
         reference=ref,
     )

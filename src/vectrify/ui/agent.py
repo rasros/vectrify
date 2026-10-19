@@ -3110,8 +3110,8 @@ class Agent:
         region: Area | None = None,
     ) -> Reply:
         """Tidy paths as a job: snap to the reference, simplify, fit (steps
-        shape, snap, detail, simplify; budget: % simplify may worsen the
-        match, tolerance: px cap; allowance: % any step may; seconds, ...).
+        shape, snap, detail, simplify; allowance: % any step, simplify
+        included, may worsen the match; tolerance: px cap; seconds, ...).
         With region ([x, y, w, h] or a polygon) only the points inside it
         move, of the paths ids or every unlocked one painting there."""
         from vectrify.operations.methods.nodes import SETTINGS
