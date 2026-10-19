@@ -140,7 +140,7 @@ def test_clean_outlines_do_not_invent_borders_for_unsupported_shading(monkeypatc
     assert metadata["outline_paths"] == 1
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA benchmark")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_clean_outline_is_a_single_stroke_not_two_borders_of_the_ink():
     pixels = np.full((64, 64, 3), 240, dtype=np.float32)
     pixels[14:50, 14:50] = 30
@@ -160,7 +160,7 @@ def test_clean_outline_is_a_single_stroke_not_two_borders_of_the_ink():
     assert group[0].attrib["d"].endswith("Z")
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA benchmark")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_outline_overlay_restores_a_thin_ring_without_filling_its_hole():
     pixels = np.full((32, 32, 3), 200, dtype=np.float32)
     pixels[8:24, 8:24] = 30
@@ -193,7 +193,7 @@ def test_trace_retains_a_small_hole_when_simplification_would_collapse_it():
     assert np.array_equal(alpha > 0, mask)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA benchmark")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_gpu_colour_regions_preserve_two_colour_geometry_and_full_coverage():
     pixels = np.zeros((24, 24, 3), dtype=np.uint8)
     pixels[:] = (200, 40, 20)

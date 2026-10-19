@@ -61,7 +61,6 @@ dev = [
     "pytest-xdist",
     "ruff",
     "pyrefly",
-    "py-spy",
     # CI installs dev, and the MCP server's tests need the SDK.
     "mcp>=2.2",
 ]
@@ -98,7 +97,7 @@ pythonpath = ["."]
 
 [tool.vulture]
 # The whitelist names what is used only by name, by frameworks or by pytest.
-paths = ["src", "scripts", "tests", "vulture_whitelist.py"]
+paths = ["src", "tests", "vulture_whitelist.py"]
 min_confidence = 60
 
 [tool.pyrefly]
@@ -107,9 +106,7 @@ project-includes = ["src/**/*.py", "tests/**/*.py"]
 # Editable-install discovery can otherwise exclude the whole local project.
 disable-project-excludes-heuristics = true
 project-excludes = ["**/node_modules/**", "**/__pycache__/**", "**/.venv/**"]
-# scripts/ is not an installed package, but the round-trip tests import the
-# analysis scripts directly to check they still read what storage writes.
-search-path = ["src", "scripts", "."]
+search-path = ["src", "."]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"
