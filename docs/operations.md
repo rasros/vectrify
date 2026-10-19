@@ -42,9 +42,8 @@ thread with progress, `stop` (keep best result so far) and a status of
 `running`, `ready`, `failed`, `cancelled` or `applied`; other methods finish
 before `start()` returns. A method naming a resource such as `gpu` holds the
 shared gate in `RESOURCES` while it runs. The GPU gate is
-`vectrify.refine.gpu.gpu_gate()`, one spawn-context semaphore per process, so
-it can also be handed to worker processes; two GPU jobs never hold the device
-at once.
+`vectrify.refine.gpu.gpu_gate()`, one semaphore per process, so two GPU jobs
+never hold the device at once.
 
 Gradient fitting has one core, `refine.paths.fit_filled_svg`, which Tidy's
 single-path fit (`refine.selected.fit_selected_path`) wraps with exact
@@ -59,7 +58,7 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 
 | Action | Method | What it does |
 | --- | --- | --- |
-| generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU), each down the middle of its ink, in an ink it is darkened toward (judged by its darkness more than its hue, which blur and JPEG smear into the surface's), and stepping in width where the ink tapers (a blurred line's width counting the ink its blur spreads), thin lines in a grainy picture also found where they stand out of its grain along their length, with aligned ends joined across short gaps only when ink remains darker than both sides; dense irregular texture stays in smoothed colour regions, with solid outlines and directional hatching retained; flat regions within three RGB levels per channel share one compound filled path, keeping their contours and holes, and small marks of a clearly different colour, such as irises, kept as regions of their own; a reference's transparent parts (less than half opaque) are left empty, with no regions or lines over them and the regions' outlines along the transparency's edge; `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000; `outline` draws one unbroken stroke round the drawing's silhouette; `fit_colours` (on by default) colours each region with the least-squares flat fill under the drawn lines, as `improve/colours` would, after a region holding two clearly separate shades is split into them; `gradients` (on by default) gives a region whose colour clearly ramps a linear gradient |
+| generate | `cel` | Traces flat, outlined art as colour regions bounded by its drawn lines, with the lines as strokes on top (CPU); see below |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | improve | `nodes` | Fits selected paths with combined edge-seeking and gradient fitting, alongside Simplify |
 | improve | `colours` | Closed-form flat fills or linear gradients for the selected objects, geometry locked |
@@ -74,6 +73,45 @@ that places it over the artboard, measuring reference error before and after.
 The target container is the whole drawing (`scope: "drawing"` in the editor
 request) or one selected group. Element IDs in generated SVG are renamed, with
 their references, so repeated generations never collide.
+
+## Cel art (generate/cel)
+
+`generate/cel` traces flat, outlined illustrations on the CPU. The drawn
+lines become strokes on top, each running down the middle of its ink. A
+line's colour is the ink it darkens toward, judged more by darkness than by
+hue, since blur and JPEG smear the surface's hue into it. Where the ink
+tapers, the stroke steps in width; a blurred line's width counts the ink its
+blur spreads. In a grainy picture, thin lines are also found where they
+stand out of the grain along their length. Aligned line ends are joined
+across short gaps only when the ink in the gap stays darker than both sides.
+
+Between the lines are flat regions. Dense irregular texture stays in
+smoothed colour regions, while solid outlines and directional hatching are
+kept as lines. Regions within three RGB levels per channel share one
+compound filled path, keeping their contours and holes. Small marks of a
+clearly different colour, such as irises, keep regions of their own. The
+reference's transparent parts (less than half opaque) are left empty: no
+regions or lines cover them, and the regions' outlines follow the
+transparency's edge.
+
+Settings:
+
+- `regions`: how many regions to keep; 0 (the default) keeps one per 10,000
+  pixels, between 50 and 2,000.
+- `outline`: draw one unbroken stroke round the drawing's silhouette.
+- `fit_colours` (on by default): colour each region with the least-squares
+  flat fill under the drawn lines, as `improve/colours` would, after
+  splitting a region that holds two clearly separate shades.
+- `gradients` (on by default): give a region whose colour clearly ramps a
+  linear gradient.
+- `tolerance` (0.75): how far a traced edge or line may stray from the
+  reference, in reference pixels.
+- `line_width` (0, measured per line): one fixed width for every line.
+- `strokes` (on by default): draw the lines as strokes; off, as filled
+  shapes.
+
+The [editor guide](editor.md#generate-from-reference) describes the method in
+detail.
 
 ## Fit colours and gradients (improve/colours)
 
@@ -141,7 +179,7 @@ by default, including in the Tidy dialog).
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
 When `shape` and `snap` are both enabled, edge-seeking is part of the shape
 step rather than a competing round result. The dialog exposes this as
-**Fit path**. API callers can still request `shape=False, snap=True` for
+**Fit path**. API callers can request `shape=False, snap=True` for
 edge-seeking alone. Without PyTorch `shape` is left out and `snap` remains,
 refused only when shape is the sole step chosen. The steps default to the
 Tidy dialog's (`nodes.defaults`): with a reference `shape`, `snap` and
@@ -171,8 +209,8 @@ path whose geometry is its own and unlocked (same points, in the
 same frame, either direction; a contour drawn back to its start is read as a
 ring). The points the runs end at, where a third region meets the two, are
 frozen, so every step leaves them; after each step `follow` redraws each
-neighbour's run as the selected path's outline between those points now
-runs (reversed when the neighbour runs it the other way), before the result
+neighbour's run as the selected path's outline runs between those points
+(reversed when the neighbour runs it the other way), before the result
 is rendered and judged. A run
 whose ends are gone is left alone. The neighbours that changed are edited and
 selected too, counted under `followed` in the metrics, and their crossings
@@ -309,8 +347,7 @@ pinned ones.
   back to where they last did not cross (twice), then all the way, then the
   whole outline does, and the fit carries on from there. The Xing
   (handle crossing) penalty stays off: it sees only a cubic's own handles crossing, while the
-  fit's folds are mostly neighbouring segments crossing at a node, and in
-  single runs it did not reduce them.
+  fit's folds are mostly neighbouring segments crossing at a node.
 - Snap is `refine.snap.snap`: points and segment middles move along the
   outline's normal to the nearest edge within a few pixels, and with `detail`
   the largest blobs of wrongly covered or missed pixels get new points on the

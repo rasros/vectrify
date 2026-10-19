@@ -175,10 +175,9 @@ The server edits one target at a time, with the same tools for both:
   the session's state and redraws and marks the drawing unsaved. Mid-gesture
   (a drag, or an edit of the person's own in flight) it waits and looks
   again every 120 ms, so the edit shows once the pointer is released. It
-  still polls `/api/poll` every 5 s, which covers a dropped channel. Measured
-  in headless Chrome with `--serve`, an SDK client's paint showed in the
-  page 15 ms (median of 12; at most 48 ms) after the client sent it,
-  before the client had its answer back (about 50 ms). The footer reads
+  also polls `/api/poll` every 5 s, which covers a dropped channel. An agent's edit shows in the
+  page within a few tens of milliseconds, typically before the client has
+  its answer back. The footer reads
   *Agents off*, *Agents allowed*, or *Agent connected · <last action>*
   (connected means a call in the last two minutes).
 - The page reports what the window shows, for `describe()`: the visible part
@@ -342,8 +341,7 @@ region, size), so looking again at an unchanged drawing costs no rendering.
 
 **History**: `history(limit?)` (undo and redo stacks, newest first: stable
 `id`, label, author `agent` or `person`, revision), `undo(ids)`, `redo(ids)`.
-IDs are required, including for a single step; step counts and implicit latest
-undo are no longer accepted. Edit replies include `edit_id`. Restoring an
+IDs are required, including for a single step. Edit replies include `edit_id`. Restoring an
 older entry preserves unrelated later edits and refuses conflicts atomically.
 
 **Objects**: `properties(ids, fill?, stroke?, stroke_width?, opacity?,
@@ -433,7 +431,7 @@ editor's Break does), `split_edge(points)`, `delete(points, contours?)`,
 `join(points=[a, b])`.
 
 **Operations** (jobs): `generate(method?, settings?, group?)` (`cel` or
-`colour-regions`; over the whole drawing, or into the area of `group`), `tidy(ids, settings?, rounds?)`, `fit_colours(ids, fill?,
+`colour-regions`; over the whole drawing, or into the area of `group`), `tidy(ids?, settings?, rounds?, region?)`, `fit_colours(ids, fill?,
 passes?, resolution?)` (flat or linear gradients), `snap_edges(ids,
 tolerance?)`, `cleanup(ids)`. Each starts a job with the
 permissions the editor's dialog would give it; `job(id, action?,
@@ -489,7 +487,7 @@ the drawing: the agent reads them with `describe()` and never sets them.
   protocol, which the SDK's own client speaks by default) is told apart
   only by the `clientInfo` it sends: two such clients of the same name and
   version share one record of what they saw. Clients that open a session
-  (`Mcp-Session-Id`, as today's do) are kept apart.
+  (`Mcp-Session-Id`) are kept apart.
 - The hosted server needs the `mcp` extra in the editor's own environment;
   without it the popover says so, and only a `--serve` editor can still be
   reached, by `vectrify-mcp`'s `connect()`.
@@ -522,9 +520,8 @@ the drawing: the agent reads them with `describe()` and never sets them.
 Call `settings_schema(action, method)` for the operation's JSON schema:
 `generate/cel`, `generate/colour-regions`, `improve/nodes` (tidy),
 `improve/colours`, `snap/edges` and `simplify/cleanup`. The schema lists types, defaults, ranges, enums and
-interactions, with `additionalProperties=false`. Existing settings dictionaries
-remain supported; unknown keys and invalid values are rejected before starting
-work. Defaults are reported as `effective_settings` in every job reply.
+interactions, with `additionalProperties=false`. Unknown keys and invalid values are
+rejected before starting work. Defaults are reported as `effective_settings` in every job reply.
 
 Proposal `diagnostics` are data, separate from tool guidance and pixel metrics.
 They list created/removed objects, node removal, straight-to-curve changes,
