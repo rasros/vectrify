@@ -493,9 +493,7 @@ def _polish_group(
     endpoint_only,
     supports=False,
 ):
-    import torch
-
-    from vectrify.refine.paths import fit_filled_svg, to_path_d
+    from vectrify.refine.paths import fit_filled_svg
 
     before = document
     prepared = document
@@ -505,10 +503,7 @@ def _polish_group(
         context = _context(prepared, group, target, options)
     except DocumentError:
         return document
-    canvases = len(group) + 16 * sum(
-        path_style(prepared, prepared.element(oid))["fill"] == "none" for oid in group
-    )
-    if canvases * context.size[0] * context.size[1] > MAX_COVERAGE_PIXELS:
+    if _coverage_pixels(prepared, group, context) > MAX_COVERAGE_PIXELS:
         return document
     if within.is_set():
         return document
@@ -527,25 +522,7 @@ def _polish_group(
         )
         for oid in group
     ]
-    work = ET.Element("svg", width=str(context.size[0]), height=str(context.size[1]))
-    opacity = []
-    for p in coordinates:
-        style = path_style(prepared, prepared.element(p.oid))
-        kind = "stroke" if p.stroke_only else "fill"
-        paint = hex_colour(color(style[kind]))
-        opacity.append(float(style[kind + "-opacity"]) * float(style["opacity"]))
-        ET.SubElement(
-            work,
-            "path",
-            {
-                "d": " ".join(
-                    to_path_d(c.cpu().tolist(), precision=9) + " Z"
-                    for c in p.controls_from_local(p.original)
-                ),
-                "fill": paint,
-                "fill-rule": style["fill-rule"],
-            },
-        )
+    work, opacity = _work_svg(prepared, coordinates, context.size)
     links = [link for link in shared if link.path in group or link.neighbour in group]
     shared_coordinates = _SharedCoordinates(coordinates, links)
     stroke_supports = None
@@ -561,6 +538,94 @@ def _polish_group(
         )
         if not stroke_supports.active:
             return before
+    transformed = _transform(coordinates, shared_coordinates, stroke_supports)
+    # A narrow stroke can lie wholly within the wrong pixel. Its exact-area
+    # gradient then has no indication which way its ink belongs. Compare
+    # nearby pixels together first, then refine at the original resolution.
+    coarse_steps = (
+        min(10, options.steps // 2) if any(p.stroke_only for p in coordinates) else 0
+    )
+    observer = _Observer(
+        before,
+        prepared,
+        coordinates,
+        links,
+        options,
+        coarse_steps,
+        within,
+        lambda candidate: _exact_score(candidate, context, score),
+    )
+    try:
+        fit_filled_svg(
+            work,
+            context.target,
+            steps=options.steps,
+            point_learning_rate=0.25,
+            color_learning_rate=0,
+            xing_weight=0,
+            # The soft renderer always samples 4x4; at 2x2 the native one
+            # misses seams thinner than half a pixel, so nothing closes them.
+            subpixels=4,
+            monolithic=True,
+            fit_context=(context.base, context.delta, context.transmission),
+            project_controls=_projector(prepared, coordinates, links, transformed),
+            control_transform=transformed,
+            control_loss=lambda paths: (
+                0.001
+                * sum(
+                    p.mapping.bending_loss(path)
+                    for p, path in zip(coordinates, paths, strict=True)
+                    if not p.stroke_only
+                )
+            ),
+            observe=observer,
+            coverage_transform=_stroke_coverage(coordinates, opacity, context.size),
+            loss_transform=_coarse_then_fine_loss(coarse_steps),
+            device=fit_device(),
+        )
+    except DocumentError:
+        # A shared run can change topology during following. The individual
+        # fit remains valid; keep any already verified joint improvement.
+        return observer.best
+    return observer.best
+
+
+def _coverage_pixels(document, group, context):
+    """Pixels in the coverage stack, with extra subpixel canvases per stroke."""
+    canvases = len(group) + 16 * sum(
+        path_style(document, document.element(oid))["fill"] == "none" for oid in group
+    )
+    return canvases * context.size[0] * context.size[1]
+
+
+def _work_svg(document, coordinates, size):
+    """The group as filled paths for the fit, and each path's paint opacity."""
+    from vectrify.refine.paths import to_path_d
+
+    work = ET.Element("svg", width=str(size[0]), height=str(size[1]))
+    opacity = []
+    for p in coordinates:
+        style = path_style(document, document.element(p.oid))
+        kind = "stroke" if p.stroke_only else "fill"
+        paint = hex_colour(color(style[kind]))
+        opacity.append(float(style[kind + "-opacity"]) * float(style["opacity"]))
+        ET.SubElement(
+            work,
+            "path",
+            {
+                "d": " ".join(
+                    to_path_d(c.cpu().tolist(), precision=9) + " Z"
+                    for c in p.controls_from_local(p.original)
+                ),
+                "fill": paint,
+                "fill-rule": style["fill-rule"],
+            },
+        )
+    return ET.tostring(work, encoding="unicode"), opacity
+
+
+def _transform(coordinates, shared_coordinates, stroke_supports):
+    """Map free controls through shared runs and any stroke supports."""
 
     def transformed(paths):
         local = [
@@ -575,14 +640,11 @@ def _polish_group(
             for p, values in zip(coordinates, local, strict=True)
         ]
 
-    def exact(candidate):
-        return _exact_score(candidate, context, score)
+    return transformed
 
-    best, best_score = before, exact(before)
-    valid = {p.oid: p.original.clone() for p in coordinates}
-    folds = {p.oid: crossings(p.geometry) for p in coordinates}
-    watched = set(group) | {link.neighbour for link in links}
-    original_folds = {oid: crossings(prepared.geometry_for(oid)) for oid in watched}
+
+def _projector(prepared, coordinates, links, transformed):
+    """Project controls in place onto masks and bounds after neighbours follow."""
 
     def project(paths):
         current = prepared
@@ -601,29 +663,33 @@ def _polish_group(
             ):
                 dest.copy_(source)
 
-    # A narrow stroke can lie wholly within the wrong pixel. Its exact-area
-    # gradient then has no indication which way its ink belongs. Compare
-    # nearby pixels together first, then refine at the original resolution.
-    coarse_steps = (
-        min(10, options.steps // 2) if any(p.stroke_only for p in coordinates) else 0
-    )
-    blurred_target = None
+    return project
 
-    def blur(image):
-        return torch.nn.functional.avg_pool2d(
-            image.permute(2, 0, 1)[None],
-            3,
-            stride=1,
-            padding=1,
-            count_include_pad=False,
-        )[0].permute(1, 2, 0)
+
+def _blur(image):
+    import torch
+
+    return torch.nn.functional.avg_pool2d(
+        image.permute(2, 0, 1)[None],
+        3,
+        stride=1,
+        padding=1,
+        count_include_pad=False,
+    )[0].permute(1, 2, 0)
+
+
+def _coarse_then_fine_loss(coarse_steps):
+    """Blur both images for *coarse_steps*, then compare them as they are."""
+    import torch
+
+    blurred_target = None
 
     def loss_transform(image, target_image, step):
         nonlocal blurred_target
         if step < coarse_steps:
             if blurred_target is None:
-                blurred_target = blur(target_image)
-            image, target_image = blur(image), blurred_target
+                blurred_target = _blur(target_image)
+            image, target_image = _blur(image), blurred_target
         if image.shape[-1] == 4:
             # Reweighted least squares retains a useful opacity derivative
             # at narrow seams, where squared error otherwise loses it. The
@@ -650,48 +716,94 @@ def _polish_group(
             )
         return image, target_image
 
-    last_score = best_score
+    return loss_transform
 
-    def observe(step, paths, _colours):
-        nonlocal best, best_score, last_score
-        if step and (step % 10 == 0 or step == options.steps or within.is_set()):
-            current = prepared
-            for p, controls in zip(coordinates, paths, strict=True):
-                local = p.mapping.local_from_controls(controls)
-                geometry = p.geometry_at(local)
-                for _ in range(4):
-                    if crossings(geometry) <= folds[p.oid]:
-                        break
-                    local = (local + valid[p.oid]) / 2
-                    geometry = p.geometry_at(local)
-                if crossings(geometry) > folds[p.oid]:
-                    local = valid[p.oid]
-                    geometry = p.geometry_at(local)
-                valid[p.oid] = local.detach().clone()
-                current = current.replace_geometry(geometry)
-                with torch.no_grad():
-                    for dest, source in zip(
-                        controls, p.controls_from_local(local), strict=True
-                    ):
-                        dest.copy_(source)
-            current, _ = follow(current, links)
+
+class _Observer:
+    """Keep the best exactly scored candidate the fit passes through.
+
+    Every tenth step, and at the last, each path backs off toward its last
+    valid controls until it gains no self-crossings. A candidate whose
+    followed neighbours gain none either is scored exactly; the fit stops when
+    that score stalls or time runs out.
+    """
+
+    def __init__(
+        self, before, prepared, coordinates, links, options, coarse_steps, within, exact
+    ):
+        self.prepared = prepared
+        self.coordinates = coordinates
+        self.links = links
+        self.options = options
+        self.coarse_steps = coarse_steps
+        self.within = within
+        self.exact = exact
+        self.best, self.best_score = before, exact(before)
+        self.last_score = self.best_score
+        self.valid = {p.oid: p.original.clone() for p in coordinates}
+        self.folds = {p.oid: crossings(p.geometry) for p in coordinates}
+        self.watched = {p.oid for p in coordinates} | {link.neighbour for link in links}
+        self.original_folds = {
+            oid: crossings(prepared.geometry_for(oid)) for oid in self.watched
+        }
+
+    def __call__(self, step, paths, _colours):
+        options = self.options
+        if step and (step % 10 == 0 or step == options.steps or self.within.is_set()):
+            current = self._unfolded(paths)
+            current, _ = follow(current, self.links)
             if all(
-                crossings(current.geometry_for(oid)) <= original_folds[oid]
-                for oid in watched
+                crossings(current.geometry_for(oid)) <= self.original_folds[oid]
+                for oid in self.watched
             ):
-                actual = exact(current)
-                if actual < best_score:
-                    best, best_score = current, actual
+                actual = self.exact(current)
+                if actual < self.best_score:
+                    self.best, self.best_score = current, actual
                 # A model can be improving through initialization while still
                 # worse than the retained unrestricted fit. Judge its progress
                 # independently; the best exact render still decides retention.
-                change = (last_score - actual) / max(last_score, 1e-12)
-                last_score = actual
-                if options.stall and step > coarse_steps and change < options.stall:
+                change = (self.last_score - actual) / max(self.last_score, 1e-12)
+                self.last_score = actual
+                if (
+                    options.stall
+                    and step > self.coarse_steps
+                    and change < options.stall
+                ):
                     return False
-        return not within.is_set()
+        return not self.within.is_set()
+
+    def _unfolded(self, paths):
+        """The document at *paths*, each backed off until it gains no folds."""
+        import torch
+
+        current = self.prepared
+        for p, controls in zip(self.coordinates, paths, strict=True):
+            local = p.mapping.local_from_controls(controls)
+            geometry = p.geometry_at(local)
+            for _ in range(4):
+                if crossings(geometry) <= self.folds[p.oid]:
+                    break
+                local = (local + self.valid[p.oid]) / 2
+                geometry = p.geometry_at(local)
+            if crossings(geometry) > self.folds[p.oid]:
+                local = self.valid[p.oid]
+                geometry = p.geometry_at(local)
+            self.valid[p.oid] = local.detach().clone()
+            current = current.replace_geometry(geometry)
+            with torch.no_grad():
+                for dest, source in zip(
+                    controls, p.controls_from_local(local), strict=True
+                ):
+                    dest.copy_(source)
+        return current
+
+
+def _stroke_coverage(coordinates, opacity, size):
+    """Coverage of each path, with strokes as round-capped soft tubes."""
 
     def coverage(paths, alphas):
+        import torch
+
         from vectrify.refine.soft_coverage import soft_stroke_coverage
 
         painted = []
@@ -700,42 +812,8 @@ def _polish_group(
         ):
             if p.stroke_only:
                 forward = [c[:n] for c, n in zip(path, p.mapping.counts, strict=True)]
-                alpha = soft_stroke_coverage(
-                    forward, (0, 0, *context.size), p.stroke_width
-                )
+                alpha = soft_stroke_coverage(forward, (0, 0, *size), p.stroke_width)
             painted.append(alpha * strength)
         return torch.stack(painted)
 
-    try:
-        fit_filled_svg(
-            ET.tostring(work, encoding="unicode"),
-            context.target,
-            steps=options.steps,
-            point_learning_rate=0.25,
-            color_learning_rate=0,
-            xing_weight=0,
-            # The soft renderer always samples 4x4; at 2x2 the native one
-            # misses seams thinner than half a pixel, so nothing closes them.
-            subpixels=4,
-            monolithic=True,
-            fit_context=(context.base, context.delta, context.transmission),
-            project_controls=project,
-            control_transform=transformed,
-            control_loss=lambda paths: (
-                0.001
-                * sum(
-                    p.mapping.bending_loss(path)
-                    for p, path in zip(coordinates, paths, strict=True)
-                    if not p.stroke_only
-                )
-            ),
-            observe=observe,
-            coverage_transform=coverage,
-            loss_transform=loss_transform,
-            device=fit_device(),
-        )
-    except DocumentError:
-        # A shared run can change topology during following. The individual
-        # fit remains valid; keep any already verified joint improvement.
-        return best
-    return best
+    return coverage
