@@ -52,8 +52,8 @@ jobs:
 
       - name: Lint
         run: |
-          uv run ruff check src/ tests/ scripts/
-          uv run ruff format --check src/ tests/ scripts/
+          uv run ruff check src/ tests/
+          uv run ruff format --check src/ tests/
 
       - name: Type check
         run: uv run pyrefly check

@@ -1116,8 +1116,8 @@ on, are never merged; nor is a small mark of a clearly different colour
 (60 levels or more apart in RGB, from 12 pixels up), such as an iris, a
 pupil, a highlight or a mouth, merged into the region around it. The shadows
 and marks kept this way do not count toward Regions, so a shaded drawing can
-come out with more regions than asked for (a few dozen more on the benchmark
-drawings). Pieces of a colour under 12 pixels go to their neighbours. A region the merging left with two
+come out with more regions than asked for (a few dozen more on a typical
+shaded drawing). Pieces of a colour under 12 pixels go to their neighbours. A region the merging left with two
 clearly separate shades in it (few of its pixels between them) is then split
 back into them, so its colour is not fitted to a grey between the two. The line pixels go to
 the regions either side, so neighbours

@@ -94,61 +94,12 @@ except for outlined fills, which need the GPU.
 ## CUDA extension
 
 The native CUDA extension for the filled-path fit is built only on request.
-Build a local wheel with it, then time it:
+Build and install a local wheel with it:
 
 ```sh
 VECTRIFY_BUILD_CUDA_RENDERER=1 uv build --wheel --no-build-isolation
 uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
-.venv/bin/python scripts/check_cuda_renderer.py
 ```
 
+`uv run pytest tests/refine/test_filled_paths.py` exercises it.
 PyPI releases are portable Python wheels and do not bundle the CUDA extension.
-
-## Scripts
-
-`scripts/` holds standalone tools run from a checkout:
-`bench_colour_regions.py` runs colour regions on one image,
-`bench_cuda_renderer.py` and `check_cuda_renderer.py` time the filled-path
-fit, `bench_trace.py` benchmarks Generate (Cel art by default) and Tidy on
-fixed references, `bench_lines.py` scores the Cel art tracer's lines
-against vector originals (clean, noisy and stretched), `bench_shadows.py`
-measures the shading it leaves out (each of these three takes `--heldout`
-to run a held-out set of images never used for tuning instead of the
-default tuning set; each set holds generated cartoon images, mostly anime
-and then several other styles, kept in `~/.cache/vectrify-bench/generated`,
-hard drawings made for the bench, in `scripts/bench_data`, and the line
-bench's Wikipe-tan drawings; `bench_trace.py --photos` runs a set of
-photographs from Wikimedia Commons instead, kept in
-`~/.cache/vectrify-bench/photos` and attributed in
-`scripts/bench_data/photos.json`), and `analyze_profile.py` summarises a
-py-spy profile.
-
-Tidy is benchmarked as it is used, a touch-up after tracing:
-`bench_trace.py --tidy` tidies the 20 largest traced paths (`--paths N`,
-or `--tidy-all`) and reports, before and after, the whole image's error,
-the error over the tidied paths' own area, their points, Tidy's time per
-path, how many paths it changed, left alone, refused or stopped at its
-time limit, the self-crossings it left, and the gaps and overlaps between
-fills where it acted; each `--tidy-steps
-snap,simplify[,detail][,shape]` tidies the same trace once more,
-`--trace-cache DIR` reuses traces across runs (keyed by the image, settings
-and tracing code), `--tidy-crops DIR` saves before/after crops, and `--summary RUN...`
-compares the configurations with sign tests across images and paths.
-`bench_lines.py --tidy STEPS` scores a tidied trace's lines (F, width)
-beside the trace's own.
-
-`bench_tidy.py` benchmarks the fixed editable sword project, selecting all six
-paths in its `blade` group in one operation. It measures each fill outside
-Path 80, uncovered interior, reflected outline area, and partially transparent
-interior pixels with the blade rendered alone. It also reports transparent
-pixels in the complete drawing, distinguishing
-visible gaps from gaps covered by later artwork. The original quality gate uses
-the blade-only count.
-The fixture at `scripts/bench_data/projects/sword.vectrify` includes the
-reference and is stored with lossless project compression. These are benchmark
-targets; the generic Tidy algorithm does not impose a blade layout or symmetry.
-Geometric checks use double-precision regions flattened with a 0.0001-square-unit
-error budget per path, below the 0.05-square-unit pass threshold. This avoids
-unstable cubic intersections when the outline nearly overlaps its reflection.
-`--check` fails when any target is unmet. For a longer fit:
-`uv run python scripts/bench_tidy.py --nodes '{"seconds":30,"rounds":8,"steps":40,"movement":4}' --out .bench/sword.json`.

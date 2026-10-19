@@ -2,8 +2,8 @@
 
 `vectrify.operations` is the contract every automated action implements. An
 action (Generate, Improve, Simplify, Snap) is carried out by a named method,
-for example `improve/nodes` or `simplify/cleanup`. The editor and scripts
-call methods the same way.
+for example `improve/nodes` or `simplify/cleanup`. The editor and the MCP
+server call methods the same way.
 
 ## Request
 
