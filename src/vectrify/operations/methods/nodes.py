@@ -1051,267 +1051,352 @@ class OptimizeNodes(SettingsMethod):
         prepared = self.prepare(request)
         request = prepared.request
         settings = prepared.settings
-        rounds = request.budget.steps or DEFAULT_ROUNDS
-        start = request.snapshot.document
-        polygon = area(settings)
-        selected = selected_paths(request, polygon)
-        # Optimize each asset once even when a fill, its outline and its
-        # clipping boundaries all draw it. Definitions remain definitions.
-        from vectrify.document.model import EditKind
-
-        assets = {}
-        locked = {}
-        for oid in selected:
-            geometry = start.geometry_for(oid)
-            users = start.geometry_users(geometry.id)
-            if any(
-                lock in a.locks
-                for user in users
-                for a in start.ancestry(user)
-                for lock in needed_permissions(settings)
-                & {EditKind.GEOMETRY, EditKind.STRUCTURE}
-            ):
-                locked[oid] = "Shared geometry or a dependent object is locked"
-            else:
-                assets.setdefault(geometry.id, oid)
-        oids = tuple(assets.values())
-        affected = frozenset(
-            user for gid in assets for user in start.geometry_users(gid)
-        )
-        score_request = replace(
-            request,
-            snapshot=replace(
-                request.snapshot,
-                selection=Selection(
-                    object_ids=affected | request.snapshot.selection.object_ids
-                ),
-            ),
-        )
-        margin = settings["margin"] / 100
-        if polygon is not None:
-            region = _area_region(request, polygon, margin, RESOLUTION)
-            appearances = [
-                e.id
-                for e in start.elements()
-                if e.tag in {"path", "use"}
-                and not any(
-                    a.tag in {"defs", "clipPath", "mask"} for a in start.ancestry(e.id)
-                )
-                and e.id in affected
-            ]
-            held = _outside(start, appearances, polygon)
-            if affected - set(selected):
-                # A moved shared asset can affect artwork outside the view.
-                # Judge those consumers too, while keeping the region holds.
-                from vectrify.operations.generate import selected_bounds
-
-                left, top, right, bottom = selected_bounds(score_request, margin)
-                left, top = min(left, region.x), min(top, region.y)
-                right, bottom = (
-                    max(right, region.x + region.width),
-                    max(bottom, region.y + region.height),
-                )
-                region = _area_region(
-                    request,
-                    [(left, top), (right, top), (right, bottom), (left, bottom)],
-                    0,
-                    RESOLUTION,
-                )
-        else:
-            region = (
-                target_region(score_request, margin)
-                if request.reference is not None
-                else drawing_region(score_request, RESOLUTION, margin)
-            )
-            held = frozenset()
-        shared = shared_edges(start, oids) if settings["shared"] else []
-        from vectrify.document.features import held_nodes
-
-        held |= frozenset(
-            n for oid in oids for n in held_nodes(start.geometry_for(oid))
-        )
-        region_held = held
-        if shared:
-            from vectrify.refine.shared import frozen_points
-
-            held |= frozen_points(start, shared)
-        neighbours = tuple(sorted({link.neighbour for link in shared} - set(oids)))
-        # The paths a step may change: the selected ones and, along shared
-        # edges, their neighbours.
-        watched = oids + neighbours
-        steps = [s for s in STEPS if settings[s]]
-        if "shape" in steps:
-            from vectrify.refine.selected import fit_problem
-
-            if fit_problem():
-                steps.remove("shape")
-        if "shape" in steps and "snap" in steps:
-            steps.remove("snap")
+        scope = _scope(request, settings)
         began = time.monotonic()
         deadline = began + settings["seconds"]
-        document = start
-        current = Scored.of(region_pixels(document, region), region)
-        start_score = current
-        first, before = current.pixels, current.difference
-        points = _count(document, oids)
-        taken: list[str] = []
-        skipped: dict[str, str] = dict(locked)
-        # How often each step's result crossed itself more and was not kept.
-        folded: dict[str, int] = {}
-        for done in range(rounds):
-            if context.stop.is_set():
-                break
-            left = deadline - time.monotonic()
-            if left <= 0:
-                break
-            if shared:
-                from vectrify.refine.shared import frozen_points, intact
-
-                # Accepted overlaps are no longer exact shared runs.
-                shared = [link for link in shared if intact(document, link)]
-                held = region_held | frozen_points(document, shared)
-            heading = f"Round {done + 1}/{rounds} · {points} points"
-            context.progress(done, heading, total=rounds)
-
-            def report(_step, message, done=done, heading=heading):
-                context.progress(done, f"{heading} · {message}")
-
-            task = Task(
-                document,
-                region,
-                settings,
-                oids,
-                request.reference,
-                deadline,
-                # One share is kept back for rendering and judging them.
-                left / (len(steps) + 1),
-                held,
-                tuple(shared),
-                "paint" in request.permissions.allowed
-                and not any(
-                    {"paint", "stroke-width"} & a.locks
-                    for user in affected
-                    for a in start.ancestry(user)
-                ),
-                current.pixels,
-                held - region_held,
-            )
-            results = run_round(steps, task, context.stop, report)
-            for _doc, _pixels_after, why in results.values():
-                skipped.update(why)
-            for step in _folding(results, crossings(document, watched), watched):
-                del results[step]
-                folded[step] = folded.get(step, 0) + 1
-            scored = {
-                step: (after, Scored.of(pixels, region))
-                for step, (after, pixels, _why) in results.items()
-            }
-            from vectrify.document.features import violations
-
-            for step, (candidate, _) in list(scored.items()):
-                problems = violations(start, candidate)
-                if problems:
-                    skipped[step] = (
-                        f"Protected feature {problems[0]['node']}: "
-                        f"{problems[0]['reason']}"
-                    )
-                    del scored[step]
-            chosen = _choose(
-                scored,
-                current,
-                points,
-                oids,
-                settings["gain"] / 100,
-                # Without a reference Simplify is judged against the
-                # drawing itself, which any change makes worse.
-                start_score if request.reference is not None else None,
-                settings["allowance"] / 100,
-                handles=_handles(document, oids),
-            )
-            if chosen is None:
-                break
-            taken.append(chosen)
-            document, current = scored[chosen]
-            points = _count(document, oids)
-
+        start = Scored.of(
+            region_pixels(request.snapshot.document, scope.region), scope.region
+        )
+        outcome = _rounds(request, settings, scope, start, deadline, context)
         spent = time.monotonic() - began
         out_of_time = not context.stop.is_set() and time.monotonic() >= deadline
-        followed = [
-            oid
-            for oid in neighbours
-            if document.geometry_for(oid) != start.geometry_for(oid)
-        ]
-        tx = request.editor.transaction(
-            LABEL,
+        return _result(request, scope, start, outcome, spent, out_of_time)
+
+
+@dataclass(frozen=True)
+class Scope:
+    """What a run tidies, and where it is judged."""
+
+    # The selected paths painting in the area, and why any were left out.
+    selected: tuple[str, ...]
+    locked: dict[str, str]
+    # One path per geometry asset, and every object drawing those assets.
+    oids: tuple[str, ...]
+    affected: frozenset[str]
+    polygon: list[tuple[float, float]] | None
+    region: Region
+    # Points outside the area and protected features: held all run.
+    held: frozenset[str]
+    # The edges shared with neighbours, and the neighbours not selected.
+    shared: tuple
+    neighbours: tuple[str, ...]
+
+
+def _scope(request: OperationRequest, settings) -> Scope:
+    start = request.snapshot.document
+    polygon = area(settings)
+    selected = selected_paths(request, polygon)
+    # Optimize each asset once even when a fill, its outline and its
+    # clipping boundaries all draw it. Definitions remain definitions.
+    from vectrify.document.model import EditKind
+
+    assets = {}
+    locked = {}
+    for oid in selected:
+        geometry = start.geometry_for(oid)
+        users = start.geometry_users(geometry.id)
+        if any(
+            lock in a.locks
+            for user in users
+            for a in start.ancestry(user)
+            for lock in needed_permissions(settings)
+            & {EditKind.GEOMETRY, EditKind.STRUCTURE}
+        ):
+            locked[oid] = "Shared geometry or a dependent object is locked"
+        else:
+            assets.setdefault(geometry.id, oid)
+    oids = tuple(assets.values())
+    affected = frozenset(user for gid in assets for user in start.geometry_users(gid))
+    region, held = _judged_region(request, settings, polygon, selected, affected)
+    shared = shared_edges(start, oids) if settings["shared"] else []
+    from vectrify.document.features import held_nodes
+
+    held |= frozenset(n for oid in oids for n in held_nodes(start.geometry_for(oid)))
+    return Scope(
+        tuple(selected),
+        locked,
+        oids,
+        affected,
+        polygon,
+        region,
+        held,
+        tuple(shared),
+        tuple(sorted({link.neighbour for link in shared} - set(oids))),
+    )
+
+
+def _judged_region(
+    request: OperationRequest, settings, polygon, selected, affected
+) -> tuple[Region, frozenset[str]]:
+    """The region a run is judged over, and the points outside its area."""
+    start = request.snapshot.document
+    score_request = replace(
+        request,
+        snapshot=replace(
+            request.snapshot,
             selection=Selection(
-                object_ids=affected
-                | frozenset(
-                    user
-                    for oid in followed
-                    for user in start.geometry_users(start.geometry_for(oid).id)
-                )
-                | (
-                    request.snapshot.selection.object_ids
-                    if polygon is None
-                    else frozenset()
-                )
+                object_ids=affected | request.snapshot.selection.object_ids
             ),
-            allowed=request.permissions.allowed,
-            base=request.snapshot,
-            rebase=True,
+        ),
+    )
+    margin = settings["margin"] / 100
+    if polygon is None:
+        region = (
+            target_region(score_request, margin)
+            if request.reference is not None
+            else drawing_region(score_request, RESOLUTION, margin)
         )
-        for oid in (*oids, *followed):
-            geometry = document.geometry_for(oid)
-            if geometry != start.geometry_for(oid):
-                tx.reshape_path(oid, geometry)
-            width = document.element(oid).get("stroke-width")
-            if width != start.element(oid).get("stroke-width"):
-                tx.set_attributes(oid, {"stroke-width": width})
-        changed = bool(taken)
-        message = None
-        if not changed:
-            message = next(
-                iter(skipped.values()),
-                "Every step that helped made a path cross itself"
-                if folded
-                else "No step improved the paths"
-                + (" within the time limit" if out_of_time else ""),
+        return region, frozenset()
+    region = _area_region(request, polygon, margin, RESOLUTION)
+    appearances = [
+        e.id
+        for e in start.elements()
+        if e.tag in {"path", "use"}
+        and not any(a.tag in {"defs", "clipPath", "mask"} for a in start.ancestry(e.id))
+        and e.id in affected
+    ]
+    held = _outside(start, appearances, polygon)
+    if affected - set(selected):
+        # A moved shared asset can affect artwork outside the view.
+        # Judge those consumers too, while keeping the region holds.
+        from vectrify.operations.generate import selected_bounds
+
+        left, top, right, bottom = selected_bounds(score_request, margin)
+        left, top = min(left, region.x), min(top, region.y)
+        right, bottom = (
+            max(right, region.x + region.width),
+            max(bottom, region.y + region.height),
+        )
+        region = _area_region(
+            request,
+            [(left, top), (right, top), (right, bottom), (left, bottom)],
+            0,
+            RESOLUTION,
+        )
+    return region, held
+
+
+def _steps(settings) -> list[str]:
+    """The chosen steps a round runs: edge-seeking within the fit when both
+    are chosen, and no fit without PyTorch."""
+    steps = [s for s in STEPS if settings[s]]
+    if "shape" in steps:
+        from vectrify.refine.selected import fit_problem
+
+        if fit_problem():
+            steps.remove("shape")
+    if "shape" in steps and "snap" in steps:
+        steps.remove("snap")
+    return steps
+
+
+@dataclass
+class Outcome:
+    """Where a run's rounds left the paths, and what they took and refused."""
+
+    document: Document
+    current: Scored
+    taken: list[str]
+    skipped: dict[str, str]
+    # How often each step's result crossed itself more and was not kept.
+    folded: dict[str, int]
+
+
+def _rounds(
+    request: OperationRequest,
+    settings,
+    scope: Scope,
+    start: Scored,
+    deadline: float,
+    context: RunContext,
+) -> Outcome:
+    """Run rounds until none keeps a step, they or the time run out, or the
+    run is stopped."""
+    rounds = request.budget.steps or DEFAULT_ROUNDS
+    first = request.snapshot.document
+    oids, region = scope.oids, scope.region
+    steps = _steps(settings)
+    # The paths a step may change: the selected ones and, along shared
+    # edges, their neighbours.
+    watched = oids + scope.neighbours
+    widths = "paint" in request.permissions.allowed and not any(
+        {"paint", "stroke-width"} & a.locks
+        for user in scope.affected
+        for a in first.ancestry(user)
+    )
+    shared, held = list(scope.shared), scope.held
+    outcome = Outcome(first, start, [], dict(scope.locked), {})
+    points = _count(first, oids)
+    for done in range(rounds):
+        if context.stop.is_set():
+            break
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        document, current = outcome.document, outcome.current
+        if shared:
+            from vectrify.refine.shared import frozen_points, intact
+
+            # Accepted overlaps are no longer exact shared runs.
+            shared = [link for link in shared if intact(document, link)]
+            held = scope.held | frozen_points(document, shared)
+        heading = f"Round {done + 1}/{rounds} · {points} points"
+        context.progress(done, heading, total=rounds)
+
+        def report(_step, message, done=done, heading=heading):
+            context.progress(done, f"{heading} · {message}")
+
+        task = Task(
+            document,
+            region,
+            settings,
+            oids,
+            request.reference,
+            deadline,
+            # One share is kept back for rendering and judging them.
+            left / (len(steps) + 1),
+            held,
+            tuple(shared),
+            widths,
+            current.pixels,
+            held - scope.held,
+        )
+        results = run_round(steps, task, context.stop, report)
+        scored = _candidates(results, region, watched, document, first, outcome)
+        chosen = _choose(
+            scored,
+            current,
+            points,
+            oids,
+            settings["gain"] / 100,
+            # Without a reference Simplify is judged against the
+            # drawing itself, which any change makes worse.
+            start if request.reference is not None else None,
+            settings["allowance"] / 100,
+            handles=_handles(document, oids),
+        )
+        if chosen is None:
+            break
+        outcome.taken.append(chosen)
+        outcome.document, outcome.current = scored[chosen]
+        points = _count(outcome.document, oids)
+    return outcome
+
+
+def _candidates(
+    results, region: Region, watched, document: Document, first: Document, outcome
+):
+    """A round's *results* scored, less those that cross a *watched* path
+    over itself more than *document* did or break a protected feature of
+    the run's *first* drawing; *outcome* records why each was refused."""
+    for _doc, _pixels_after, why in results.values():
+        outcome.skipped.update(why)
+    for step in _folding(results, crossings(document, watched), watched):
+        del results[step]
+        outcome.folded[step] = outcome.folded.get(step, 0) + 1
+    scored = {
+        step: (after, Scored.of(pixels, region))
+        for step, (after, pixels, _why) in results.items()
+    }
+    from vectrify.document.features import violations
+
+    for step, (candidate, _) in list(scored.items()):
+        problems = violations(first, candidate)
+        if problems:
+            outcome.skipped[step] = (
+                f"Protected feature {problems[0]['node']}: {problems[0]['reason']}"
             )
-        return OperationResult(
-            Proposal(
-                tx,
-                changed,
-                metrics={
-                    "before": {
-                        "difference": before,
-                        "nodes": _count(start, oids),
-                        "handles": _handles(start, oids),
-                    },
-                    "after": {
-                        "difference": current.difference,
-                        "nodes": points,
-                        "handles": _handles(document, oids),
-                    },
-                    "steps": taken,
-                    "seconds": round(spent, 3),
-                    # The time limit ended the run, not the steps running out.
-                    "out_of_time": out_of_time,
-                    "skipped": skipped,
-                    "folded": folded,
-                    # Neighbours whose shared edges moved with the paths.
-                    "followed": len(followed),
-                    "linked": len(affected - set(selected)),
-                    "reference": request.reference is not None,
-                },
-                # The renders the steps were judged by.
-                previews=preview_urls(
-                    region.image,
-                    Image.fromarray(first),
-                    Image.fromarray(current.pixels),
-                ),
-            ),
-            message=message,
+            del scored[step]
+    return scored
+
+
+def _result(
+    request: OperationRequest,
+    scope: Scope,
+    start: Scored,
+    outcome: Outcome,
+    spent: float,
+    out_of_time: bool,
+) -> OperationResult:
+    """The run's edit, its metrics and previews, and why nothing changed."""
+    first, document = request.snapshot.document, outcome.document
+    oids = scope.oids
+    followed = [
+        oid
+        for oid in scope.neighbours
+        if document.geometry_for(oid) != first.geometry_for(oid)
+    ]
+    tx = request.editor.transaction(
+        LABEL,
+        selection=Selection(
+            object_ids=scope.affected
+            | frozenset(
+                user
+                for oid in followed
+                for user in first.geometry_users(first.geometry_for(oid).id)
+            )
+            | (
+                request.snapshot.selection.object_ids
+                if scope.polygon is None
+                else frozenset()
+            )
+        ),
+        allowed=request.permissions.allowed,
+        base=request.snapshot,
+        rebase=True,
+    )
+    for oid in (*oids, *followed):
+        geometry = document.geometry_for(oid)
+        if geometry != first.geometry_for(oid):
+            tx.reshape_path(oid, geometry)
+        width = document.element(oid).get("stroke-width")
+        if width != first.element(oid).get("stroke-width"):
+            tx.set_attributes(oid, {"stroke-width": width})
+    changed = bool(outcome.taken)
+    message = None
+    if not changed:
+        message = next(
+            iter(outcome.skipped.values()),
+            "Every step that helped made a path cross itself"
+            if outcome.folded
+            else "No step improved the paths"
+            + (" within the time limit" if out_of_time else ""),
         )
+    return OperationResult(
+        Proposal(
+            tx,
+            changed,
+            metrics={
+                "before": {
+                    "difference": start.difference,
+                    "nodes": _count(first, oids),
+                    "handles": _handles(first, oids),
+                },
+                "after": {
+                    "difference": outcome.current.difference,
+                    "nodes": _count(document, oids),
+                    "handles": _handles(document, oids),
+                },
+                "steps": outcome.taken,
+                "seconds": round(spent, 3),
+                # The time limit ended the run, not the steps running out.
+                "out_of_time": out_of_time,
+                "skipped": outcome.skipped,
+                "folded": outcome.folded,
+                # Neighbours whose shared edges moved with the paths.
+                "followed": len(followed),
+                "linked": len(scope.affected - set(scope.selected)),
+                "reference": request.reference is not None,
+            },
+            # The renders the steps were judged by.
+            previews=preview_urls(
+                scope.region.image,
+                Image.fromarray(start.pixels),
+                Image.fromarray(outcome.current.pixels),
+            ),
+        ),
+        message=message,
+    )
 
 
 def shared_edges(document: Document, oids) -> list:
