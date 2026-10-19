@@ -39,12 +39,12 @@ from vectrify.svg_render import render_image
 MAX_COVERAGE_PIXELS = 16 * 1024 * 1024
 
 
-def _groups(document: Document, oids, options: FitOptions):
+def _groups(document: Document, oids):
     eligible = set()
     for oid in oids:
         try:
             _, _, style = validate_selection(
-                document, Selection(object_ids=frozenset({oid})), options
+                document, Selection(object_ids=frozenset({oid}))
             )
         except DocumentError:
             continue
@@ -174,10 +174,10 @@ class _Coordinates:
         mask = []
         for node in self.nodes:
             mask.extend(
-                [options.handles and (node.id not in held or node.id in endpoint_only)]
+                [node.id not in held or node.id in endpoint_only]
                 * (len(node.values) // 2 - 1)
             )
-            mask.append(options.nodes and not node.pinned and node.id not in held)
+            mask.append(not node.pinned and node.id not in held)
         self.mapping = ControlMap(
             self.geometry,
             self.local,
@@ -192,7 +192,7 @@ class _Coordinates:
             corners=corners,
         )
         self.bilateral = None
-        if bilateral and self.stroke_only and options.nodes and options.handles:
+        if bilateral and self.stroke_only:
             from vectrify.refine.bilateral import Bilateral
 
             self.bilateral = Bilateral.infer(self.geometry, held, options.displacement)
@@ -369,7 +369,7 @@ def polish(
     strokes. This is another exact-scored proposal; the unrestricted fit stays
     when the reference does not support the simpler family.
     """
-    if not (options.nodes or options.handles) or options.displacement == 0:
+    if options.displacement == 0:
         return document
     oids = tuple(oids)
     stop = stop or Event()
@@ -406,7 +406,7 @@ def polish(
             progress=progress,
         )
     groups = []
-    for group in _groups(document, oids, options):
+    for group in _groups(document, oids):
         # Preserve the useful fill-only refinement before letting outlines
         # move with it. Changing the group must not discard that candidate.
         if any(
@@ -478,7 +478,7 @@ def polish(
         except DocumentError:
             # Unsupported contours leave the individually verified fit intact.
             continue
-    if models and options.nodes and options.handles:
+    if models:
         from vectrify.refine.bilateral import Bilateral
 
         for group in groups:

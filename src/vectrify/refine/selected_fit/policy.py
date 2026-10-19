@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 class Candidate:
     geometry: Geometry
     values: dict[str, tuple[float, ...]]
-    fill: str | None
     image: Image.Image
     error: float
     quality: float
@@ -42,7 +41,6 @@ class RetainedFit:
         self.best = Candidate(
             context.geometry,
             {},
-            None,
             context.before_image,
             self.before,
             objective.quality(context.geometry, self.before),
@@ -50,8 +48,8 @@ class RetainedFit:
         )
         self.original_values = {node.id: node.values for node in context.nodes}
 
-    def evaluate(self, geometry: Geometry, rgb, *, smoothing=1) -> Candidate:
-        fill, image = self.context.candidate(geometry, rgb, self.options)
+    def evaluate(self, geometry: Geometry, *, smoothing=1) -> Candidate:
+        image = self.context.candidate(geometry)
         actual = self.objective.score(image)
         return Candidate(
             geometry,
@@ -61,7 +59,6 @@ class RetainedFit:
                 for node in subpath.nodes
                 if node.values != self.original_values[node.id]
             },
-            fill,
             image,
             actual,
             self.objective.quality(geometry, actual, smoothing),
@@ -95,8 +92,7 @@ class RetainedFit:
             >= (bridge_crossings, self.best.quality)
         ):
             return False
-        # Geometry cleanup never changes the retained paint recommendation.
-        self._retain(replace(candidate, fill=self.best.fill))
+        self._retain(candidate)
         return True
 
     def rescore_quality(self, smoothing: int) -> None:

@@ -36,11 +36,10 @@ def retained(*, cleanup=False, crossed=False):
     return RetainedFit(context, options, objective)
 
 
-def candidate(owner, error, quality, *, count=0, fill=None):
+def candidate(owner, error, quality, *, count=0):
     return Candidate(
         owner.context.geometry,
         {},
-        fill,
         owner.context.before_image,
         error,
         quality,
@@ -50,10 +49,10 @@ def candidate(owner, error, quality, *, count=0, fill=None):
 
 def test_rejected_exact_proposals_leave_every_published_field_unchanged():
     owner = retained()
-    best = candidate(owner, 0.8, 0.8, fill="#123456")
+    best = candidate(owner, 0.8, 0.8)
     assert owner.consider(best)
     for error in (0.8, 0.9, 1.0):
-        assert not owner.consider(candidate(owner, error, 0.1, fill="#abcdef"))
+        assert not owner.consider(candidate(owner, error, 0.1))
         assert owner.best is best
         assert owner.least_difference == 0.8
 
@@ -79,14 +78,13 @@ def test_cleanup_prefers_fewer_crossings_within_the_same_exact_error_cap():
     assert not owner.consider(candidate(owner, 0.7, 0.1, count=1))
 
 
-def test_bridge_repair_requires_explicit_error_permission_and_keeps_paint():
+def test_bridge_repair_requires_explicit_error_permission():
     owner = retained(cleanup=True)
-    assert owner.consider(candidate(owner, 0.8, 0.8, fill="#123456"))
-    bridge = candidate(owner, 0.805, 0.7, fill="#abcdef")
+    assert owner.consider(candidate(owner, 0.8, 0.8))
+    bridge = candidate(owner, 0.805, 0.7)
     assert not owner.consider_bridge(bridge, 0, allow_error=False)
     assert owner.consider_bridge(bridge, 0, allow_error=True)
-    assert owner.best.fill == "#123456"
-    assert owner.best.image is bridge.image
+    assert owner.best is bridge
     assert owner.least_difference == 0.8
     best = owner.best
     assert not owner.consider_bridge(

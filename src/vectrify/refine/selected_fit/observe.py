@@ -7,7 +7,6 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 import numpy as np
-from cairosvg.colors import color
 
 from vectrify.refine.crossings import crossed_nodes, crossings
 
@@ -82,10 +81,7 @@ class FitObserver:
             bounded = controls.local_from_controls([controls.controls_from_local(seed)])
         coordinates = context.local + (bounded - controls.original).cpu().numpy()
         _, _, geometry = self.rollback.repair(coordinates)
-        paint = color(
-            context.style["stroke"] if context.stroke_only else context.style["fill"]
-        )
-        self.retained.consider(self.retained.evaluate(geometry, paint[:3]))
+        self.retained.consider(self.retained.evaluate(geometry))
 
     def initialize_from_cleanup(self):
         """Start cleanup-enabled descent from retained post-cleanup geometry."""
@@ -102,7 +98,7 @@ class FitObserver:
         self.retained.rescore_quality(1)
         self.checked = self.retained.best.quality
 
-    def __call__(self, step, paths, colors):
+    def __call__(self, step, paths, _colors):
         import torch
 
         controls, context, options = self.controls, self.controls.context, self.options
@@ -125,9 +121,7 @@ class FitObserver:
                     for dest, source in zip(paths[0], back, strict=True):
                         dest.copy_(source)
             self.rollback.adopt(coordinates, geometry, cleanup=options.cleanup)
-            candidate = self.retained.evaluate(
-                geometry, colors[0].detach().clamp(0, 1).cpu().numpy()
-            )
+            candidate = self.retained.evaluate(geometry)
             # An edge proposal cannot stall descent against its own baseline.
             stalled = candidate.quality > self.checked * (1 - options.stall)
             self.checked = candidate.quality

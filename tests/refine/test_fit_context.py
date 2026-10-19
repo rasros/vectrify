@@ -67,7 +67,7 @@ def test_tidy_waits_for_the_fit_to_settle_after_an_unchanged_first_check(monkeyp
         FitOptions(steps=60, stall=0.001, cleanup=True, snap=False),
     )
     assert seen == [10, 20, 30]
-    assert result.changed
+    assert result.values
     assert result.after < result.before / 10
 
 
@@ -87,5 +87,5 @@ def test_tidy_reference_profiles_support_transparent_artwork(monkeypatch):
         target,
         FitOptions(cleanup=True, snap=False),
     )
-    assert result.changed
+    assert result.values
     assert result.after < result.before / 10

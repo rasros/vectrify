@@ -130,7 +130,6 @@ def test_request_parsing_rejects_unknown_values():
 def test_built_in_methods_are_registered():
     names = {(m.action, m.name) for m in available()}
     assert {
-        ("improve", "path-fit"),
         ("improve", "nodes"),
         ("snap", "edges"),
     } <= names

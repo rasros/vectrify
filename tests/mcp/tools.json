@@ -96,7 +96,7 @@
  },
  {
   "name": "settings_schema",
-  "description": "Discover a job's JSON settings schema, defaults, ranges and interactions.\n\nUse generate/cel, generate/colour-regions, improve/nodes (tidy),\nimprove/colours, improve/path-fit, snap/edges or simplify/cleanup.\nUnknown settings are refused before work.\n",
+  "description": "Discover a job's JSON settings schema, defaults, ranges and interactions.\n\nUse generate/cel, generate/colour-regions, improve/nodes (tidy),\nimprove/colours, snap/edges or simplify/cleanup.\nUnknown settings are refused before work.\n",
   "inputSchema": {
    "type": "object",
    "properties": {

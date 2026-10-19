@@ -307,7 +307,7 @@ def test_joint_shared_edge_uses_the_visible_neighbours_gradient(reverse_links):
         document,
         ("a", "b"),
         target,
-        FitOptions(snap=False, handles=False, steps=20, displacement=2, resolution=64),
+        FitOptions(snap=False, steps=20, displacement=2, resolution=64),
         held=held,
         shared=tuple(shared),
     )
@@ -373,7 +373,7 @@ def test_joint_shared_point_obeys_a_pin_on_either_copy(pinned_path):
         document,
         ("a", "b"),
         target,
-        FitOptions(snap=False, handles=False, steps=10, displacement=2, resolution=64),
+        FitOptions(snap=False, steps=10, displacement=2, resolution=64),
         held=held,
         shared=tuple(shared),
     )
@@ -449,7 +449,7 @@ def test_joint_fit_moves_a_join_when_only_its_outgoing_curve_is_visible():
         document,
         ("a", "b"),
         target,
-        FitOptions(snap=False, handles=False, steps=20, displacement=2, resolution=64),
+        FitOptions(snap=False, steps=20, displacement=2, resolution=64),
         held=held,
     )
     moved = result.geometry_for("a").node(corner.id).endpoint
@@ -556,22 +556,22 @@ def test_only_compatible_contiguous_selected_siblings_form_a_joint_run():
             '<path id="c" fill="#333" d="M1 1 L5 1 L5 5 Z"/></g>',
         )
     )
-    assert _groups(document, ("c", "b", "a"), FitOptions()) == [("a", "b")]
-    assert _groups(document, ("a", "c"), FitOptions()) == []
+    assert _groups(document, ("c", "b", "a")) == [("a", "b")]
+    assert _groups(document, ("a", "c")) == []
     stroke = document.replace_element(
         replace(
             document.element("b"),
             attributes=(*document.element("b").attributes, ("stroke", "black")),
         )
     )
-    assert _groups(stroke, ("a", "b"), FitOptions()) == []
+    assert _groups(stroke, ("a", "b")) == []
     singular = document.replace_element(
         replace(
             document.element("b"),
             attributes=(*document.element("b").attributes, ("transform", "scale(0)")),
         )
     )
-    assert _groups(singular, ("a", "b"), FitOptions()) == []
+    assert _groups(singular, ("a", "b")) == []
     stopped = Event()
     stopped.set()
     assert polish(document, ("a", "b"), None, FitOptions(), stop=stopped) == document

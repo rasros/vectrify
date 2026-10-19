@@ -39,8 +39,8 @@ class FitControls:
         mask = []
         for node in context.nodes:
             selected = not selection.node_ids or node.id in selection.node_ids
-            mask.extend([selected and options.handles] * (len(node.values) // 2 - 1))
-            mask.append(selected and options.nodes and not node.pinned)
+            mask.extend([selected] * (len(node.values) // 2 - 1))
+            mask.append(selected and not node.pinned)
         self.movable = self.original.new_tensor(mask)[:, None]
         self.parameters = ControlMap(
             context.geometry,
@@ -117,7 +117,7 @@ class FitControls:
         context, selection, options = self.context, self.selection, self.options
         document = context.document
         seed = self.original
-        if options.snap and (options.nodes or options.handles) and not stop.is_set():
+        if options.snap and not stop.is_set():
             from vectrify.operations.generate import Region
             from vectrify.refine.frozen import Frozen, Paths, frozen
             from vectrify.refine.lines import fit_lines
@@ -127,8 +127,7 @@ class FitControls:
             held = frozen(paths).endpoints | frozenset(
                 node.id
                 for node in context.nodes
-                if not options.nodes
-                or (selection.node_ids and node.id not in selection.node_ids)
+                if selection.node_ids and node.id not in selection.node_ids
             )
             fixed = Frozen(held)
             left, top, right, bottom = context.crop
