@@ -1,11 +1,11 @@
 """Differentiable cubic fill and round-stroke coverage in plain PyTorch.
 
-The native CUDA kernel is exact; the sampled-winding fallback has almost no
-gradient because winding is piecewise constant. This renderer works on any
-device: each cubic becomes a short polyline, the fill rule decides inside or
-outside from scanline ray crossings (no gradient needed), and the antialiased
-edge is ``clamp(0.5 + sign * distance, 0, 1)`` with the distance to the
-nearest polyline segment, through which the gradient flows.
+The native CUDA kernels are exact but need CUDA and the built extension.
+This renderer works on any device: each cubic becomes a short polyline, the
+fill rule decides inside or outside from scanline ray crossings (no gradient
+needed), and the antialiased edge is ``clamp(0.5 + sign * distance, 0, 1)``
+with the distance to the nearest polyline segment, through which the gradient
+flows.
 
 Only pixels within half a pixel of the outline have fractional coverage, so
 the distance is evaluated for (pixel, segment) pairs near each segment rather

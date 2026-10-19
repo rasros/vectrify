@@ -1,15 +1,14 @@
-"""Fit a group of stroked cubic paths to a target by gradient descent.
+"""Fit filled cubic SVG paths to a target by gradient descent.
 
-The differentiable rasterizer supports stroked cubics only. Pixels are sampled
-at their centres, and paths in a group are fitted jointly so overlapping
-strokes can move together.
+Parses fills into closed cubic contours, packs them for the native coverage
+kernels, and composites opaque fills in painter order. The fit itself lives in
+the ``filled_fit_*`` modules.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-import os
 import re
 from collections import defaultdict
 from functools import lru_cache
@@ -131,129 +130,6 @@ def to_path_d(segments, *, precision: int = 1) -> str:
 FUSED_CUBICS = 16
 
 
-def _fill_winding(
-    control: Any,
-    box: tuple[int, int, int, int],
-    samples: int = 32,
-    x_offset: float = 0.5,
-    y_offset: float = 0.5,
-) -> Any:
-    """Return a differentiable winding-angle field for one closed contour."""
-    import torch
-
-    left, top, right, bottom = box
-    height, width = bottom - top, right - left
-    steps = torch.linspace(0, 1, samples, device=control.device, dtype=control.dtype)
-    basis = torch.stack(
-        [
-            (1 - steps) ** 3,
-            3 * steps * (1 - steps) ** 2,
-            3 * steps**2 * (1 - steps),
-            steps**3,
-        ],
-        dim=-1,
-    )
-    curve = torch.einsum("sk,nkc->nsc", basis, control).reshape(-1, 2)
-    curve = torch.cat((curve, curve[:1]))
-    ys, xs = torch.meshgrid(
-        torch.arange(height, device=control.device, dtype=control.dtype)
-        + top
-        + y_offset,
-        torch.arange(width, device=control.device, dtype=control.dtype)
-        + left
-        + x_offset,
-        indexing="ij",
-    )
-    pixels = torch.stack((xs, ys), dim=-1).reshape(-1, 2)
-    start = curve[:-1][None] - pixels[:, None]
-    end = curve[1:][None] - pixels[:, None]
-    cross = start[..., 0] * end[..., 1] - start[..., 1] * end[..., 0]
-    dot = (start * end).sum(dim=-1)
-    return torch.atan2(cross, dot).sum(dim=-1).reshape(height, width)
-
-
-def _fill_winding_chunk(start: Any, end: Any, pixels: Any) -> Any:
-    """Sum the winding angles of batched sampled contours at ``pixels``.
-
-    Keeping this primitive separate gives ``torch.compile`` one regular,
-    side-effect-free GPU expression to fuse.  In eager mode it is deliberately
-    the same arithmetic previously in :func:`fill_coverages`.
-    """
-    import torch
-
-    offset_start = start[:, None] - pixels[None, :, None]
-    offset_end = end[:, None] - pixels[None, :, None]
-    cross = (
-        offset_start[..., 0] * offset_end[..., 1]
-        - offset_start[..., 1] * offset_end[..., 0]
-    )
-    dot = (offset_start * offset_end).sum(dim=-1)
-    return torch.atan2(cross, dot).sum(dim=-1)
-
-
-def _dynamic_fill_winding_chunk(start: Any, end: Any, pixels: Any) -> Any:
-    """The tiled counterpart with only its pixel dimension left symbolic."""
-    return _fill_winding_chunk(start, end, pixels)
-
-
-def _torch_compile_enabled() -> bool:
-    """Whether this process permits Torch Dynamo to compile renderer kernels."""
-    # PyTorch raises from an already-created ``torch.compile`` wrapper when
-    # this environment switch is set.  Respect it before creating the cached
-    # wrapper so the advertised eager renderer is actually usable for
-    # debugging, constrained deployments, and compiler-cache recovery.
-    return os.environ.get("TORCH_COMPILE_DISABLE", "0") not in {"1", "true", "True"}
-
-
-@lru_cache(maxsize=1)
-def _compiled_fill_winding_chunk() -> Any:
-    """Return the CUDA-fused winding primitive when this torch supports it.
-
-    This is intentionally lazy: installing Vectrify must not require a CUDA
-    compiler, and the normal CPU renderer remains useful for tests and small
-    jobs.  Inductor generates a kernel for this exact operation rather than
-    adding an external renderer dependency.
-    """
-    import torch
-
-    compile_fn = getattr(torch, "compile", None)
-    if compile_fn is None or not _torch_compile_enabled():
-        return _fill_winding_chunk
-    try:
-        return compile_fn(
-            _fill_winding_chunk,
-            fullgraph=True,
-            dynamic=False,
-            # This primitive is invoked repeatedly while its earlier outputs
-            # still participate in one optimisation graph.  CUDA graph replay
-            # cannot safely reuse those outputs and adds substantial overhead.
-            options={"triton.cudagraphs": False},
-        )
-    except (RuntimeError, TypeError):
-        log.warning("CUDA winding fusion is unavailable; using eager torch.")
-        return _fill_winding_chunk
-
-
-@lru_cache(maxsize=1)
-def _compiled_tiled_fill_winding_chunk() -> Any:
-    """Fuse arbitrary-size clipped tiles after path shapes were normalized."""
-    import torch
-
-    compile_fn = getattr(torch, "compile", None)
-    if compile_fn is None or not _torch_compile_enabled():
-        return _fill_winding_chunk
-    try:
-        return compile_fn(
-            _dynamic_fill_winding_chunk,
-            fullgraph=True,
-            dynamic=True,
-            options={"triton.cudagraphs": False},
-        )
-    except (RuntimeError, TypeError):
-        log.warning("CUDA tiled winding fusion is unavailable; using eager torch.")
-        return _fill_winding_chunk
-
-
 def _pad_fused_cubics(controls: Any) -> Any:
     """Pad a short closed contour with zero-length cubics for CUDA fusion."""
     import torch
@@ -261,8 +137,8 @@ def _pad_fused_cubics(controls: Any) -> Any:
     count = controls.shape[1]
     if count >= FUSED_CUBICS:
         return controls
-    # All four points are the contour origin, so every added sampled segment
-    # has zero angle at every pixel and cannot change its winding number.
+    # All four points are the contour origin, so every added cubic crosses
+    # nothing and cannot change the contour's winding number.
     point = controls[:, :1, :1].expand(-1, FUSED_CUBICS - count, 4, -1)
     return torch.cat((controls, point), dim=1)
 
@@ -273,8 +149,7 @@ def fused_chunks(control: Any) -> Any:
     The analytic kernel sums signed ray crossings per cubic, with no closing
     edge of its own, so a contour's winding is the sum over any split of its
     cubics; a zero-length padding cubic crosses nothing. Chunking this way
-    gives long contours the same exact, differentiable coverage as short ones,
-    where the sampled-winding fallback has no gradient to speak of.
+    gives long contours the same exact, differentiable coverage as short ones.
     """
     import torch
 
@@ -284,229 +159,6 @@ def fused_chunks(control: Any) -> Any:
     if missing:
         control = torch.cat((control, control[:1, :1].expand(missing, 4, -1)))
     return control.reshape(chunks, FUSED_CUBICS, 4, 2)
-
-
-def fill_batched_windings(
-    controls: Any,
-    box: tuple[int, int, int, int],
-    *,
-    samples: int,
-    x_offset: float,
-    y_offset: float,
-    batch_size: int = 4,
-    pixel_chunk: int = 4_096,
-    winding_chunk: Any | None = None,
-) -> Any:
-    """Return one winding field per equal-sized contour on CUDA.
-
-    Unlike :func:`fill_coverages`, this stops before applying a fill rule.
-    A multi-contour SVG path needs its contour windings summed before that
-    nonlinearity, so this is the reusable GPU building block for holes.
-    """
-    import torch
-
-    # The native primitive is fixed-width, but winding is additive over cubic
-    # ranges.  Chunk a long contour into padded 16-cubic ranges and sum its
-    # exact native winding fields before applying the SVG fill rule.  This is
-    # the same representation as a fixed-length contour, not a tessellation
-    # or geometry approximation, and keeps long contours off Torch's huge
-    # broadcast fallback.
-    if samples in {8, 16, 32}:
-        from vectrify.refine.cuda_renderer import winding as cuda_winding
-
-        chunks = math.ceil(controls.shape[1] / FUSED_CUBICS)
-        padded = controls
-        if chunks > 1:
-            count = chunks * FUSED_CUBICS - controls.shape[1]
-            point = controls[:, :1, :1].expand(-1, count, 4, -1)
-            padded = torch.cat((controls, point), dim=1)
-        native = cuda_winding(
-            padded.reshape(-1, FUSED_CUBICS, 4, 2),
-            box,
-            samples=samples,
-            x_offset=x_offset,
-            y_offset=y_offset,
-        )
-        if native is not None:
-            return native.reshape(len(controls), chunks, *native.shape[1:]).sum(dim=1)
-
-    left, top, right, bottom = box
-    height, width = bottom - top, right - left
-    steps = torch.linspace(0, 1, samples, device=controls.device, dtype=controls.dtype)
-    basis = torch.stack(
-        [
-            (1 - steps) ** 3,
-            3 * steps * (1 - steps) ** 2,
-            3 * steps**2 * (1 - steps),
-            steps**3,
-        ],
-        dim=-1,
-    )
-    ys, xs = torch.meshgrid(
-        torch.arange(height, device=controls.device, dtype=controls.dtype)
-        + top
-        + y_offset,
-        torch.arange(width, device=controls.device, dtype=controls.dtype)
-        + left
-        + x_offset,
-        indexing="ij",
-    )
-    pixels = torch.stack((xs, ys), dim=-1).reshape(-1, 2)
-    if winding_chunk is None:
-        winding_chunk = (
-            _compiled_fill_winding_chunk()
-            if controls.shape[1] <= FUSED_CUBICS
-            else _fill_winding_chunk
-        )
-    output = []
-    for control in controls.split(batch_size):
-        count = len(control)
-        if count < batch_size:
-            # Keep the compiled kernel's leading dimension static.  The
-            # padding is sliced away before it reaches the caller, so it has
-            # no effect on pixels or gradients of the real contours.
-            control = torch.cat(
-                (control, control[:1].expand(batch_size - count, -1, -1, -1))
-            )
-        if control.shape[1] <= FUSED_CUBICS:
-            control = _pad_fused_cubics(control)
-        curve = torch.einsum("sk,nqkc->nqsc", basis, control).flatten(1, 2)
-        curve = torch.cat((curve, curve[:, :1]), dim=1)
-        winding = []
-        for pixel_start in range(0, len(pixels), pixel_chunk):
-            winding.append(
-                winding_chunk(
-                    curve[:, :-1],
-                    curve[:, 1:],
-                    pixels[pixel_start : pixel_start + pixel_chunk],
-                )
-            )
-        output.append(torch.cat(winding, dim=1)[:count])
-    return torch.cat(output).reshape(-1, height, width)
-
-
-def fill_path_coverage(
-    contours: list[Any],
-    box: tuple[int, int, int, int],
-    *,
-    fill_rule: str = "nonzero",
-    samples: int = 32,
-    softness: float = 0.25,
-    subpixels: int = 4,
-    fuse: bool = True,
-    dynamic_fuse: bool = False,
-) -> Any:
-    """Rasterise every contour according to SVG's fill-rule semantics."""
-    import torch
-
-    if contours and contours[0].is_cuda:
-        # A detailed path can have many contours.  Sum each contour's
-        # winding before applying the SVG fill rule, exactly as the eager
-        # implementation below does, but keep the pixel/segment loops in the
-        # fused CUDA primitive.
-        fused = [contour for contour in contours if contour.shape[0] <= FUSED_CUBICS]
-        unfused: dict[tuple[int, ...], list[Any]] = defaultdict(list)
-        for contour in contours:
-            if contour.shape[0] > FUSED_CUBICS:
-                unfused[tuple(contour.shape)].append(contour)
-        # Most contours have at most 16 cubics.  Pad
-        # those contours once and render a whole path in one large GPU batch,
-        # rather than launching a tiny batch for each contour-shape group.
-        fused_controls = (
-            torch.cat([_pad_fused_cubics(contour[None]) for contour in fused])
-            if fused
-            else None
-        )
-        if fuse:
-            winding_chunk = _compiled_fill_winding_chunk()
-        elif dynamic_fuse:
-            winding_chunk = _compiled_tiled_fill_winding_chunk()
-        else:
-            winding_chunk = _fill_winding_chunk
-        contour_batch_size = 64 if (fuse or dynamic_fuse) else 4
-        coverages = []
-        for y in range(subpixels):
-            for x in range(subpixels):
-                winding = torch.zeros(
-                    (box[3] - box[1], box[2] - box[0]),
-                    dtype=contours[0].dtype,
-                    device=contours[0].device,
-                )
-                if fused_controls is not None:
-                    winding = winding + fill_batched_windings(
-                        fused_controls,
-                        box,
-                        samples=samples,
-                        x_offset=(x + 0.5) / subpixels,
-                        y_offset=(y + 0.5) / subpixels,
-                        batch_size=contour_batch_size,
-                        winding_chunk=winding_chunk,
-                    ).sum(dim=0)
-                for group in unfused.values():
-                    winding = winding + fill_batched_windings(
-                        torch.stack(group),
-                        box,
-                        samples=samples,
-                        x_offset=(x + 0.5) / subpixels,
-                        y_offset=(y + 0.5) / subpixels,
-                        winding_chunk=winding_chunk,
-                    ).sum(dim=0)
-                if fill_rule == "evenodd":
-                    coverages.append(0.5 * (1 - torch.cos(winding / 2)))
-                else:
-                    coverages.append(
-                        torch.sigmoid((winding.abs() - math.pi) / softness)
-                    )
-        return torch.stack(coverages).mean(dim=0)
-
-    def contour_winding(contour: Any, x_offset: float, y_offset: float) -> Any:
-        # A noisy path can contain dozens of enclosed contours.  Keeping
-        # every pixel-by-segment intermediate alive until its layer loss is
-        # backpropagated exhausts VRAM even on a small working canvas.
-        # Checkpointing recomputes the same differentiable winding field during
-        # backward, preserving renderer semantics and gradients exactly.
-        if contour.requires_grad:
-            from torch.utils.checkpoint import checkpoint
-
-            return checkpoint(
-                lambda value: _fill_winding(
-                    value,
-                    box,
-                    samples=samples,
-                    x_offset=x_offset,
-                    y_offset=y_offset,
-                ),
-                contour,
-                use_reentrant=False,
-            )
-        return _fill_winding(
-            contour,
-            box,
-            samples=samples,
-            x_offset=x_offset,
-            y_offset=y_offset,
-        )
-
-    coverages = []
-    for y in range(subpixels):
-        for x in range(subpixels):
-            winding = torch.stack(
-                [
-                    contour_winding(
-                        contour,
-                        (x + 0.5) / subpixels,
-                        (y + 0.5) / subpixels,
-                    )
-                    for contour in contours
-                ]
-            ).sum(dim=0)
-            if fill_rule == "evenodd":
-                # Winding changes by 2π for every crossing.  This periodic
-                # expression is zero for an even count and one for an odd one.
-                coverages.append(0.5 * (1 - torch.cos(winding / 2)))
-            else:
-                coverages.append(torch.sigmoid((winding.abs() - math.pi) / softness))
-    return torch.stack(coverages).mean(dim=0)
 
 
 def large_path_tile_candidates(
@@ -617,9 +269,9 @@ def tiled_large_path_coverage(
     output = None
     from vectrify.refine.cuda_renderer import multi_coverage
 
-    # Tile dimensions have only edge variants.  Rendering one CUDA batch per
-    # dimension replaces the old one-launch-per-tile graph without mixing
-    # candidate sets: each tile remains an independent SVG compound path.
+    # Tile dimensions have only edge variants.  Render one CUDA batch per
+    # dimension rather than one launch per tile, without mixing candidate
+    # sets: each tile remains an independent SVG compound path.
     tile_groups: dict[tuple[int, int], list[tuple[int, Any]]] = defaultdict(list)
     for tile_number, tile in enumerate(tiles):
         tile_groups[(tile[2], tile[3])].append((tile_number, tile))
@@ -708,113 +360,6 @@ def tiled_large_path_coverage(
             (height, width), dtype=contours[0].dtype, device=contours[0].device
         )
     return output
-
-
-def fill_coverages(
-    controls: Any,
-    box: tuple[int, int, int, int],
-    samples: int = 32,
-    softness: float = 0.25,
-    batch_size: int = 4,
-    fill_rule: str = "nonzero",
-    pixel_chunk: int = 1_024,
-    subpixels: int = 4,
-    fuse: bool = True,
-    dynamic_fuse: bool = False,
-) -> Any:
-    """Rasterise equal-sized closed cubic paths together on the GPU.
-
-    Paths with a fixed number of cubics per contour are batched together.
-    Keeping that regularity here removes Python's per-path kernel-launch loop;
-    this is substantially faster on CUDA for the 500-step optimisation pass.
-    """
-    import torch
-
-    left, top, right, bottom = box
-    height, width = bottom - top, right - left
-    # Simple closed contours are the common case.  Use the native
-    # cubic-intersection renderer here; the sampled winding implementation
-    # below remains the portable oracle and handles arbitrary layouts.
-    if controls.is_cuda and controls.shape[1] <= FUSED_CUBICS:
-        from vectrify.refine.cuda_renderer import coverage as cuda_coverage
-
-        native = cuda_coverage(
-            _pad_fused_cubics(controls),
-            box,
-            subpixels=subpixels,
-            fill_rule=fill_rule,
-        )
-        if native is not None:
-            return native
-    steps = torch.linspace(0, 1, samples, device=controls.device, dtype=controls.dtype)
-    basis = torch.stack(
-        [
-            (1 - steps) ** 3,
-            3 * steps * (1 - steps) ** 2,
-            3 * steps**2 * (1 - steps),
-            steps**3,
-        ],
-        dim=-1,
-    )
-    output = []
-    can_fuse = controls.is_cuda and controls.shape[1] <= FUSED_CUBICS
-    if fuse and can_fuse:
-        winding_chunk = _compiled_fill_winding_chunk()
-    elif dynamic_fuse and can_fuse:
-        winding_chunk = _compiled_tiled_fill_winding_chunk()
-    else:
-        winding_chunk = _fill_winding_chunk
-    # The fused CUDA kernel consumes far less temporary memory than eager
-    # broadcasting, so one complete small working raster is faster than
-    # many 1,024-pixel launches.  Retain the conservative caller-selected
-    # chunking on CPU.
-    active_pixel_chunk = (
-        max(pixel_chunk, 4_096)
-        if controls.is_cuda and (fuse or dynamic_fuse)
-        else pixel_chunk
-    )
-    for control in controls.split(batch_size):
-        count = len(control)
-        if controls.is_cuda and count < batch_size:
-            control = torch.cat(
-                (control, control[:1].expand(batch_size - count, -1, -1, -1))
-            )
-        if controls.is_cuda and control.shape[1] <= FUSED_CUBICS:
-            control = _pad_fused_cubics(control)
-        curve = torch.einsum("sk,nqkc->nqsc", basis, control).flatten(1, 2)
-        curve = torch.cat((curve, curve[:, :1]), dim=1)
-        start = curve[:, :-1]
-        end = curve[:, 1:]
-        coverage_sum = None
-        for y in range(subpixels):
-            for x in range(subpixels):
-                ys, xs = torch.meshgrid(
-                    torch.arange(height, device=controls.device, dtype=controls.dtype)
-                    + top
-                    + (y + 0.5) / subpixels,
-                    torch.arange(width, device=controls.device, dtype=controls.dtype)
-                    + left
-                    + (x + 0.5) / subpixels,
-                    indexing="ij",
-                )
-                pixels = torch.stack((xs, ys), dim=-1).reshape(-1, 2)
-                coverages = []
-                for pixel_start in range(0, len(pixels), active_pixel_chunk):
-                    pixel_block = pixels[pixel_start : pixel_start + active_pixel_chunk]
-                    winding = winding_chunk(start, end, pixel_block)
-                    if fill_rule == "evenodd":
-                        coverages.append(0.5 * (1 - torch.cos(winding / 2)))
-                    else:
-                        coverages.append(
-                            torch.sigmoid((winding.abs() - math.pi) / softness)
-                        )
-                coverage = torch.cat(coverages, dim=1)
-                coverage_sum = (
-                    coverage if coverage_sum is None else coverage_sum + coverage
-                )
-        assert coverage_sum is not None
-        output.append((coverage_sum / (subpixels * subpixels))[:count])
-    return torch.cat(output).reshape(-1, height, width)
 
 
 def _xing_penalties(control: Any) -> Any:
@@ -928,7 +473,6 @@ def fit_filled_svg(
     optimisation_long_side: int | None = None,
     subpixels: int = 2,
     monolithic: bool | None = None,
-    curve_samples: int | None = None,
     backdrop: Image.Image | None = None,
     learn_alpha: bool = False,
     sparse_replay: bool = False,
@@ -950,13 +494,10 @@ def fit_filled_svg(
     Vectrify's torch renderer instead of requiring DiffVG, with full-resolution
     Adam defaults: point LR 1, colour LR .01,
     and MSE plus .02 Xing loss.  It uses DiffVG's standard 2x2 optimisation
-    sampling; the standalone renderer retains its stricter 4x4 default for
-    Cairo-fidelity checks.  Small clipped tiles use fewer cubic samples because
-    their screen-space deviation is bounded by the tile size; pass
-    ``curve_samples`` to override that adaptive choice.  ``optimisation_long_side``
-    is available only as an explicit caller-selected preview mode. CUDA uses
-    one monolithic compositor graph for 64px-or-smaller working canvases by
-    default; larger canvases retain the memory-bounded replay.
+    sampling.  ``optimisation_long_side`` is available only as an explicit
+    caller-selected preview mode. CUDA uses one monolithic compositor graph
+    for 64px-or-smaller working canvases by default; larger canvases retain
+    the memory-bounded replay.
     ``sparse_replay`` retains the same painter-order MSE derivative while
     saving layer state only within each path's raster tile; it makes a full
     1024px fit practical without a monolithic alpha stack.
@@ -980,9 +521,10 @@ def fit_filled_svg(
     These optional hooks leave the automatic path-fit mutation unchanged.
     ``control_loss`` adds a differentiable geometry penalty in monolithic fits.
     ``device`` overrides the default of CUDA whenever Torch sees a GPU.
-    Without CUDA or the native extension, coverage comes from the portable
-    polyline renderer in :mod:`vectrify.refine.soft_coverage`, whose gradient
-    moves the geometry where the sampled winding numbers barely do.
+    Coverage comes from the native CUDA kernels in
+    :mod:`vectrify.refine.cuda_renderer`. Without CUDA or the native extension,
+    or with a ``subpixels`` grid those kernels lack, it comes from the portable
+    polyline renderer in :mod:`vectrify.refine.soft_coverage`.
     """
     from vectrify.refine.filled_fit_optimize import FilledFitOptimizer
     from vectrify.refine.filled_fit_raster import FilledFitRaster
@@ -995,7 +537,6 @@ def fit_filled_svg(
     options = FilledFitOptions(
         xing_weight=xing_weight,
         subpixels=subpixels,
-        curve_samples=curve_samples,
         sparse_replay=sparse_replay,
         max_point_displacement=max_point_displacement,
     )

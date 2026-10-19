@@ -3,7 +3,7 @@
 Example:
     uv run python scripts/bench_cuda_renderer.py /tmp/cat.svg /tmp/cat.jpg
     uv run python scripts/bench_cuda_renderer.py /tmp/cat.svg /tmp/cat.jpg \
-        --torch-fallback
+        --soft
 """
 
 from __future__ import annotations
@@ -23,14 +23,16 @@ def main() -> None:
     parser.add_argument("target", type=Path)
     parser.add_argument("--steps", type=int, default=3)
     parser.add_argument("--long-side", type=int, default=64)
-    parser.add_argument("--torch-fallback", action="store_true")
+    parser.add_argument(
+        "--soft", action="store_true", help="time the portable soft renderer"
+    )
     args = parser.parse_args()
     if args.steps < 1:
         raise ValueError("--steps must be at least one")
 
     import torch
 
-    if args.torch_fallback:
+    if args.soft:
         from vectrify.refine import cuda_renderer
 
         cuda_renderer._extension = lambda: None

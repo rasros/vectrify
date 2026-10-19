@@ -38,7 +38,6 @@ def _fit_state(*, device="cpu", learn_alpha=False, hooks=None, source=SOURCE):
     options = FilledFitOptions(
         xing_weight=0.02,
         subpixels=2,
-        curve_samples=None,
         sparse_replay=False,
         max_point_displacement=None,
     )
@@ -142,7 +141,7 @@ def test_packed_contour_views_keep_original_lengths_and_storage():
     with torch.no_grad():
         scene.controls[2][0][0, 1, 0] += 0.75
     assert scene.controls[2][0][0, 1, 0] == scene.control_storage[3, 0, 1, 0]
-    scene.close_contours(FilledFitOptions(0.02, 2, None, False, None), FilledFitHooks())
+    scene.close_contours(FilledFitOptions(0.02, 2, False, None), FilledFitHooks())
     exported = ET.fromstring(scene.serialize(None))
     assert [element.get("id") for element in exported] == ["back", "hole", "front"]
     assert [
@@ -168,10 +167,12 @@ def test_raster_caches_refresh_only_after_consuming_the_guard_band():
     torch.testing.assert_close(raster.simple_tile_reference, scene.control_storage)
 
 
-def test_raster_retains_paths_helper_monkeypatches_and_tile_gradients(monkeypatch):
+def test_native_simple_tiles_keep_their_box_and_gradients(monkeypatch):
     torch = pytest.importorskip("torch")
+    from vectrify.refine import cuda_renderer
+
     scene, raster, _optimizer = _fit_state()
-    # Exercise the batched fallback boundary on CPU without requiring a GPU.
+    # Exercise the native tile boundary on CPU without requiring a GPU.
     scene.soft = False
     calls = []
 
@@ -179,14 +180,14 @@ def test_raster_retains_paths_helper_monkeypatches_and_tile_gradients(monkeypatc
         calls.append((box, kwargs))
         return controls.mean(dim=(1, 2, 3))[:, None, None].expand(-1, box[3], box[2])
 
-    monkeypatch.setattr(paths, "fill_coverages", coverage)
+    monkeypatch.setattr(cuda_renderer, "coverage", coverage)
     (_shape, rule, width, height), items = next(
         iter(raster.initial_simple_groups.items())
     )
     alphas = raster.rasterise_simple(rule, width, height, items)
     torch.stack([alpha.sum() for _index, alpha in alphas]).sum().backward()
     assert calls[0][0] == (0, 0, width, height)
-    assert calls[0][1]["dynamic_fuse"] is False
+    assert calls[0][1] == {"subpixels": 2, "fill_rule": rule}
     assert scene.control_storage.grad.abs().sum() > 0
     assert all(alpha.shape == (64, 96) for _index, alpha in alphas)
     assert torch.isfinite(scene.control_storage.grad).all()
