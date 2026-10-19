@@ -41,9 +41,8 @@ Callers add any further dependency, such as the reference image, through
 thread with progress, `stop` (keep best result so far) and a status of
 `running`, `ready`, `failed`, `cancelled` or `applied`; other methods finish
 before `start()` returns. A method naming a resource such as `gpu` holds the
-shared gate in `RESOURCES` while it runs. The GPU gate is
-`vectrify.refine.gpu.gpu_gate()`, one semaphore per process, so two GPU jobs
-never hold the device at once.
+shared gate in `RESOURCES` while it runs, so two GPU jobs never hold the
+device at once.
 
 Gradient fitting has one core, `refine.paths.fit_filled_svg`, which Tidy's
 single-path fit (`refine.selected.fit_selected_path`) wraps with exact

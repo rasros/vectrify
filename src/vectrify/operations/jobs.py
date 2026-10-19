@@ -15,13 +15,11 @@ from vectrify.operations.contract import (
     OperationResult,
     RunContext,
 )
-from vectrify.refine.gpu import gpu_gate
 
 log = logging.getLogger(__name__)
 
-# One gate per shared device. A method naming a resource holds it while it
-# runs; the GPU gate is the same one searches hand to their worker processes.
-RESOURCES: dict[str, Any] = {"gpu": gpu_gate()}
+# One gate per shared device. A method naming a resource holds it while it runs.
+RESOURCES: dict[str, Any] = {"gpu": Lock()}
 
 
 class Job:

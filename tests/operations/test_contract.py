@@ -147,15 +147,14 @@ def test_gpu_jobs_wait_for_the_shared_gate():
     import time
 
     from vectrify.operations import RESOURCES
-    from vectrify.refine.gpu import gpu_gate
 
     class Gpu(Recolour):
         background: ClassVar[bool] = True
         resources: ClassVar[frozenset[str]] = frozenset({"gpu"})
 
-    assert RESOURCES["gpu"] is gpu_gate()
+    gate = RESOURCES["gpu"]
     job = Job(Gpu(), request(editor(), paint=True))
-    gpu_gate().acquire()
+    gate.acquire()
     try:
         job.start()
         time.sleep(0.5)
@@ -168,7 +167,7 @@ def test_gpu_jobs_wait_for_the_shared_gate():
             time.sleep(0.05)
         assert job.state()["status"] == "cancelled"
     finally:
-        gpu_gate().release()
+        gate.release()
     job = Job(Gpu(), request(editor(), paint=True))
     job.start()
     for _ in range(100):
