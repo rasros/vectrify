@@ -36,7 +36,7 @@ loopback and prints the address to open.
 - Reference overlay and an error view of where the drawing differs from it.
 
 Press ? in the editor for keyboard shortcuts, or Ctrl/⌘ K to find a command.
-The [editor guide](docs/editor.md) describes every control.
+The [guide](docs/01-intro.md) walks through the editor chapter by chapter.
 
 ## Tracing an image
 
@@ -52,7 +52,7 @@ The [editor guide](docs/editor.md) describes every control.
 Other operations are Fit colours, which fits flat fills or gradients, Clean
 up, which drops redundant points and merges paths, and Snap edges, which
 closes gaps between touching shapes. They change only the selection and
-respect locks. See [operations](docs/operations.md).
+respect locks. See [Tracing a reference](docs/08-tracing.md).
 
 ## Agents
 
@@ -74,7 +74,7 @@ To edit files without a window, run it over stdio:
 claude mcp add vectrify -- vectrify-mcp
 ```
 
-See [the MCP guide](docs/mcp.md) for the tools.
+See [Agents](docs/09-agents.md) for the tools.
 
 ## Requirements
 
