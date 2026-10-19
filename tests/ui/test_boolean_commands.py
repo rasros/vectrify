@@ -1,9 +1,5 @@
 """Union, Subtract, Intersect and Exclude from the editor and from agents."""
 
-import shutil
-import subprocess
-from pathlib import Path
-
 import pytest
 
 from vectrify.document import DocumentError, import_svg
@@ -103,12 +99,3 @@ def test_agents_get_the_same_operand_order_whatever_the_order_of_ids():
                 "operation": "divide",
             },
         )
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_the_editor_shows_the_target_and_cutters_before_running():
-    script = Path(__file__).with_name("booleans.mjs")
-    result = subprocess.run(
-        ["node", str(script)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr

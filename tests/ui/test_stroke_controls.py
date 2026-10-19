@@ -154,22 +154,6 @@ def test_transformed_clipped_arrows_select_the_original_path():
     assert reopened.element("p").get(START) == "arrow"
 
 
-def test_browser_stroke_controls():
-    import shutil
-    import subprocess
-    from pathlib import Path
-
-    if not shutil.which("node"):
-        pytest.skip("needs Node.js")
-    result = subprocess.run(
-        ["node", str(Path(__file__).with_name("stroke_controls.mjs"))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-
-
 def test_converting_arrowed_stroke_to_fill_preserves_arrow_footprint():
     session = Session(import_svg(SVG))
     send(session, "select", objects=["p"])

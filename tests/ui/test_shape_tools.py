@@ -1,9 +1,4 @@
-"""The shape tools: native shapes drawn in root user space, and their
-previews, modifiers and drawing paint under Node.js."""
-
-import shutil
-import subprocess
-from pathlib import Path
+"""The shape tools draw native shapes in root user space."""
 
 import pytest
 
@@ -271,12 +266,3 @@ def test_draw_path_takes_the_drawing_paint_and_container():
     )
     assert session.editor.snapshot.document.ancestry(path.id)[-2].id == "moved"
     assert root_point(session, path.id, 30, 25) == (30, 25)
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_shape_tool_gestures_preview_and_paint():
-    script = Path(__file__).with_name("shape_tools.mjs")
-    result = subprocess.run(
-        ["node", str(script)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr

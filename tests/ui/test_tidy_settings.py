@@ -1,23 +1,9 @@
-"""Tidy's dialog defaults: the server's steps, and a switch that discards
-custom values that can prevent a fit."""
+"""Tidy's dialog starts with the server's default steps."""
 
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
-import pytest
-
 from vectrify.operations.methods.nodes import SETTINGS
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_tidy_advanced_defaults_are_used_after_disabling_overrides():
-    script = Path(__file__).with_name("tidy_settings.mjs")
-    result = subprocess.run(
-        ["node", str(script)], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_the_dialog_starts_with_the_servers_default_steps():

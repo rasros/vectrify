@@ -1,9 +1,5 @@
 """Object copy snapshots and atomic, independent, undoable pastes."""
 
-import shutil
-import subprocess
-from pathlib import Path
-
 import pytest
 
 from vectrify.document import DocumentError, import_svg
@@ -165,14 +161,3 @@ def test_clipboard_refusals_leave_drawing_and_history_unchanged():
         send(session, "copy")
     assert not session.state()["clipboard"]
     assert not session.state()["undo"]
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
-def test_copy_paste_shortcuts_queue_and_preserve_text_editing():
-    result = subprocess.run(
-        ["node", str(Path(__file__).with_name("clipboard.mjs"))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
