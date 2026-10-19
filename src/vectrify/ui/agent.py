@@ -3109,20 +3109,24 @@ class Agent:
         rounds: int | None = None,
         region: Area | None = None,
     ) -> Reply:
-        """Tidy paths as a job: snap to the reference, simplify, fit (steps
-        shape, snap, detail, simplify; allowance: % any step, simplify
-        included, may worsen the match; tolerance: px cap; seconds, ...).
+        """Tidy paths as a job: fit to the reference, adding detail, or
+        simplify (steps shape, snap, detail, simplify: all but simplify by
+        default, simplify alone without a reference; allowance: % any step
+        may worsen the match; tolerance: px cap; seconds, ...).
         With region ([x, y, w, h] or a polygon) only the points inside it
         move, of the paths ids or every unlocked one painting there."""
-        from vectrify.operations.methods.nodes import SETTINGS
+        from vectrify.operations.methods.nodes import SETTINGS, defaults
 
         if region is None and ids is None:
             raise DocumentError(
                 "Give ids (paths to tidy), or a region to tidy what is inside it"
             )
-        chosen = {k: v.default for k, v in SETTINGS.items()}
-        if isinstance(settings, dict):
-            chosen.update(settings)
+        given = settings if isinstance(settings, dict) else {}
+        chosen = defaults(
+            {k: v.default for k, v in SETTINGS.items()} | given,
+            given,
+            self.session.reference is not None,
+        )
         if region is not None:
             if not isinstance(region, list | tuple):
                 raise DocumentError("region is [x, y, w, h] or a polygon [[x, y], ...]")

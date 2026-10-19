@@ -978,30 +978,31 @@ right panel, since it simplifies paths without a reference too. Its compact dial
 expand **Advanced settings** for the tolerances, fitting controls and run
 limits. The action buttons stay
 visible while the settings or preview scroll.
-The dialog runs one round by default, with up to 20 internal steps per
+The dialog runs up to four rounds, with up to 60 internal steps per
 path fit. Each round tries the enabled steps and keeps the best
 result; extra rounds repeat from that result. Enable
-**Override automatic run limits** to edit these; maximum fitting steps is
-available only with **Fit path** enabled. The **Time limit** remains editable.
+**Override advanced defaults** to edit these and the other advanced
+settings; maximum fitting steps is available only with **Fit path** enabled.
 
 Tidy is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
-image. By default it fits their points and curves to the reference and
-removes the points they do not need; to reshape a path, use Redraw outline
+image. By default it fits their points and curves to the reference, adding
+points where they are needed; without a reference it removes the points they
+do not need. To reshape a path, use Redraw outline
 (R). Tick the steps it may use:
 
 - **Fit path** (on by default) compares a nearby-edge proposal with a fit of
   the points and curve handles by gradient descent, keeping the better render.
   Stroked lines follow the middle of their ink, and their width may be fitted
-  to the ink's width. Gradient fits use up to 20 steps by default and respect
+  to the ink's width. Gradient fits use up to 60 steps by default and respect
   **Maximum movement** in local SVG units. Straight segments can gain handles
   where the reference curves; segments left straight stay lines. It uses CUDA
   when available, otherwise CPU; round strokes work on either, while miter
   outlines require CUDA. Without PyTorch it uses edge-seeking alone.
-  **Add detail** is off by default. When enabled, it adds points where a piece
-  of the shape is missing or covers too much. **Search beyond the path**
+  **Add detail** (on by default) adds points where a piece of the shape is
+  missing or covers too much. **Search beyond the path**
   controls how far past the selection the reference is read.
-- **Simplify** (on by default) removes the points the outline does not need
+- **Simplify** (off by default with a reference, the only step without one) removes the points the outline does not need
   while the match to the reference where it acts gets no worse than the
   **Allowed worsening** (1% by default), moving the outline no more than the
   **Tolerance** in reference pixels anywhere (3 by default), and turns curves
@@ -1038,7 +1039,7 @@ pixels it changed and a thin band around them, so a small fix on a large
 selection counts as much as on a small one. When none helps, Simplify gets its
 turn. No step is kept that leaves the match where Tidy acted worse than it
 started by more than the **Allowed worsening** (1% by default; 0 never trades
-the match for fewer points), and the run ends once nothing qualifies, the rounds (1 by default in the dialog) run out
+the match for fewer points), and the run ends once nothing qualifies, the rounds (4 by default) run out
 or the **Time limit** (10 s by default) passes. Each round gives each step a
 share of the time left, and a step that runs out hands back how far it got; a
 run that runs out of time keeps the best result so far, as Stop does, and says

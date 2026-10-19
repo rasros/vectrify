@@ -95,6 +95,8 @@ def settings_schema(action: str, name: str) -> dict[str, Any]:
         "nodes": [
             "Enable at least one of shape, snap, simplify; detail requires snap.",
             "shape and snap require a reference; simplify also works without one.",
+            "By default shape, snap and detail run; without a reference simplify"
+            " alone, and without snap no detail.",
             "region restricts changes to points inside the region.",
         ],
         "cel": [

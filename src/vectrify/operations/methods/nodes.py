@@ -76,16 +76,17 @@ RESOLUTION = 384
 # than this share: it has stalled.
 STALL = 0.001
 
+# The steps' defaults are the Tidy dialog's: with a reference, fit with
+# detail and keep every point; without one, Simplify alone (see defaults).
 SETTINGS = {
     "shape": Setting(bool, True),
     "snap": Setting(bool, True),
-    # Snap may add points where the path misses the shape, each of which has
-    # to fix this many reference pixels.
-    "detail": Setting(bool, False),
+    # Snap, and the fit, may add points where the path misses the shape.
+    "detail": Setting(bool, True),
     # How far past the selection, as a share of its size in percent, the
     # reference is read: how far a snapped or added point can reach.
     "margin": Setting(float, 10.0, minimum=0.0, maximum=200.0, label="margin"),
-    "simplify": Setting(bool, True),
+    "simplify": Setting(bool, False),
     # The most Simplify may move an outline at any point, in the
     # reference's pixels: a cap, as the allowance decides how far it goes;
     # without a reference it decides alone, and is NO_REFERENCE unless set.
@@ -278,6 +279,23 @@ def _area_region(request: OperationRequest, polygon, margin: float, long_side: i
         reference.crop(box),
         alpha,
     )
+
+
+def defaults(settings: dict, given: Mapping, reference: bool) -> dict:
+    """*settings* with the defaults that depend on the request, for those not
+    *given*: without a *reference* Simplify alone, at the tolerance
+    NO_REFERENCE; without Snap no detail."""
+    if not reference:
+        for step in ("shape", "snap", "detail"):
+            if step not in given:
+                settings[step] = False
+        if "simplify" not in given:
+            settings["simplify"] = True
+        if "tolerance" not in given:
+            settings["tolerance"] = NO_REFERENCE
+    if "detail" not in given and not settings["snap"]:
+        settings["detail"] = False
+    return settings
 
 
 def needed_permissions(settings) -> set[str]:
@@ -1015,9 +1033,7 @@ class OptimizeNodes(SettingsMethod):
     resources: ClassVar[frozenset[str]] = frozenset()
 
     def normalize_settings(self, request: OperationRequest, settings: dict, /) -> dict:
-        if request.reference is None and "tolerance" not in request.settings:
-            settings["tolerance"] = NO_REFERENCE
-        return settings
+        return defaults(settings, request.settings, request.reference is not None)
 
     def validate(self, request: OperationRequest | PreparedOperation) -> None:
         prepared = self.prepare(request)
