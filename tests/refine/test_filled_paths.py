@@ -1,11 +1,23 @@
 import io
+import os
+import subprocess
+import sys
+import textwrap
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
 from tests.helpers import rasterize_svg_to_png_bytes
+from vectrify.refine.filled_fit_optimize import FilledFitOptimizer
+from vectrify.refine.filled_fit_raster import FilledFitRaster
+from vectrify.refine.filled_fit_scene import (
+    FilledFitHooks,
+    FilledFitOptions,
+    prepare_scene,
+)
 from vectrify.refine.paths import (
     _pad_fused_cubics,
     composite_opaque_fills,
@@ -867,3 +879,165 @@ def test_even_odd_uses_winding_parity_for_a_double_wound_contour():
     assert even_odd[48, 48] < 0.01
     assert nonzero[48, 48] > 0.99
     assert real[48, 48] < 0.01
+
+
+LAYERED = (
+    '<svg width="96" height="64">'
+    '<path id="back" d="M8.3 7.2 L40.3 7.2 L40.3 38.2 L8.3 38.2 Z" '
+    'fill="#4080c0" fill-opacity=".65"/>'
+    '<path id="hole" d="M24.2 12.3 L60.2 12.3 L60.2 44.3 L24.2 44.3 Z '
+    'M32.2 20.3 L44.2 20.3 L44.2 30.3 L32.2 30.3 Z" '
+    'fill="#c06040" fill-rule="evenodd" fill-opacity=".8"/>'
+    '<path id="front" d="M38.1 17.4 L72.1 23.4 L56.1 52.4 Z" '
+    'fill="#60c080" fill-opacity=".4"/>'
+    "</svg>"
+)
+
+
+def _fit_state(*, device="cpu", learn_alpha=False):
+    pytest.importorskip("torch")
+    options = FilledFitOptions(
+        xing_weight=0.02,
+        subpixels=2,
+        sparse_replay=False,
+        max_point_displacement=None,
+    )
+    hooks = FilledFitHooks()
+    target = Image.fromarray(np.arange(64 * 96 * 3, dtype=np.uint8).reshape(64, 96, 3))
+    scene = prepare_scene(
+        LAYERED,
+        target,
+        options=options,
+        hooks=hooks,
+        optimisation_long_side=None,
+        monolithic=True,
+        backdrop=Image.new("RGB", target.size, "#203040"),
+        learn_alpha=learn_alpha,
+        fit_context=None,
+        device=device,
+    )
+    raster = FilledFitRaster(scene, options)
+    optimizer = FilledFitOptimizer(
+        scene,
+        raster,
+        options,
+        hooks,
+        point_learning_rate=0.1,
+        color_learning_rate=0.1,
+    )
+    return scene, raster, optimizer
+
+
+def test_filled_helpers_import_without_loading_optional_torch():
+    code = textwrap.dedent(
+        """
+        import importlib.abc
+        import sys
+
+        class NoTorch(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == "torch" or fullname.startswith("torch."):
+                    raise AssertionError("filled fit imported optional Torch eagerly")
+                return None
+
+        sys.meta_path.insert(0, NoTorch())
+        from vectrify.refine import paths
+        from vectrify.refine import filled_fit_scene
+        from vectrify.refine import filled_fit_raster
+        from vectrify.refine import filled_fit_optimize
+        assert len(paths.parse_filled_cubics("M0 0 L4 0 L4 4 Z")[0]) == 3
+        assert "torch" not in sys.modules
+        """
+    )
+    environment = dict(
+        os.environ, PYTHONPATH=str(Path(soft_coverage.__code__.co_filename).parents[2])
+    )
+    subprocess.run(
+        [sys.executable, "-c", code], env=environment, check=True, capture_output=True
+    )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("learn_alpha", [False, True])
+def test_dense_and_sparse_replay_gradients_match_monolithic(device, learn_alpha):
+    torch = pytest.importorskip("torch")
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA is required")
+        from vectrify.refine.cuda_renderer import available
+
+        if not available():
+            pytest.skip("optional CUDA renderer extension is not installed")
+    gradients = {}
+    for strategy in ("monolithic", "dense", "sparse"):
+        scene, _raster, optimizer = _fit_state(device=device, learn_alpha=learn_alpha)
+        controls = torch.cat([control for path in scene.controls for control in path])
+        if strategy == "monolithic":
+            optimizer.backward_monolithic(0, controls)
+        elif strategy == "dense":
+            optimizer.backward_dense(controls)
+        else:
+            optimizer.backward_sparse(controls)
+        gradients[strategy] = (
+            scene.control_storage.grad.detach().clone(),
+            scene.color_storage.grad.detach().clone(),
+            None if scene.alpha_values is None else scene.alpha_values.grad.clone(),
+        )
+    for strategy in ("dense", "sparse"):
+        for actual, expected in zip(
+            gradients[strategy][:2], gradients["monolithic"][:2], strict=True
+        ):
+            torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
+    if learn_alpha:
+        # Keep the established replay opacity derivative, including its
+        # separate coverage contribution.
+        torch.testing.assert_close(
+            gradients["dense"][2], gradients["sparse"][2], atol=1e-6, rtol=1e-5
+        )
+
+
+def test_rgba_context_passes_affine_response_and_target_through_loss_hook():
+    torch = pytest.importorskip("torch")
+    source = '<svg><path d="M2 2 L14 2 L14 10 L2 10 Z" fill="#804020"/></svg>'
+    target = Image.new("RGBA", (16, 12), (60, 90, 120, 128))
+    context = (
+        np.full((12, 16, 4), 0.2, dtype=np.float32),
+        np.full((12, 16, 4), 0.1, dtype=np.float32),
+        np.full((12, 16, 4), 0.4, dtype=np.float32),
+    )
+    seen: list[str | tuple[str, int]] = []
+
+    def coverage(_controls, alphas):
+        seen.append("coverage")
+        return alphas * 0 + 0.5
+
+    def comparison(rendered, goal, step):
+        seen.append(("loss", step))
+        # A single layer paints half its RGB over the affine context base.
+        colour = torch.tensor([128, 64, 32], dtype=torch.float32) / 255
+        expected = torch.full((12, 16, 4), 0.2)
+        expected[..., :3] += 0.05 + 0.2 * colour
+        expected[..., 3] += 0.25
+        torch.testing.assert_close(rendered, expected)
+        alpha = 128 / 255
+        white_rgb = np.asarray(target.convert("RGB"))[0, 0] * alpha + 255 * (1 - alpha)
+        # on_white uses the image library's integer white-backed RGB rounding.
+        torch.testing.assert_close(
+            goal[0, 0, :3], torch.tensor(np.round(white_rgb) / 255, dtype=torch.float32)
+        )
+        assert float(goal[0, 0, 3]) == pytest.approx(alpha)
+        return rendered, goal
+
+    fit_filled_svg(
+        source,
+        target,
+        device="cpu",
+        monolithic=True,
+        fit_context=context,
+        steps=1,
+        point_learning_rate=0,
+        color_learning_rate=0,
+        coverage_transform=coverage,
+        loss_transform=comparison,
+    )
+    assert seen == ["coverage", ("loss", 0)]
