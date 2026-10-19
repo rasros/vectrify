@@ -97,9 +97,6 @@ def settings_schema(action: str, name: str) -> dict[str, Any]:
             "shape and snap require a reference; simplify also works without one.",
             "region restricts changes to points inside the region.",
         ],
-        "path-fit": [
-            "Enable nodes, handles or color; geometry/paint permissions apply."
-        ],
         "cel": [
             "outline, line_width and strokes control line generation.",
             "regions=0 chooses a palette size automatically.",

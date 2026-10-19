@@ -7,7 +7,6 @@ from vectrify.operations.methods import (
     colours,
     edges,
     nodes,
-    path_fit,
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     "colours",
     "edges",
     "nodes",
-    "path_fit",
 ]

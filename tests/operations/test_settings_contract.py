@@ -18,7 +18,7 @@ from vectrify.operations import (
     contract,
     method,
 )
-from vectrify.operations.methods import nodes, path_fit
+from vectrify.operations.methods import nodes
 from vectrify.operations.settings import Setting, method_settings, settings_schema
 
 
@@ -123,22 +123,6 @@ def test_direct_edge_snap_call_accepts_raw_or_prepared_settings(monkeypatch):
     with pytest.raises(DocumentError, match="finite number"):
         chosen.validate(replace(operation, settings={"tolerance": True}))
     assert chosen.run(operation, RunContext()).recommended.changed
-
-
-def test_path_fit_keeps_budget_override_and_permission_errors():
-    chosen = method("improve", "path-fit")
-    operation = replace(request(editor(), geometry=True), budget=Budget(3))
-    prepared = chosen.prepare(operation)
-    assert path_fit.fit_options(prepared).steps == 3
-    assert path_fit.fit_options(operation).steps == 3
-    assert path_fit.fit_options(replace(operation, budget=Budget())).steps == 8
-    assert prepared.settings == {
-        key: setting.default for key, setting in chosen.settings_schema.items()
-    }
-    with pytest.raises(DocumentError, match="Allow geometry changes"):
-        path_fit.fit_options(replace(operation, permissions=Permissions()))
-    with pytest.raises(DocumentError, match="Allow paint changes"):
-        path_fit.fit_options(replace(operation, settings={"color": True}))
 
 
 def test_cel_auto_palette_is_prepared_before_job_reporting():

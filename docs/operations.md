@@ -46,10 +46,11 @@ shared gate in `RESOURCES` while it runs. The GPU gate is
 it can also be handed to worker processes; two GPU jobs never hold the device
 at once.
 
-Gradient fitting has one core, `refine.paths.fit_filled_svg`, which
-`improve/path-fit` wraps with exact compositing (clipping, group opacity and
-objects in front), pins and permissions. The same operation compares a
-bounded nearby-edge proposal, and scores opacity for transparent references.
+Gradient fitting has one core, `refine.paths.fit_filled_svg`, which Tidy's
+single-path fit (`refine.selected.fit_selected_path`) wraps with exact
+compositing (clipping, group opacity and objects in front) and pins. The same
+fit compares a bounded nearby-edge proposal, and scores opacity for
+transparent references.
 
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
 commands `start`, `status`, `stop`, `apply` and `discard`.
@@ -60,7 +61,6 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | --- | --- | --- |
 | generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU), each down the middle of its ink, in an ink it is darkened toward (judged by its darkness more than its hue, which blur and JPEG smear into the surface's), and stepping in width where the ink tapers (a blurred line's width counting the ink its blur spreads), thin lines in a grainy picture also found where they stand out of its grain along their length, with aligned ends joined across short gaps only when ink remains darker than both sides; dense irregular texture stays in smoothed colour regions, with solid outlines and directional hatching retained; flat regions within three RGB levels per channel share one compound filled path, keeping their contours and holes, and small marks of a clearly different colour, such as irises, kept as regions of their own; a reference's transparent parts (less than half opaque) are left empty, with no regions or lines over them and the regions' outlines along the transparency's edge; `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000; `outline` draws one unbroken stroke round the drawing's silhouette; `fit_colours` (on by default) colours each region with the least-squares flat fill under the drawn lines, as `improve/colours` would, after a region holding two clearly separate shades is split into them; `gradients` (on by default) gives a region whose colour clearly ramps a linear gradient |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
-| improve | `path-fit` | Edge-seeking and gradient fitting of one selected path's nodes, handles and colour (CUDA or CPU for fills and round strokes) |
 | improve | `nodes` | Fits selected paths with combined edge-seeking and gradient fitting, alongside Simplify |
 | improve | `colours` | Closed-form flat fills or linear gradients for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |

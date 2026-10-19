@@ -1,4 +1,4 @@
-"""Selected path fitting keeps editor scope, constraints, and revision safety."""
+"""The single-path fit keeps editor scope and constraints."""
 
 import io
 from dataclasses import replace
@@ -9,18 +9,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from tests.ui.helpers import reference, wait
 from vectrify.document import (
     DocumentError,
     Editor,
     Selection,
-    StaleRevisionError,
     import_svg,
 )
 from vectrify.refine.selected import (
     FitContext,
     FitOptions,
-    FitResult,
     fit_selected_path,
     validate_selection,
 )
@@ -34,14 +31,6 @@ SVG = """<svg width="64" height="64">
  d="M12 12 L40 12 L40 40 L12 40 Z M20 20 L25 20 L25 25 L20 25 Z"/></g>
 <rect id="front" x="30" y="25" width="30" height="10" fill="blue"/></svg>"""
 SELECTION = Selection(object_ids=frozenset({"a"}))
-
-
-@pytest.fixture(autouse=True)
-def fit_ready(monkeypatch):
-    """These tests stub the fit itself, so they need no PyTorch to pass the check."""
-    monkeypatch.setattr(
-        "vectrify.operations.methods.path_fit.fit_problem", lambda: None
-    )
 
 
 def target(svg=SVG):
@@ -94,7 +83,6 @@ def test_context_preserves_clipping_opacity_transform_and_front_objects(transpar
     [
         {"steps": 0},
         {"steps": 1001},
-        {"nodes": False, "handles": False, "color": False},
         {"displacement": float("nan")},
         {"resolution": 4096},
     ],
@@ -107,19 +95,14 @@ def test_invalid_fit_options(options):
 def test_fit_scope_locks_and_shared_dependencies():
     doc = import_svg(SVG)
     with pytest.raises(DocumentError, match="one path"):
-        validate_selection(doc, Selection(), FitOptions())
+        validate_selection(doc, Selection())
     editor = Editor(doc, selection=SELECTION)
     editor.set_locks("a", frozenset({"geometry"}))
     with pytest.raises(DocumentError, match="locked"):
-        validate_selection(editor.snapshot.document, SELECTION, FitOptions())
-    validate_selection(
-        editor.snapshot.document,
-        SELECTION,
-        FitOptions(nodes=False, handles=False, color=True),
-    )
+        validate_selection(editor.snapshot.document, SELECTION)
     linked = import_svg(SVG.replace("</svg>", '<use href="#a"/></svg>'))
     with pytest.raises(DocumentError, match="referenced"):
-        validate_selection(linked, SELECTION, FitOptions())
+        validate_selection(linked, SELECTION)
 
 
 def test_bulk_node_proposal_preserves_pins_and_undo():
@@ -135,133 +118,12 @@ def test_bulk_node_proposal_preserves_pins_and_undo():
     )
 
 
-def start_fit(session, **settings):
-    return session.operation(
-        {
-            "command": "start",
-            "action": "improve",
-            "method": "path-fit",
-            "epoch": session.epoch,
-            "revision": session.editor.snapshot.revision,
-            "permissions": {"paint": True},
-            "settings": {"nodes": False, "handles": False, "color": True, **settings},
-        }
-    )
-
-
-def test_job_apply_is_single_undoable_edit_and_rejects_stale_reference(monkeypatch):
-    result = FitResult("a", {}, "#bb0000", 0.2, 0.1, {}, 8, (64, 64))
-    monkeypatch.setattr(
-        "vectrify.operations.methods.path_fit.fit_selected_path",
-        lambda *_a, **_kw: result,
-    )
-    session = Session(import_svg(SVG), reference=reference(target()))
-    session.editor.select(SELECTION)
-    job = start_fit(session)
-    state = wait(session, job)
-    assert state["status"] == "ready", state
-    assert state["result"]["metrics"]["after"] == {"error": 0.1}
-    before = session.editor.snapshot.document
-    session.operation({"command": "apply", "job": job["id"]})
-    assert session.editor.undo_labels == ("Optimize path",)
-    assert session.editor.snapshot.document.element("a").get("fill") == "#bb0000"
-    session.editor.undo()
-    assert session.editor.snapshot.document == before
-    with pytest.raises(DocumentError, match="expired"):
-        session.operation({"command": "apply", "job": job["id"]})
-    fresh = start_fit(session)
-    assert wait(session, fresh)["status"] == "ready"
-    session.reference = reference(Image.new("RGB", (64, 64), "white"))
-    with pytest.raises(StaleRevisionError, match="reference"):
-        session.operation({"command": "apply", "job": fresh["id"]})
-
-
-def test_job_result_refuses_an_overlapping_edit(monkeypatch):
-    result = FitResult("a", {}, "#bb0000", 0.2, 0.1, {}, 8, (64, 64))
-    monkeypatch.setattr(
-        "vectrify.operations.methods.path_fit.fit_selected_path",
-        lambda *_a, **_kw: result,
-    )
-    session = Session(import_svg(SVG), reference=reference(target()))
-    session.editor.select(SELECTION)
-    job = start_fit(session)
-    wait(session, job)
-    with session.editor.transaction("Paint") as tx:
-        tx.set_attributes("a", {"fill": "#00ff00"})
-    with pytest.raises(DocumentError, match="conflicts"):
-        session.operation({"command": "apply", "job": job["id"]})
-    assert session.editor.snapshot.document.element("a").get("fill") == "#00ff00"
-
-
-def test_fit_permissions_are_checked_before_the_job_starts():
-    session = Session(import_svg(SVG), reference=reference(target()))
-    session.editor.select(SELECTION)
-    with pytest.raises(DocumentError, match="paint"):
-        session.operation(
-            {
-                "command": "start",
-                "action": "improve",
-                "method": "path-fit",
-                "epoch": session.epoch,
-                "revision": 0,
-                "settings": {"nodes": False, "handles": False, "color": True},
-            }
-        )
-    assert session.jobs == {}
-
-
-def test_job_cancel_does_not_change_document(monkeypatch):
-    from vectrify.operations import Job, OperationRequest, Permissions, method
-
-    session = Session(import_svg(SVG), reference=reference(target()))
-    session.editor.select(SELECTION)
-    job = Job(
-        method("improve", "path-fit"),
-        OperationRequest(
-            action="improve",
-            method="path-fit",
-            snapshot=session.editor.snapshot,
-            editor=session.editor,
-            permissions=Permissions(geometry=True, paint=True),
-            reference=target(),
-        ),
-    )
-    monkeypatch.setattr(
-        "vectrify.operations.methods.path_fit.fit_selected_path",
-        lambda *_a, **_kw: pytest.fail("Cancelled job should not fit"),
-    )
-    job.stop.set()
-    job.run()
-    assert job.state()["status"] == "cancelled"
-    assert session.editor.snapshot.revision == 0
-
-
 def require_gpu():
     torch = pytest.importorskip("torch")
     from vectrify.refine.cuda_renderer import available
 
     if not torch.cuda.is_available() or not available():
         pytest.skip("CUDA extension unavailable")
-
-
-def test_existing_fitter_improves_selected_fill_with_geometry_locked():
-    require_gpu()
-    doc = import_svg(SVG)
-    result = fit_selected_path(
-        doc,
-        SELECTION,
-        target(SVG.replace("#800000", "#dd0000")),
-        FitOptions(nodes=False, handles=False, color=True, steps=20, resolution=64),
-    )
-    assert result.after < result.before * 0.7
-    assert not result.values
-    editor = Editor(doc, selection=SELECTION)
-    with editor.transaction("Optimize path", selection=SELECTION) as tx:
-        result.write(tx)
-    assert editor.snapshot.document.geometries == doc.geometries
-    assert editor.snapshot.document.element("front") == doc.element("front")
-    editor.undo()
-    assert editor.snapshot.document == doc
 
 
 def test_gpu_fit_preserves_pins_holes_node_filter_and_displacement():
@@ -276,7 +138,7 @@ def test_gpu_fit_preserves_pins_holes_node_filter_and_displacement():
         doc,
         selection,
         target(SVG.replace("L40 12", "L42 12")),
-        FitOptions(color=False, steps=12, resolution=64, displacement=1),
+        FitOptions(steps=12, resolution=64, displacement=1),
     )
     assert node.id not in result.values
     assert set(result.values) <= {other.id}
@@ -285,7 +147,7 @@ def test_gpu_fit_preserves_pins_holes_node_filter_and_displacement():
         assert np.linalg.norm(np.array(values) - old) <= 1.00001
     editor = Editor(doc, selection=selection)
     with editor.transaction("Optimize path", selection=selection) as tx:
-        result.write(tx)
+        tx.update_nodes(result.object_id, result.values)
     assert len(editor.snapshot.document.geometry_for("a").subpaths) == 2
     assert result.after <= result.before
 
@@ -309,34 +171,6 @@ def test_stopping_returns_unchanged_or_better_candidate():
     )
     assert result.steps < 50
     assert result.after <= result.before
-
-
-@pytest.mark.parametrize("join", ["round", "miter"])
-def test_outlined_region_fits_fill_and_stroke_together(join):
-    if join == "miter":
-        require_gpu()
-    else:
-        pytest.importorskip("torch")
-    outlined = SVG.replace(
-        'fill="#800000"',
-        f'fill="#800000" stroke="#800000" stroke-width="3" stroke-linejoin="{join}"',
-    )
-    doc = import_svg(outlined)
-    result = fit_selected_path(
-        doc,
-        SELECTION,
-        target(outlined.replace("#800000", "#cc0000")),
-        FitOptions(nodes=False, handles=False, color=True, steps=12, resolution=64),
-    )
-    assert result.changed
-    assert result.after < result.before
-    assert result.fill == result.stroke
-    assert not result.values
-    editor = Editor(doc, selection=SELECTION)
-    with editor.transaction("Optimize path", selection=SELECTION) as tx:
-        result.write(tx)
-    fitted = editor.snapshot.document.element("a")
-    assert fitted.get("fill") == fitted.get("stroke") == result.fill
 
 
 def test_transparent_reference_is_composited_on_white():
@@ -363,13 +197,13 @@ def test_miter_geometry_fit_preserves_sharp_join_and_improves_reference_match():
         doc,
         SELECTION,
         target(svg.replace("M32 20", "M34 20")),
-        FitOptions(color=False, steps=12, resolution=64),
+        FitOptions(steps=12, resolution=64),
     )
     assert result.values
     assert result.after < result.before
     editor = Editor(doc, selection=SELECTION)
     with editor.transaction("Optimize path", selection=SELECTION) as tx:
-        result.write(tx)
+        tx.update_nodes(result.object_id, result.values)
     assert (
         editor.snapshot.document.element("a").attributes == doc.element("a").attributes
     )
@@ -422,7 +256,7 @@ def test_closed_contours_of_any_length_move(curves):
         import_svg(svg),
         SELECTION,
         target(svg.replace('id="a"', 'id="a" transform="translate(3 2)"')),
-        FitOptions(color=False, steps=20, resolution=64, displacement=4),
+        FitOptions(steps=20, resolution=64, displacement=4),
     )
     assert result.values
     assert result.after < result.before
@@ -446,10 +280,15 @@ def test_cpu_fit_moves_an_offset_fill_toward_the_reference(curves):
         import_svg(svg),
         SELECTION,
         target(svg.replace('id="a"', 'id="a" transform="translate(3 2)"')),
-        FitOptions(color=False, steps=20, resolution=64, displacement=4),
+        FitOptions(steps=20, resolution=64, displacement=4),
     )
     assert result.values
     assert result.after < result.before * 0.7
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_cpu_fit_accepts_unstroked_fills():
+    validate_selection(import_svg(SVG), SELECTION)
 
 
 @pytest.mark.usefixtures("cpu_only")
@@ -458,43 +297,7 @@ def test_cpu_fit_refuses_outlined_shapes_clearly():
         'fill="#800000"', 'fill="#800000" stroke="#800000" stroke-width="3"'
     )
     with pytest.raises(DocumentError, match="outlined shape needs an NVIDIA GPU"):
-        validate_selection(import_svg(outlined), SELECTION, FitOptions())
-
-
-@pytest.mark.usefixtures("cpu_only")
-def test_path_fit_accepts_unstroked_fills_without_a_gpu():
-    session = Session(import_svg(SVG), reference=reference(target()))
-    session.editor.select(SELECTION)
-
-    def check(checked):
-        """Whether path-fit would accept the request, without starting it."""
-        from vectrify.operations import method
-
-        chosen = method("improve", "path-fit")
-        payload = {
-            "permissions": {"geometry": True},
-            "settings": {"nodes": True, "handles": True, "color": False},
-        }
-        try:
-            chosen.validate(checked._request(chosen, payload))
-        except DocumentError as exc:
-            return {"ok": False, "error": str(exc)}
-        return {"ok": True}
-
-    assert check(session) == {"ok": True}
-    outlined = Session(
-        import_svg(
-            SVG.replace(
-                'fill="#800000"', 'fill="#800000" stroke="#800000" stroke-width="3"'
-            )
-        ),
-        reference=reference(target()),
-    )
-    outlined.editor.select(SELECTION)
-    assert check(outlined) == {
-        "ok": False,
-        "error": "Fitting an outlined shape needs an NVIDIA GPU",
-    }
+        validate_selection(import_svg(outlined), SELECTION)
 
 
 @pytest.mark.parametrize("curves", [4, 40])
@@ -586,38 +389,13 @@ def test_cpu_round_stroke_gradient_fits_open_contours_without_closing_them():
     assert result.after < result.before * 0.4
     ed = Editor(doc, selection=SELECTION)
     with ed.transaction("Fit path", selection=SELECTION) as tx:
-        result.write(tx)
+        tx.update_nodes(result.object_id, result.values)
     geometry = ed.snapshot.document.geometry_for("a")
     assert not geometry.subpaths[0].closed
     assert [n.id for n in geometry.subpaths[0].nodes] == [
         n.id for n in doc.geometry_for("a").subpaths[0].nodes
     ]
     assert ed.snapshot.document.element("a").attributes == doc.element("a").attributes
-
-
-@pytest.mark.usefixtures("cpu_only")
-def test_round_stroke_colour_fit_changes_stroke_without_creating_a_fill():
-    svg = (
-        '<svg width="64" height="64"><path id="a" fill="none" '
-        'stroke="#800000" stroke-width="3" stroke-linecap="round" '
-        'stroke-linejoin="round" d="M12 20 C24 12 36 12 48 20"/></svg>'
-    )
-    doc = import_svg(svg)
-    result = fit_selected_path(
-        doc,
-        SELECTION,
-        target(svg.replace("#800000", "#cc0000")),
-        FitOptions(nodes=False, handles=False, color=True, steps=20, resolution=64),
-    )
-    assert result.after < result.before
-    assert not result.values
-    assert result.fill is None
-    assert result.stroke is not None
-    ed = Editor(doc, selection=SELECTION)
-    with ed.transaction("Fit path", selection=SELECTION) as tx:
-        result.write(tx)
-    assert ed.snapshot.document.element("a").get("fill") == "none"
-    assert ed.snapshot.document.element("a").get("stroke") == result.stroke
 
 
 @pytest.mark.usefixtures("cpu_only")

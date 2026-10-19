@@ -6,7 +6,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
-from cairosvg.colors import color
 from PIL import Image
 
 from vectrify.refine.crossings import crossings
@@ -43,10 +42,7 @@ class CleanupPass:
         count = crossings(candidate)
         if count > self.bridge_crossings:
             return False
-        paint = color(self.retained.best.fill or self.context.style["fill"])[:3]
-        proposal = self.retained.evaluate(
-            candidate, np.array(paint), smoothing=self.smoothing
-        )
+        proposal = self.retained.evaluate(candidate, smoothing=self.smoothing)
         if not self.retained.consider_bridge(
             proposal, self.bridge_crossings, allow_error=allow_error
         ):
@@ -57,12 +53,7 @@ class CleanupPass:
         return True
 
     def run(self, stopped: Callable[[], bool], *, polish=False):
-        if not (
-            self.options.cleanup
-            and self.options.nodes
-            and self.options.handles
-            and not self.context.stroke_only
-        ):
+        if not (self.options.cleanup and not self.context.stroke_only):
             return
         from vectrify.refine.cleanup import cleaned
 

@@ -767,7 +767,7 @@ class Agent:
         """Discover a job's JSON settings schema, defaults, ranges and interactions.
 
         Use generate/cel, generate/colour-regions, improve/nodes (tidy),
-        improve/colours, improve/path-fit, snap/edges or simplify/cleanup.
+        improve/colours, snap/edges or simplify/cleanup.
         Unknown settings are refused before work.
         """
         from vectrify.operations.settings import settings_schema

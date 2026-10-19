@@ -90,12 +90,7 @@ class ExactObjective:
         # independent of the crop resolution and the fill's contrast.
         self.fairness_weight = 4 * contrast * perimeter / reference_area
         self.guide = None
-        if (
-            options.cleanup
-            and options.nodes
-            and options.handles
-            and not context.stroke_only
-        ):
+        if options.cleanup and not context.stroke_only:
             from vectrify.refine.edge_profiles import EdgeProfiles
 
             response = context.delta.copy()

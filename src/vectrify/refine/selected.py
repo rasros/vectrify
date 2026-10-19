@@ -32,9 +32,7 @@ from vectrify.document import (
     Selection,
     export_svg,
 )
-from vectrify.document.editor import Transaction
 from vectrify.document.join import path_style
-from vectrify.document.paint import hex_colour
 from vectrify.document.transforms import ancestry_matrix, root_matrix
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.svg_render import cached_rendering, render_image
@@ -46,9 +44,6 @@ HALVINGS = 2
 
 @dataclass(frozen=True)
 class FitOptions:
-    nodes: bool = True
-    handles: bool = True
-    color: bool = False
     steps: int = 8
     displacement: float = 2.0
     resolution: int = 768
@@ -61,13 +56,8 @@ class FitOptions:
     cleanup: bool = False
 
     def __post_init__(self):
-        if any(
-            type(v) is not bool
-            for v in (self.nodes, self.handles, self.color, self.snap, self.cleanup)
-        ):
+        if any(type(v) is not bool for v in (self.snap, self.cleanup)):
             raise DocumentError("Edit permissions must be on or off")
-        if not (self.nodes or self.handles or self.color):
-            raise DocumentError("Allow nodes, handles or fill color to change")
         if type(self.steps) is not int or not 1 <= self.steps <= 1000:
             raise DocumentError("Choose 1 to 1000 fitting steps")
         if type(self.resolution) is not int or not 64 <= self.resolution <= 2048:
@@ -82,29 +72,14 @@ class FitOptions:
 class FitResult:
     object_id: str
     values: dict[str, tuple[float, ...]]
-    fill: str | None
     before: float
     after: float
     previews: dict[str, str]
     steps: int
     size: tuple[int, int]
-    stroke: str | None = None
     # How many times the outline had crossed itself more than it started and
     # the fit pulled it back.
     folded: int = 0
-
-    @property
-    def changed(self) -> bool:
-        return bool(self.values or self.fill is not None or self.stroke is not None)
-
-    def write(self, tx: Transaction) -> None:
-        """Record the fitted values in *tx*; committing it applies them."""
-        if self.values:
-            tx.update_nodes(self.object_id, self.values)
-        if self.fill is not None:
-            tx.set_attributes(self.object_id, {"fill": self.fill})
-        if self.stroke is not None:
-            tx.set_attributes(self.object_id, {"stroke": self.stroke})
 
 
 @functools.cache
@@ -138,7 +113,7 @@ def fit_device() -> str:
     return "cuda" if gpu_problem() is None else "cpu"
 
 
-def validate_selection(document: Document, selection: Selection, options: FitOptions):
+def validate_selection(document: Document, selection: Selection):
     if len(selection.object_ids) != 1 or selection.whole_document:
         raise DocumentError("Select one path to optimize")
     oid = next(iter(selection.object_ids))
@@ -152,8 +127,6 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
     stroke_only = style["fill"] == "none"
     if stroke_only and style["stroke"] == "none":
         raise DocumentError("This editor path fitter currently requires a filled path")
-    if options.color and "url(" in style["fill"] + style["stroke"]:
-        raise DocumentError("Gradient fills are fitted with Fit colours")
     if stroke_only and (
         style["stroke-linejoin"] != "round" or style["stroke-linecap"] != "round"
     ):
@@ -187,20 +160,11 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
         raise DocumentError(
             "This path is referenced elsewhere; detach it before fitting"
         )
-    if (options.nodes or options.handles) and document.geometry_users(geometry.id) != {
-        oid
-    }:
+    if document.geometry_users(geometry.id) != {oid}:
         raise DocumentError("Detach shared geometry before fitting its nodes")
     for ancestor in ancestry:
-        if (options.nodes or options.handles) and "geometry" in ancestor.locks:
-            raise DocumentError("Geometry is locked; enable only fill color")
-        paint_locks = (
-            {"paint", "fill", "stroke"}
-            if style["stroke"] != "none"
-            else {"paint", "fill"}
-        )
-        if options.color and (paint_locks & ancestor.locks):
-            raise DocumentError("Fill color is locked")
+        if "geometry" in ancestor.locks:
+            raise DocumentError("Geometry is locked")
         clip = ancestor.get("clip-path")
         if (
             clip
@@ -224,9 +188,7 @@ class FitContext:
         target: Image.Image,
         options: FitOptions,
     ):
-        self.oid, self.geometry, self.style = validate_selection(
-            document, selection, options
-        )
+        self.oid, self.geometry, self.style = validate_selection(document, selection)
         self.stroke_only = self.style["fill"] == "none"
         self.document = document
         self.root = ET.fromstring(export_svg(document))
@@ -358,15 +320,9 @@ class FitContext:
         )
         return changes, geometry
 
-    def candidate(self, geometry: Geometry, rgb: np.ndarray, options: FitOptions):
+    def candidate(self, geometry: Geometry):
         self.path.set("d", geometry.path_data())
-        fill = hex_colour(rgb.tolist()) if options.color else None
-        if fill is not None:
-            if not self.stroke_only:
-                self.path.set("fill", fill)
-            if self.style["stroke"] != "none":
-                self.path.set("stroke", fill)
-        return fill, self.render()
+        return self.render()
 
 
 # Elements that draw what others refer to, or change how what is in them is
@@ -487,8 +443,8 @@ def fit_selected_path(
         ET.tostring(controls.work, encoding="unicode"),
         context.target,
         steps=options.steps,
-        point_learning_rate=0.25 if options.nodes or options.handles else 0,
-        color_learning_rate=0.01 if options.color else 0,
+        point_learning_rate=0.25,
+        color_learning_rate=0,
         # The Xing term only sees a cubic's own handles crossing. Observation
         # rolls back the neighbouring segment folds without penalizing handles.
         xing_weight=0,
@@ -507,12 +463,10 @@ def fit_selected_path(
     return FitResult(
         context.oid,
         best.values,
-        None if context.stroke_only else best.fill,
         retained.before,
         best.error,
         preview_urls(context.target, context.before_image, best.image),
         observer.completed,
         context.size,
-        stroke=best.fill if context.style["stroke"] != "none" else None,
         folded=observer.folded,
     )
