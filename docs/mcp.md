@@ -521,9 +521,8 @@ the agent reads them with `describe()` and never sets them.
 ### Job settings and diagnostics
 
 Call `settings_schema(action, method)` for the operation's JSON schema:
-`generate/cel`, `generate/colour-regions`, `generate/cel-planned`,
-`improve/nodes` (tidy), `improve/colours`, `improve/path-fit`, `snap/edges`
-and `simplify/cleanup`. The schema lists types, defaults, ranges, enums and
+`generate/cel`, `generate/colour-regions`, `improve/nodes` (tidy),
+`improve/colours`, `improve/path-fit`, `snap/edges` and `simplify/cleanup`. The schema lists types, defaults, ranges, enums and
 interactions, with `additionalProperties=false`. Existing settings dictionaries
 remain supported; unknown keys and invalid values are rejected before starting
 work. Defaults are reported as `effective_settings` in every job reply.
